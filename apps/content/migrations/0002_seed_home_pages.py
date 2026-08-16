@@ -29,7 +29,7 @@ def remove_home_pages(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("content", "0002_initial"),
+        ("content", "0001_initial"),
     ]
 
     operations = [

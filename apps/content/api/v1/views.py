@@ -7,7 +7,6 @@ from rest_framework.views import APIView
 
 from apps.content.api.v1.serializers import (
     AdvertisementSerializer,
-    CourseMaterialSerializer,
     EBookSerializer,
     HomeBannerSerializer,
     HomeCounterSerializer,
@@ -18,7 +17,6 @@ from apps.content.api.v1.serializers import (
 )
 from apps.content.models import (
     Advertisement,
-    CourseMaterial,
     EBook,
     Notice,
     NoticeCategory,
@@ -164,16 +162,6 @@ class AdminAdvertisementViewSet(AdminModelViewSet):
 class AdminEBookViewSet(AdminModelViewSet):
     queryset = EBook.objects.all()
     serializer_class = EBookSerializer
-
-
-class AdminCourseMaterialListAPIView(ListAPIView):
-    permission_classes = [IsAdminRole]
-    serializer_class = CourseMaterialSerializer
-    pagination_class = None
-    queryset = CourseMaterial.objects.all()
-
-    def list(self, request, *args, **kwargs):
-        return Response({'data': self.get_serializer(self.get_queryset(), many=True).data})
 
 
 class AdminPageListAPIView(ListAPIView):

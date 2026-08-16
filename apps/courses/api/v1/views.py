@@ -19,6 +19,7 @@ from apps.courses.api.v1.serializers import (
     ContentDetailSerializer,
     CourseCategorySerializer,
     CourseDetailSerializer,
+    CourseMaterialSerializer,
     CourseListSerializer,
     CoursePriceSerializer,
     CouponSerializer,
@@ -29,6 +30,7 @@ from apps.courses.api.v1.serializers import (
 )
 from apps.courses.models import (
     Content,
+    CourseMaterial,
     Course,
     CourseCategory,
     CoursePrice,
@@ -480,3 +482,13 @@ class AdminCourseUserImportAPIView(APIView):
             attached += 1
 
         return Response({'attached': attached, 'missing': missing})
+
+
+class AdminCourseMaterialListAPIView(ListAPIView):
+    permission_classes = [IsAdminRole]
+    serializer_class = CourseMaterialSerializer
+    pagination_class = None
+    queryset = CourseMaterial.objects.all()
+
+    def list(self, request, *args, **kwargs):
+        return Response({'data': self.get_serializer(self.get_queryset(), many=True).data})

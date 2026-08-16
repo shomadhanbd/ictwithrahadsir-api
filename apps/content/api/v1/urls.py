@@ -4,7 +4,6 @@ from django.urls import path
 
 from apps.content.api.v1.views import (
     AdminAdvertisementViewSet,
-    AdminCourseMaterialListAPIView,
     AdminEBookViewSet,
     AdminNoticeCategoryViewSet,
     AdminNoticeViewSet,
@@ -34,7 +33,6 @@ urlpatterns = [
     path('notice-categories/', PublicNoticeCategoryListAPIView.as_view(), name='notice_category_list'),
     path('pages/<slug:key>/', PublicPageDetailAPIView.as_view(), name='page_detail'),
     # Admin
-    path('admin/course-materials/', AdminCourseMaterialListAPIView.as_view(), name='admin_course_materials'),
     path('admin/pages/', AdminPageListAPIView.as_view(), name='admin_page_list'),
     path('admin/pages/<slug:slug>/', AdminPageUpdateAPIView.as_view(), name='admin_page_update'),
 ] + router.urls

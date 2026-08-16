@@ -7,7 +7,7 @@ from apps.identity.models import User
 from apps.core.api.fields import MediaField
 from apps.assessment.models import McqStore
 
-from apps.courses.models import Content, Course, CourseCategory, CoursePrice, CourseUser, Coupon, Instructor, Routine, Section
+from apps.courses.models import Content, Course, CourseCategory, CourseMaterial, CoursePrice, CourseUser, Coupon, Instructor, Routine, Section
 
 
 class CoursePriceSerializer(serializers.ModelSerializer):
@@ -579,3 +579,15 @@ class CourseUserSerializer(serializers.ModelSerializer):
             "created_at": obj.created_at,
             "updated_at": obj.updated_at,
         }
+
+
+class CourseMaterialSerializer(serializers.ModelSerializer):
+    file = MediaField(upload_to="material", required=False)
+    course_id = serializers.PrimaryKeyRelatedField(
+        source="course", queryset=Course.objects.all(), required=False, allow_null=True
+    )
+
+    class Meta:
+        model = CourseMaterial
+        fields = ["id", "title", "type", "course_id", "file", "created_at"]
+        read_only_fields = ["id", "created_at"]

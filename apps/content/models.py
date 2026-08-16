@@ -3,7 +3,6 @@ from django.db import models
 
 from apps.core.models import OrderedModel, TimestampModel
 from apps.core.slugs import ascii_slug
-from apps.courses.models import Course
 
 
 def unique_slugify(model, instance, base_text):
@@ -80,18 +79,6 @@ class EBook(TimestampModel):
     booking_link = models.URLField(null=True, blank=True)
     preview = models.URLField(null=True, blank=True)
     image = models.URLField(null=True, blank=True)
-
-    def __str__(self):
-        return self.title
-
-
-class CourseMaterial(TimestampModel):
-    title = models.CharField(max_length=255)
-    type = models.CharField(max_length=50, blank=True)
-    course = models.ForeignKey(
-        Course, on_delete=models.CASCADE, related_name="materials", null=True, blank=True
-    )
-    file = models.URLField(null=True, blank=True)
 
     def __str__(self):
         return self.title

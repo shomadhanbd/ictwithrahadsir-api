@@ -25,7 +25,6 @@ from django.utils import timezone
 
 from apps.content.models import (
     Advertisement,
-    CourseMaterial,
     EBook,
     Notice,
     NoticeCategory,
@@ -35,6 +34,7 @@ from apps.content.models import (
 from apps.support.models import ContactMessage
 from apps.courses.models import (
     Content,
+    CourseMaterial,
     Coupon,
     Course,
     CourseCategory,

@@ -375,3 +375,22 @@ class CourseUser(TimestampModel):
 
     def __str__(self):
         return f"{self.user} -> {self.course}"
+
+
+class CourseMaterial(TimestampModel):
+    """A supplementary file hung off a course.
+
+    Lived in `cms` despite being course-shaped; it duplicates what a
+    Content of type pdf/note models, minus the section tree and access
+    control.
+    """
+
+    title = models.CharField(max_length=255)
+    type = models.CharField(max_length=50, blank=True)
+    course = models.ForeignKey(
+        Course, on_delete=models.CASCADE, related_name="materials", null=True, blank=True
+    )
+    file = models.URLField(null=True, blank=True)
+
+    def __str__(self):
+        return self.title
