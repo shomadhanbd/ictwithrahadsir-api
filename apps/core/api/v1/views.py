@@ -1,5 +1,5 @@
-"""Cross-domain endpoints: the admin dashboard aggregates and the
-presigned-upload contract.
+"""Infrastructure endpoints: the presigned-upload contract and the SMS
+gateway balance.
 
 The upload endpoints implement the flow the admin panel already speaks:
 POST a desired object key, get back a URL; PUT the raw file bytes to that
@@ -17,8 +17,6 @@ from django.conf import settings
 from django.core import signing
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
-from django.db.models import Count, Sum
-from django.db.models.functions import TruncDay, TruncMonth
 from django.http import (
     FileResponse,
     HttpResponse,
@@ -39,122 +37,6 @@ from apps.core.api.v1.serializers import UploadUrlRequestSerializer
 
 SIGNING_SALT = 'core.media-upload'
 SIGNING_MAX_AGE = 15 * 60  # 15 minutes to complete the PUT
-
-
-# ---------------------------------------------------------------------------
-# Admin dashboard
-# ---------------------------------------------------------------------------
-
-
-def _month_start(now):
-    return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-
-
-def _year_start(now):
-    return now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
-
-
-class AdminDashboardAPIView(APIView):
-    """Headline counters for the admin panel's landing page."""
-
-    permission_classes = [IsAdminRole]
-
-    def get(self, request):
-        from apps.identity.models import User
-        from apps.courses.models import Course
-        from apps.billing.models import Order
-
-        now = timezone.now()
-        month_start = _month_start(now)
-        year_start = _year_start(now)
-
-        paid_orders = Order.objects.filter(status=Order.Status.PAID)
-
-        def income_since(since):
-            total = paid_orders.filter(created_at__gte=since).aggregate(total=Sum('amount'))
-            return total['total'] or 0
-
-        def orders_since(status, since):
-            return Order.objects.filter(status=status, created_at__gte=since).count()
-
-        def students_since(since):
-            return User.objects.filter(role=User.Role.STUDENT, date_joined__gte=since).count()
-
-        return Response(
-            {
-                'income': {
-                    'thisMonth': income_since(month_start),
-                    'thisYear': income_since(year_start),
-                    'lifeTime': paid_orders.aggregate(total=Sum('amount'))['total'] or 0,
-                },
-                'orders': {
-                    'completed': {
-                        'thisMonth': orders_since(Order.Status.PAID, month_start),
-                        'thisYear': orders_since(Order.Status.PAID, year_start),
-                    },
-                    'incomplete': {
-                        'thisMonth': orders_since(Order.Status.PENDING, month_start),
-                        'thisYear': orders_since(Order.Status.PENDING, year_start),
-                    },
-                },
-                'totalCounts': {
-                    'courses': Course.objects.filter(active=True).count(),
-                    'students': User.objects.filter(role=User.Role.STUDENT).count(),
-                },
-                'studentsRegistered': {
-                    'thisMonth': students_since(month_start),
-                    'thisYear': students_since(year_start),
-                },
-            }
-        )
-
-
-class AdminDashboardSalesOverviewAPIView(APIView):
-    """Paid-order counts per month for the last year."""
-
-    permission_classes = [IsAdminRole]
-
-    def get(self, request):
-        from apps.billing.models import Order
-
-        start = timezone.now().replace(day=1) - timezone.timedelta(days=365)
-        rows = (
-            Order.objects.filter(status=Order.Status.PAID, created_at__gte=start)
-            .annotate(month=TruncMonth('created_at'))
-            .values('month')
-            .annotate(count=Count('id'))
-            .order_by('month')
-        )
-        return Response(
-            {
-                'months': [row['month'].strftime('%Y-%m') for row in rows],
-                'courseSales': [row['count'] for row in rows],
-            }
-        )
-
-
-class AdminDashboardPaymentChartAPIView(APIView):
-    """Paid-order income per day for the last 30 days."""
-
-    permission_classes = [IsAdminRole]
-
-    def get(self, request):
-        from apps.billing.models import Order
-
-        start = timezone.now() - timezone.timedelta(days=30)
-        rows = (
-            Order.objects.filter(status=Order.Status.PAID, created_at__gte=start)
-            .annotate(day=TruncDay('created_at'))
-            .values('day')
-            .annotate(total=Sum('amount'))
-            .order_by('day')
-        )
-        return Response(
-            {
-                'allDays': [row['day'].strftime('%Y-%m-%d') for row in rows],
-                'income': [float(row['total'] or 0) for row in rows],
-            }
-        )
 
 
 class SmsBalanceAPIView(APIView):
