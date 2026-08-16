@@ -1,29 +1,30 @@
 """Guards the public URL surface against accidental drift.
 
-The API is a drop-in replacement for a legacy Laravel contract that both
-frontends call by literal path, so a refactor is only safe if it leaves
-every path exactly where it was.
+Both frontends call this API by literal path, so any change to the set of
+served URLs is a change they can see. The snapshot below makes that
+deliberate rather than incidental: it fails on any addition or removal, and
+is regenerated only when the change is intended.
 """
 
 from pathlib import Path
 
 from django.conf import settings
 from django.test import TestCase
-from django.urls import resolve
+from django.urls import Resolver404, resolve
 
 from apps.core.url_contract import SNAPSHOT_PATH, current_url_contract
 
 
-class LegacyAliasTests(TestCase):
-    """The flat paths are deprecated but must keep resolving until clients
-    have moved, so the backend can deploy ahead of them.
+class RetiredPathTests(TestCase):
+    """The original flat paths were carried for one release as deprecated
+    aliases and have now been removed.
 
-    Asserting the route resolves is enough here -- the behaviour behind each
-    one is covered by its own app's tests, and both paths reach the same
-    view.
+    Both halves matter: the old paths must be gone (so nothing quietly keeps
+    depending on them) and every replacement must resolve (so the removal
+    did not take a live route with it).
     """
 
-    #: (deprecated path, canonical replacement)
+    #: (retired path, canonical replacement)
     ALIASES = [
         ('/api/login', '/api/v1/auth/login/'),
         ('/api/register', '/api/v1/auth/register/'),
@@ -81,45 +82,27 @@ class LegacyAliasTests(TestCase):
         ('/api/admin/logout', '/api/v1/admin/auth/logout/'),
     ]
 
-    def test_every_deprecated_path_still_resolves(self):
-        for legacy, _ in self.ALIASES:
+    def test_every_retired_path_is_gone(self):
+        for legacy, canonical in self.ALIASES:
             with self.subTest(path=legacy):
-                self.assertIsNotNone(resolve(legacy), f'{legacy} no longer routes')
+                with self.assertRaises(
+                    Resolver404,
+                    msg=f'{legacy} still routes; it was replaced by {canonical}',
+                ):
+                    resolve(legacy)
 
-    def test_every_canonical_replacement_resolves(self):
+    def test_every_replacement_resolves(self):
         for legacy, canonical in self.ALIASES:
             with self.subTest(path=canonical):
                 self.assertIsNotNone(
                     resolve(canonical), f'{canonical} (replacing {legacy}) does not route'
                 )
 
-    def test_both_paths_share_an_implementation(self):
-        # Some aliases are the canonical view itself; the rest are thin
-        # subclasses that remap a method (the flat API had POST-only
-        # endpoints where the canonical one uses PATCH/DELETE). Either is
-        # fine -- what must not happen is the two drifting onto unrelated
-        # code, which would leave clients on the old path running something
-        # else entirely.
-        skip = {
-            # The flat API served the paper and its submission from one path,
-            # so its view genuinely combines two canonical ones.
-            '/api/exams/1',
-            # Distinct endpoints that happen to share a prefix.
-            '/api/admin/teacher',
-            '/api/cart/add-remove',
-        }
-        for legacy, canonical in self.ALIASES:
-            if legacy in skip:
-                continue
-            legacy_view = resolve(legacy).func.cls
-            canonical_view = resolve(canonical).func.cls
-            with self.subTest(path=legacy):
-                self.assertTrue(
-                    legacy_view is canonical_view
-                    or issubclass(legacy_view, canonical_view),
-                    f'{legacy} resolves to {legacy_view.__name__}, which is unrelated '
-                    f'to {canonical_view.__name__} behind {canonical}',
-                )
+    def test_the_stored_media_path_survived_the_removal(self):
+        # Deliberately never versioned or deprecated: this path is baked into
+        # absolute URLs already written into image and file columns, so
+        # retiring it would orphan every previously uploaded file.
+        self.assertIsNotNone(resolve('/api/media-upload/uploads/photo.png'))
 
 
 class UrlContractTests(TestCase):
