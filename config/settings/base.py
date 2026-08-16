@@ -1,16 +1,19 @@
 """
-Django settings for the ICT with Rahad Sir platform API.
+Settings shared by every environment.
 
 Configuration is environment-driven (12-factor style) so the same codebase
-runs unmodified in local dev, Docker, and any PaaS/VPS target.
+runs unmodified in local dev, Docker, and any PaaS/VPS target. Never import
+this module directly -- use `config.settings.local` or
+`config.settings.production`, which import everything from here and override
+only what actually differs.
 """
 
-from datetime import timedelta
 from pathlib import Path
 
 import environ
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+# config/settings/base.py -> config/settings -> config -> <project root>
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 env = environ.Env(
     DEBUG=(bool, False),
@@ -208,6 +211,58 @@ REST_FRAMEWORK = {
         "rest_framework.parsers.FormParser",
     ],
     "TEST_REQUEST_DEFAULT_FORMAT": "json",
+}
+
+# ---------------------------------------------------------------------------
+# Logging
+#
+# Created at import time so a fresh checkout never fails on a missing
+# directory. `*.log` is already gitignored.
+# ---------------------------------------------------------------------------
+
+LOGS_DIR = BASE_DIR / "logs"
+LOGS_DIR.mkdir(parents=True, exist_ok=True)
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "verbose": {
+            "format": "{asctime} {levelname} {name} {message}",
+            "style": "{",
+        },
+        "simple": {"format": "{levelname} {message}", "style": "{"},
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "simple",
+        },
+        "file": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": str(LOGS_DIR / "debug.log"),
+            "maxBytes": 25 * 1024 * 1024,
+            "backupCount": 5,
+            "formatter": "verbose",
+        },
+    },
+    "root": {"handlers": ["console", "file"], "level": "INFO"},
+    "loggers": {
+        # Routine 4xx are part of normal API life; without this every
+        # validation error would land in the log as a warning.
+        "django.request": {
+            "handlers": ["console", "file"],
+            "level": "ERROR",
+            "propagate": False,
+        },
+        # Per-request access lines are noise in a file that exists to hold
+        # application events.
+        "django.server": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+    },
 }
 
 # ---------------------------------------------------------------------------

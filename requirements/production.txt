@@ -1,0 +1,6 @@
+-r base.txt
+
+# WSGI server and the Postgres driver. Local dev falls back to SQLite,
+# so neither is needed to run the test suite or a dev server.
+gunicorn==26.0.0
+psycopg2-binary==2.9.12

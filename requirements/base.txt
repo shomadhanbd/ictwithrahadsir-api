@@ -1,3 +1,8 @@
+# Shared by every environment. Pinned exactly (==) on purpose.
+#
+# The S3 stack (boto3/botocore/s3transfer/django-storages/jmespath)
+# lives here rather than in production.txt because USE_S3 is a runtime
+# toggle that any environment may switch on.
 asgiref==3.12.1
 boto3==1.43.52
 botocore==1.43.52
@@ -11,13 +16,11 @@ django-filter==25.1
 django-storages==1.14.6
 djangorestframework==3.17.1
 et_xmlfile==2.0.0
-gunicorn==26.0.0
 idna==3.18
 jmespath==1.1.0
 openpyxl==3.1.5
 packaging==26.2
 pillow==12.3.0
-psycopg2-binary==2.9.12
 python-dateutil==2.9.0.post0
 requests==2.34.2
 s3transfer==0.19.1

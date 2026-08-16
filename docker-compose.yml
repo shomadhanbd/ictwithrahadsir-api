@@ -24,9 +24,13 @@ services:
     ports:
       - "8000:8000"
     environment:
+      DJANGO_SETTINGS_MODULE: config.settings.production
       DEBUG: "False"
       SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
       ALLOWED_HOSTS: ${ALLOWED_HOSTS:-*}
+      # Production settings force TLS redirects on; this compose file serves
+      # plain HTTP on :8000, so turn it off here.
+      SECURE_SSL_REDIRECT: "False"
       DATABASE_URL: postgres://ictwithrahadsir:ictwithrahadsir@db:5432/ictwithrahadsir
       CORS_ALLOW_ALL_ORIGINS: ${CORS_ALLOW_ALL_ORIGINS:-True}
       USE_S3: ${USE_S3:-False}

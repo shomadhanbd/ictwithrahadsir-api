@@ -1,0 +1,4 @@
+-r base.txt
+
+# No dev-only tooling yet. Add linters/test helpers here (never to
+# base.txt) so production images stay free of them.
