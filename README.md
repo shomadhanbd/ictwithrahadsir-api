@@ -52,6 +52,31 @@ or `instructor` user (`apps.core.api.permissions.IsAdminRole`). Everything else
 is public read / authenticated write per-resource, matching how the existing
 frontends already call the API.
 
+## Where this deviates from PROJECT_STRUCTURE.md
+
+`PROJECT_STRUCTURE.md` is a reusable blueprint from another project. This
+codebase follows it -- split settings, split requirements, per-app
+`api/v1/` packages, three-tier routing with `api:<app>:v1:<name>` reverse
+names, rotating file logging -- with these deliberate exceptions:
+
+| Blueprint | Here | Why |
+|---|---|---|
+| project package named after the project | `apps/` | project decision |
+| `/api/<app>/v1/…` URLs | `/api/v1/…`, resource-oriented | the API should not advertise which Django app owns what, so models can move between apps without breaking a client -- which is exactly what the re-decomposition then did |
+| `created_at` / `modified_at` | `created_at` / `updated_at` | exposed in serializers and read by both frontends |
+| `verbose_name=_()` on every field | omitted | ~260 fields, migrations in every app, no functional gain |
+| all endpoints as `APIView` | ~20 `ModelViewSet`s retained | router-generated CRUD; converting loses it for nothing |
+| `{'detail': …}` errors | `{message, errors}` | both frontends parse the Laravel-style envelope |
+
+Two guards exist because of the above and should not be worked around:
+
+- `apps/core/url_contract.txt` snapshots every served path.
+  `manage.py dump_url_contract` regenerates it, and should only be run when
+  a path change is intended.
+- `apps/core/test_response_shapes.py` pins response *bodies*, which the URL
+  contract does not cover. It lives in `core` because several of its
+  assertions span apps.
+
 ## Getting started (local dev, no external services)
 
 ```bash
