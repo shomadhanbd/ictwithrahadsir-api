@@ -24,7 +24,6 @@ from apps.courses.api.v1.serializers import (
     CoursePriceSerializer,
     CouponSerializer,
     CourseUserSerializer,
-    InstructorSerializer,
     RoutineSerializer,
     build_course_stats,
 )
@@ -36,7 +35,6 @@ from apps.courses.models import (
     CoursePrice,
     CourseUser,
     Coupon,
-    Instructor,
     Routine,
     Section,
 )
@@ -56,7 +54,7 @@ class CourseListContextMixin:
     aggregates the serializer computes itself.
     """
 
-    PREFETCH = ('categories', 'instructors', 'routines')
+    PREFETCH = ('categories', 'instructors__teacher', 'routines')
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
@@ -208,18 +206,6 @@ class AdminCourseCategoryViewSet(AdminModelViewSet):
             return qs.filter(category_id=category_id)
         if self.action == 'list':
             return qs.filter(category__isnull=True)
-        return qs
-
-
-class AdminInstructorViewSet(AdminModelViewSet):
-    queryset = Instructor.objects.all()
-    serializer_class = InstructorSerializer
-
-    def get_queryset(self):
-        qs = super().get_queryset()
-        course_id = self.request.query_params.get('course_id')
-        if course_id:
-            qs = qs.filter(course_id=course_id)
         return qs
 
 

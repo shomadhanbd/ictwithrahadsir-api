@@ -180,42 +180,6 @@ class Routine(TimestampModel):
         return self.title
 
 
-class Instructor(TimestampModel, OrderedModel):
-    """Per-course teacher assignment (with commission tracking) managed from
-    the admin panel's Instructor page. Also serialized on the public course
-    detail as `instructors[]`."""
-
-    class Type(models.TextChoices):
-        INSTRUCTOR = "instructor", "Instructor"
-        FOUNDER = "founder", "Founder"
-
-    course = models.ForeignKey(
-        Course, on_delete=models.CASCADE, related_name="instructors", null=True, blank=True
-    )
-    user = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="instructor_profiles",
-    )
-    name = models.CharField(max_length=150)
-    email = models.EmailField(blank=True)
-    phone = models.CharField(max_length=20, blank=True)
-    designation = models.CharField(max_length=150, blank=True)
-    description = models.TextField(blank=True)
-    institute = models.CharField(max_length=255, blank=True)
-    type = models.CharField(max_length=20, choices=Type.choices, default=Type.INSTRUCTOR)
-    commission = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
-    image = models.URLField(null=True, blank=True)
-
-    class Meta:
-        ordering = ["order", "-created_at"]
-
-    def __str__(self):
-        return self.name
-
-
 class Section(TimestampModel, OrderedModel):
     course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="sections")
     section = models.ForeignKey(

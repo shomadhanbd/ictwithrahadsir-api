@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Content, Course, CourseCategory, CoursePrice, CourseUser, Coupon, Instructor, Routine, Section, CourseMaterial
+from .models import Content, Course, CourseCategory, CoursePrice, CourseUser, Coupon, Routine, Section, CourseMaterial
 
 
 class SectionInline(admin.TabularInline):
@@ -50,12 +50,6 @@ class CouponAdmin(admin.ModelAdmin):
 @admin.register(Routine)
 class RoutineAdmin(admin.ModelAdmin):
     list_display = ["id", "title", "course"]
-
-
-@admin.register(Instructor)
-class InstructorAdmin(admin.ModelAdmin):
-    list_display = ["id", "name", "course", "type", "designation"]
-    list_filter = ["type"]
 
 
 @admin.register(CourseUser)

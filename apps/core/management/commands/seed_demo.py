@@ -40,14 +40,13 @@ from apps.courses.models import (
     CourseCategory,
     CoursePrice,
     CourseUser,
-    Instructor,
     Routine,
     Section,
 )
 from apps.assessment.models import Exam, ExamResult, McqQuestion, McqStore
 from apps.billing.models import Order, Payment
 from apps.store.models import CartItem, Product
-from apps.faculty.models import Teacher
+from apps.faculty.models import CourseInstructor, Teacher
 
 User = get_user_model()
 
@@ -427,7 +426,7 @@ class Command(BaseCommand):
         self.stdout.write("Removing existing demo rows...")
         for model in [
             Payment, Order, CartItem, ExamResult, CourseUser, Content, Section,
-            Routine, Coupon, CoursePrice, Instructor, Course, CourseCategory,
+            Routine, Coupon, CoursePrice, CourseInstructor, Course, CourseCategory,
             McqQuestion, McqStore, Product, CourseMaterial, ContactMessage,
             Notice, NoticeCategory, EBook, Advertisement, Testimonial, Teacher,
         ]:
@@ -660,16 +659,15 @@ class Command(BaseCommand):
 
     def _seed_course_extras(self, course, teachers, index):
         teacher = teachers[index % len(teachers)]
-        Instructor.objects.create(
+        # Link to the roster teacher rather than copying its fields; the
+        # model fills name/designation/description/image from it on save.
+        CourseInstructor.objects.create(
             course=course,
-            name=teacher.name,
-            designation=teacher.designation,
-            description=teacher.description,
+            teacher=teacher,
             institute="শমাধান কোচিং",
-            type=(Instructor.Type.FOUNDER if teacher.type == "founder"
-                  else Instructor.Type.INSTRUCTOR),
+            type=(CourseInstructor.Type.FOUNDER if teacher.type == "founder"
+                  else CourseInstructor.Type.INSTRUCTOR),
             commission=Decimal("25.00"),
-            image=teacher.image,
             email=f"instructor{index + 1}@shomadhan.local",
             phone=f"0171000{index + 1:04d}",
             order=0,

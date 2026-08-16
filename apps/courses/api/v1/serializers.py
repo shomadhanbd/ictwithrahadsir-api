@@ -6,9 +6,10 @@ from rest_framework import serializers
 from apps.identity.models import User
 from apps.core.api.fields import MediaField
 from apps.assessment import content_exam
+from apps.faculty.api.v1.serializers import PublicInstructorSerializer
 from apps.assessment.models import Exam, McqStore
 
-from apps.courses.models import Content, Course, CourseCategory, CourseMaterial, CoursePrice, CourseUser, Coupon, Instructor, Routine, Section
+from apps.courses.models import Content, Course, CourseCategory, CourseMaterial, CoursePrice, CourseUser, Coupon, Routine, Section
 
 
 class CoursePriceSerializer(serializers.ModelSerializer):
@@ -47,43 +48,6 @@ class RoutineSerializer(serializers.ModelSerializer):
         model = Routine
         fields = ["id", "course_id", "title", "link"]
         read_only_fields = ["id"]
-
-
-class InstructorSerializer(serializers.ModelSerializer):
-    image = MediaField(upload_to="instructor", required=False)
-    course_id = serializers.PrimaryKeyRelatedField(
-        source="course", queryset=Course.objects.all(), required=False, allow_null=True
-    )
-    user_id = serializers.PrimaryKeyRelatedField(
-        source="user", queryset=User.objects.all(), required=False, allow_null=True
-    )
-
-    class Meta:
-        model = Instructor
-        fields = [
-            "id",
-            "course_id",
-            "user_id",
-            "name",
-            "email",
-            "phone",
-            "designation",
-            "description",
-            "institute",
-            "type",
-            "order",
-            "commission",
-            "image",
-        ]
-        read_only_fields = ["id"]
-
-
-class PublicInstructorSerializer(serializers.ModelSerializer):
-    image = MediaField(required=False)
-
-    class Meta:
-        model = Instructor
-        fields = ["id", "name", "designation", "description", "type", "order", "image"]
 
 
 class CourseCategorySerializer(serializers.ModelSerializer):

@@ -84,7 +84,7 @@ class HomeAPIView(APIView):
 
         courses = list(
             Course.objects.filter(active=True, featured=True)
-            .prefetch_related('categories', 'instructors', 'routines')[:12]
+            .prefetch_related('categories', 'instructors__teacher', 'routines')[:12]
         )
         categories = CourseCategory.objects.filter(category__isnull=True)
 

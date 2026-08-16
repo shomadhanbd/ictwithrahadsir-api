@@ -13,7 +13,6 @@ from apps.courses.api.v1.views import (
     AdminCourseViewSet,
     AdminEnrollmentAPIView,
     AdminCouponViewSet,
-    AdminInstructorViewSet,
     AdminRoutineViewSet,
     AdminSectionViewSet,
     ContentDetailAPIView,
@@ -28,7 +27,6 @@ app_name = 'v1'
 
 router = SimpleRouter()
 router.register('admin/course-categories', AdminCourseCategoryViewSet, basename='admin-course-category')
-router.register('admin/instructors', AdminInstructorViewSet, basename='admin-instructor')
 router.register('admin/prices', AdminCoursePriceViewSet, basename='admin-price')
 router.register('admin/coupons', AdminCouponViewSet, basename='admin-coupon')
 router.register('admin/routines', AdminRoutineViewSet, basename='admin-routine')

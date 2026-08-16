@@ -23,9 +23,9 @@ from rest_framework.authtoken.models import Token
 
 from apps.identity.models import User
 from apps.content.models import Advertisement, Page, Testimonial
-from apps.courses.models import Content, Course, CourseCategory, Instructor, Section
+from apps.courses.models import Content, Course, CourseCategory, Section
 from apps.assessment.models import Exam, McqStore
-from apps.faculty.models import Teacher
+from apps.faculty.models import CourseInstructor, Teacher
 
 #: Exactly what `/api/v1/home/` returns, in order.
 HOME_KEYS = [
@@ -48,9 +48,15 @@ COURSE_LIST_KEYS = [
     'subscription_status', 'has_order', 'users_count',
 ]
 
+#: The original 13 keys in their original order, plus `teacher_id`
+#: appended. This is the one payload the faculty unification could not keep
+#: byte-identical: name/designation/description/image are writable here, and
+#: the assignment now points at a roster Teacher. Appending is safe -- both
+#: frontends read by key, and neither declares the response as exact.
 ADMIN_INSTRUCTOR_KEYS = [
     'id', 'course_id', 'user_id', 'name', 'email', 'phone', 'designation',
     'description', 'institute', 'type', 'order', 'commission', 'image',
+    'teacher_id',
 ]
 
 #: The ten flat exam fields the admin panel reads and writes on
@@ -101,10 +107,9 @@ class ResponseShapeTests(TestCase):
             type=Teacher.Type.FOUNDER,
             image='http://localhost:8000/media/seed/teacher-0.png',
         )
-        Instructor.objects.create(
-            course=self.course, name='Rahad Sir', designation='Founder',
-            description='Bio', type=Instructor.Type.FOUNDER,
-            image='http://localhost:8000/media/seed/teacher-0.png',
+        CourseInstructor.objects.create(
+            course=self.course, teacher=self.teacher,
+            type=CourseInstructor.Type.FOUNDER,
         )
 
         Testimonial.objects.create(name='Student', description='Great', ratings=5)
@@ -173,7 +178,7 @@ class ResponseShapeTests(TestCase):
     # -- admin -----------------------------------------------------------
 
     def test_admin_instructor_payload_shape(self):
-        body = self.client.get(reverse('api:courses:v1:admin-instructor-list'), **self.auth)
+        body = self.client.get(reverse('api:faculty:v1:admin-instructor-list'), **self.auth)
         self.assertEqual(list(body.json()['data'][0].keys()), ADMIN_INSTRUCTOR_KEYS)
 
     def test_admin_content_exposes_the_flat_exam_fields(self):
