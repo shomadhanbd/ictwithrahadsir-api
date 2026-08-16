@@ -3,7 +3,7 @@ from rest_framework import serializers
 from apps.accounts.api.v1.serializers import UserSerializer
 from apps.core.api.fields import MediaField
 
-from .models import ExamResult, McqQuestion, McqStore
+from apps.exams.models import ExamResult, McqQuestion, McqStore
 
 
 class McqStoreSerializer(serializers.ModelSerializer):

@@ -58,26 +58,13 @@ def public_course_detail(request, slug):
     return Response(CourseDetailSerializer(course, context={"request": request}).data)
 
 
-def _user_can_access_content(user, content: Content) -> bool:
-    if not content.paid:
-        return True
-    if not user or not user.is_authenticated:
-        return False
-    enrollment = CourseUser.objects.filter(course_id=content.course_id, user=user).first()
-    if not enrollment:
-        return False
-    if enrollment.valid_till and enrollment.valid_till < timezone.now():
-        return False
-    return True
-
-
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def content_detail(request, slug):
     content = Content.objects.filter(slug=slug, active=True).first()
     if not content:
         raise NotFound("Content not found.")
-    if not _user_can_access_content(request.user, content):
+    if not content.is_accessible_by(request.user):
         raise PermissionDenied("Not subscribed")
     return Response(ContentDetailSerializer(content, context={"request": request}).data)
 
@@ -88,7 +75,7 @@ def content_pdf(request, slug):
     content = Content.objects.filter(slug=slug, active=True).first()
     if not content or content.type != Content.Type.PDF:
         raise NotFound("PDF not found.")
-    if not _user_can_access_content(request.user, content):
+    if not content.is_accessible_by(request.user):
         raise PermissionDenied("Not subscribed")
     if not content.pdf_file:
         raise NotFound("PDF not found.")

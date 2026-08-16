@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 from apps.core.models import OrderedModel, TimestampModel
 from apps.core.slugs import ascii_slug
@@ -314,6 +315,26 @@ class Content(TimestampModel, OrderedModel):
         if not self.slug:
             self.slug = unique_slugify(self, self.title)
         super().save(*args, **kwargs)
+
+    def is_accessible_by(self, user) -> bool:
+        """Whether `user` may open this content.
+
+        Free content is open to everyone; paid content needs a current
+        enrolment on the owning course. Lives on the model rather than in
+        `courses` views because `exams` needs the same rule and used to
+        import a private helper out of another app's view module.
+        """
+        if not self.paid:
+            return True
+        if not user or not user.is_authenticated:
+            return False
+
+        enrollment = CourseUser.objects.filter(course_id=self.course_id, user=user).first()
+        if not enrollment:
+            return False
+        if enrollment.valid_till and enrollment.valid_till < timezone.now():
+            return False
+        return True
 
 
 class CourseUser(TimestampModel):

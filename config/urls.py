@@ -19,7 +19,7 @@ api_url_patterns = (
         path('', include('apps.accounts.api.urls')),
         path('', include('apps.team.api.urls')),
         path('', include('apps.courses.urls')),
-        path('', include('apps.exams.urls')),
+        path('', include('apps.exams.api.urls')),
         path('', include('apps.shop.urls')),
         path('', include('apps.cms.urls')),
     ],
