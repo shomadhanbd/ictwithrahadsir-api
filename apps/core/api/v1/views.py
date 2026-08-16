@@ -60,7 +60,7 @@ class AdminDashboardAPIView(APIView):
     permission_classes = [IsAdminRole]
 
     def get(self, request):
-        from apps.accounts.models import User
+        from apps.identity.models import User
         from apps.courses.models import Course
         from apps.shop.models import Order
 

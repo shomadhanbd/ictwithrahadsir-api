@@ -57,7 +57,7 @@ THIRD_PARTY_APPS = [
 
 LOCAL_APPS = [
     "apps.core",
-    "apps.accounts",
+    "apps.identity",
     "apps.team",
     "apps.courses",
     "apps.exams",
@@ -116,7 +116,7 @@ DATABASES = {"default": environ.Env.db_url_config(_database_url)}
 # Auth
 # ---------------------------------------------------------------------------
 
-AUTH_USER_MODEL = "accounts.User"
+AUTH_USER_MODEL = "identity.User"
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},

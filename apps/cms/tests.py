@@ -9,7 +9,7 @@ from django.urls import reverse
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APITestCase
 
-from apps.accounts.models import User
+from apps.identity.models import User
 from apps.cms.models import (
     Advertisement,
     ContactMessage,

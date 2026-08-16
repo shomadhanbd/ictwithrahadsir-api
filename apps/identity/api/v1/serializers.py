@@ -4,7 +4,7 @@ from rest_framework import serializers
 
 from apps.core.api.fields import MediaField
 
-from apps.accounts.models import OTP, User
+from apps.identity.models import OTP, User
 
 
 def check_password_strength(password, field="password"):

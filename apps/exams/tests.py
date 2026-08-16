@@ -11,7 +11,7 @@ from django.utils import timezone
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APITestCase
 
-from apps.accounts.models import User
+from apps.identity.models import User
 from apps.courses.models import Content, Course, CourseUser, Section
 from apps.exams.models import ExamResult, McqQuestion, McqStore
 

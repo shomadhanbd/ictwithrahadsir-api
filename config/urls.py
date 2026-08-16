@@ -25,7 +25,7 @@ from apps.core.api.v1.views import LocalMediaUploadView
 api_v1_patterns = (
     [
         path('', include('apps.core.api.urls')),
-        path('', include('apps.accounts.api.urls')),
+        path('', include('apps.identity.api.urls')),
         path('', include('apps.team.api.urls')),
         path('', include('apps.courses.api.urls')),
         path('', include('apps.exams.api.urls')),

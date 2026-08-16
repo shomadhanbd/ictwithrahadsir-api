@@ -1,4 +1,4 @@
-"""Contract tests for the accounts endpoints.
+"""Contract tests for the identity endpoints.
 
 Written to pin the exact request/response shapes both frontends already
 depend on (see the Laravel-compatible envelope in apps.core.api.exception_handler and
@@ -12,19 +12,19 @@ from django.utils import timezone
 from rest_framework.authtoken.models import Token
 from apps.core.testing import ThrottledAPITestCase
 
-from apps.accounts.models import OTP, User
+from apps.identity.models import OTP, User
 
-CHECK_PHONE_URL = reverse('api:accounts:v1:phone_check')
-GET_OTP_URL = reverse('api:accounts:v1:otp_request')
-VERIFY_OTP_URL = reverse('api:accounts:v1:otp_verify')
-REGISTER_URL = reverse('api:accounts:v1:user_register')
-LOGIN_URL = reverse('api:accounts:v1:user_login')
-FORGET_PASSWORD_URL = reverse('api:accounts:v1:password_forgot')
-PASSWORD_RESET_URL = reverse('api:accounts:v1:password_reset')
-LOGOUT_URL = reverse('api:accounts:v1:user_logout')
-ME_URL = reverse('api:accounts:v1:current_user')
-ADMIN_USER_URL = reverse('api:accounts:v1:admin-user-list')
-ADMIN_USER_SEARCH_URL = reverse('api:accounts:v1:admin_user_search')
+CHECK_PHONE_URL = reverse('api:identity:v1:phone_check')
+GET_OTP_URL = reverse('api:identity:v1:otp_request')
+VERIFY_OTP_URL = reverse('api:identity:v1:otp_verify')
+REGISTER_URL = reverse('api:identity:v1:user_register')
+LOGIN_URL = reverse('api:identity:v1:user_login')
+FORGET_PASSWORD_URL = reverse('api:identity:v1:password_forgot')
+PASSWORD_RESET_URL = reverse('api:identity:v1:password_reset')
+LOGOUT_URL = reverse('api:identity:v1:user_logout')
+ME_URL = reverse('api:identity:v1:current_user')
+ADMIN_USER_URL = reverse('api:identity:v1:admin-user-list')
+ADMIN_USER_SEARCH_URL = reverse('api:identity:v1:admin_user_search')
 
 
 def latest_code(phone):
@@ -523,7 +523,7 @@ class AdminRoleEscalationTests(ThrottledAPITestCase):
 
     def test_instructor_cannot_promote_themselves(self):
         response = self.client.patch(
-            reverse('api:accounts:v1:admin-user-detail', args=[self.instructor.pk]),
+            reverse('api:identity:v1:admin-user-detail', args=[self.instructor.pk]),
             {"role": "admin"},
             **self.auth,
         )
@@ -533,7 +533,7 @@ class AdminRoleEscalationTests(ThrottledAPITestCase):
 
     def test_instructor_cannot_reset_an_admins_password(self):
         response = self.client.patch(
-            reverse('api:accounts:v1:admin-user-detail', args=[self.admin.pk]),
+            reverse('api:identity:v1:admin-user-detail', args=[self.admin.pk]),
             {"password": "Tak30v3r!pass"},
             **self.auth,
         )

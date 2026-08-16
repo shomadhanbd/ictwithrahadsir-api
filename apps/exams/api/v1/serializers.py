@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from apps.accounts.api.v1.serializers import UserSerializer
+from apps.identity.api.v1.serializers import UserSerializer
 from apps.core.api.fields import MediaField
 
 from apps.exams.models import ExamResult, McqQuestion, McqStore

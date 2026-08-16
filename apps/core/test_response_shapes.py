@@ -21,7 +21,7 @@ from django.test import TestCase
 from django.urls import reverse
 from rest_framework.authtoken.models import Token
 
-from apps.accounts.models import User
+from apps.identity.models import User
 from apps.cms.models import Advertisement, Page, Testimonial
 from apps.courses.models import Content, Course, CourseCategory, Instructor, Section
 from apps.exams.models import McqStore

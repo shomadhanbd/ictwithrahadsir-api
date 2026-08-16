@@ -2,7 +2,7 @@
 
 Nothing in the project was throttled, so `/api/login` accepted password
 guesses as fast as they could be sent. The OTP endpoints have their own
-per-phone protections (attempt cap and resend cooldown in `apps.accounts`),
+per-phone protections (attempt cap and resend cooldown in `apps.identity`),
 but those do nothing against an attacker working through passwords.
 
 Two limits per endpoint rather than one: a burst limit stops the fast

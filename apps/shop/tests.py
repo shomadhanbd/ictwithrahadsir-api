@@ -7,7 +7,7 @@ from django.utils import timezone
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APITestCase
 
-from apps.accounts.models import User
+from apps.identity.models import User
 from apps.courses.models import Course, CoursePrice, CourseUser
 from apps.shop.models import CartItem, Order, Payment, Product
 

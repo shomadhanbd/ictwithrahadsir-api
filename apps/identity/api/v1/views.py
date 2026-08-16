@@ -18,8 +18,8 @@ from apps.core.api.throttling import (
 )
 from apps.core.api.viewsets import AdminModelViewSet
 
-from apps.accounts.models import OTP, User
-from apps.accounts.api.v1.serializers import (
+from apps.identity.models import OTP, User
+from apps.identity.api.v1.serializers import (
     AdminUserSerializer,
     UserLoginRequestSerializer,
     PasswordResetRequestSerializer,

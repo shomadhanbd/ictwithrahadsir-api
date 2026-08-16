@@ -2,7 +2,7 @@ from rest_framework.routers import SimpleRouter
 
 from django.urls import include, path
 
-from apps.accounts.api.v1.views import (
+from apps.identity.api.v1.views import (
     AdminUserImportAPIView,
     AdminUserSearchAPIView,
     AdminUserViewSet,

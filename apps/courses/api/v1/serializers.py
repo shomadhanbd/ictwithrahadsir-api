@@ -3,7 +3,7 @@ from django.db.models import Count
 from apps.courses import selectors as course_selectors
 from rest_framework import serializers
 
-from apps.accounts.models import User
+from apps.identity.models import User
 from apps.core.api.fields import MediaField
 from apps.exams.models import McqStore
 
