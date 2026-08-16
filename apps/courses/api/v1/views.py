@@ -23,7 +23,7 @@ from apps.courses.api.v1.serializers import (
     CourseListSerializer,
     CoursePriceSerializer,
     CouponSerializer,
-    CourseUserSerializer,
+    EnrollmentSerializer,
     RoutineSerializer,
     build_course_stats,
 )
@@ -33,7 +33,7 @@ from apps.courses.models import (
     Course,
     CourseCategory,
     CoursePrice,
-    CourseUser,
+    Enrollment,
     Coupon,
     Routine,
     Section,
@@ -158,7 +158,7 @@ class MyCourseListAPIView(CourseListContextMixin, ListAPIView):
     pagination_class = None
 
     def get_queryset(self):
-        course_ids = CourseUser.objects.filter(user=self.request.user).values_list(
+        course_ids = Enrollment.objects.filter(user=self.request.user).values_list(
             'course_id', flat=True
         )
         return Course.objects.filter(id__in=course_ids, active=True).prefetch_related(
@@ -312,11 +312,11 @@ class AdminContentToggleAPIView(APIView):
 
 class AdminCourseEnrolledUserListAPIView(ListAPIView):
     permission_classes = [IsAdminRole]
-    serializer_class = CourseUserSerializer
+    serializer_class = EnrollmentSerializer
     pagination_class = LaravelStylePageNumberPagination
 
     def get_queryset(self):
-        return CourseUser.objects.filter(course_id=self.kwargs['pk']).select_related('user')
+        return Enrollment.objects.filter(course_id=self.kwargs['pk']).select_related('user')
 
 
 class BaseCourseEnrollmentAPIView(APIView):
@@ -357,7 +357,7 @@ class AdminEnrollmentAPIView(BaseCourseEnrollmentAPIView):
         # The admin UI only sends `price_id` on attach -- validity and payment
         # type are derived from that price's own rule, not supplied by the caller.
         valid_till = None
-        payment_type = CourseUser.PaymentType.FREE
+        payment_type = Enrollment.PaymentType.FREE
 
         price_id = request.data.get('price_id')
         if price_id:
@@ -371,28 +371,28 @@ class AdminEnrollmentAPIView(BaseCourseEnrollmentAPIView):
                     {'price_id': ['This price does not belong to the selected course.']}
                 )
             payment_type = (
-                CourseUser.PaymentType.FREE
+                Enrollment.PaymentType.FREE
                 if price.amount == 0
-                else CourseUser.PaymentType.PAID
+                else Enrollment.PaymentType.PAID
             )
             if price.validity_type == CoursePrice.ValidityType.ABSOLUTE:
                 valid_till = price.validity_time
             elif price.validity_duration:
                 valid_till = timezone.now() + timezone.timedelta(days=price.validity_duration)
 
-        enrollment, _ = CourseUser.objects.update_or_create(
+        enrollment, _ = Enrollment.objects.update_or_create(
             course=course,
             user_id=user_id,
             defaults={'valid_till': valid_till, 'payment_type': payment_type},
         )
-        return Response(CourseUserSerializer(enrollment).data, status=status.HTTP_201_CREATED)
+        return Response(EnrollmentSerializer(enrollment).data, status=status.HTTP_201_CREATED)
 
 
     def patch(self, request):
         course = self.get_course(request.data)
         user_id = request.data.get('user_id')
         enrollment = (
-            CourseUser.objects.filter(course=course, user_id=user_id).first()
+            Enrollment.objects.filter(course=course, user_id=user_id).first()
             if course
             else None
         )
@@ -404,7 +404,7 @@ class AdminEnrollmentAPIView(BaseCourseEnrollmentAPIView):
         if 'payment_type' in request.data:
             enrollment.payment_type = request.data.get('payment_type')
         enrollment.save()
-        return Response(CourseUserSerializer(enrollment).data)
+        return Response(EnrollmentSerializer(enrollment).data)
 
 
     def delete(self, request):
@@ -413,7 +413,7 @@ class AdminEnrollmentAPIView(BaseCourseEnrollmentAPIView):
 
         deleted = 0
         if course:
-            deleted, _ = CourseUser.objects.filter(course=course, user_id=user_id).delete()
+            deleted, _ = Enrollment.objects.filter(course=course, user_id=user_id).delete()
         return Response({'ok': deleted > 0})
 
 
@@ -421,21 +421,21 @@ class AdminEnrollmentAPIView(BaseCourseEnrollmentAPIView):
 # endpoints. These keep those paths working without duplicating the logic.
 
 
-class AdminCourseUserAttachAPIView(AdminEnrollmentAPIView):
+class AdminEnrollmentAttachAPIView(AdminEnrollmentAPIView):
     pass
 
 
-class AdminCourseUserUpdateAPIView(AdminEnrollmentAPIView):
+class AdminEnrollmentUpdateAPIView(AdminEnrollmentAPIView):
     def post(self, request):
         return self.patch(request)
 
 
-class AdminCourseUserRemoveAPIView(AdminEnrollmentAPIView):
+class AdminEnrollmentRemoveAPIView(AdminEnrollmentAPIView):
     def post(self, request):
         return self.delete(request)
 
 
-class AdminCourseUserImportAPIView(APIView):
+class AdminEnrollmentImportAPIView(APIView):
     """Bulk-enrol existing students on a course from a spreadsheet of phones."""
 
     permission_classes = [IsAdminRole]
@@ -460,10 +460,10 @@ class AdminCourseUserImportAPIView(APIView):
                 missing += 1
                 continue
 
-            CourseUser.objects.update_or_create(
+            Enrollment.objects.update_or_create(
                 course_id=pk,
                 user=user,
-                defaults={'payment_type': CourseUser.PaymentType.FREE},
+                defaults={'payment_type': Enrollment.PaymentType.FREE},
             )
             attached += 1
 

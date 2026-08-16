@@ -9,7 +9,7 @@ from apps.courses.api.v1.views import (
     AdminCourseCategoryViewSet,
     AdminCourseEnrolledUserListAPIView,
     AdminCoursePriceViewSet,
-    AdminCourseUserImportAPIView,
+    AdminEnrollmentImportAPIView,
     AdminCourseViewSet,
     AdminEnrollmentAPIView,
     AdminCouponViewSet,
@@ -58,7 +58,7 @@ urlpatterns = [
     ),
     path(
         'admin/courses/<int:pk>/enrollments/import/',
-        AdminCourseUserImportAPIView.as_view(),
+        AdminEnrollmentImportAPIView.as_view(),
         name='admin_course_user_import',
     ),
     # One resource, a method per action: POST attaches, PATCH amends, DELETE

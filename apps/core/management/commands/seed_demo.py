@@ -39,11 +39,11 @@ from apps.courses.models import (
     Course,
     CourseCategory,
     CoursePrice,
-    CourseUser,
+    Enrollment,
     Routine,
     Section,
 )
-from apps.assessment.models import Exam, ExamResult, McqQuestion, McqStore
+from apps.assessment.models import Exam, ExamAttempt, Question, QuestionBank
 from apps.billing.models import Order, Payment
 from apps.store.models import CartItem, Product
 from apps.faculty.models import CourseInstructor, Teacher
@@ -404,16 +404,16 @@ class Command(BaseCommand):
             ("courses", Course.objects.count()),
             ("sections", Section.objects.count()),
             ("contents", Content.objects.count()),
-            ("mcq questions", McqQuestion.objects.count()),
+            ("mcq questions", Question.objects.count()),
             ("teachers", Teacher.objects.count()),
             ("testimonials", Testimonial.objects.count()),
             ("notices", Notice.objects.count()),
             ("products", Product.objects.count()),
             ("students", User.objects.filter(role=User.Role.STUDENT).count()),
-            ("enrollments", CourseUser.objects.count()),
+            ("enrollments", Enrollment.objects.count()),
             ("orders", Order.objects.count()),
             ("payments", Payment.objects.count()),
-            ("exam results", ExamResult.objects.count()),
+            ("exam results", ExamAttempt.objects.count()),
         ]:
             self.stdout.write(f"  {count:>5}  {label}")
         self.stdout.write(
@@ -425,9 +425,9 @@ class Command(BaseCommand):
     def _wipe(self):
         self.stdout.write("Removing existing demo rows...")
         for model in [
-            Payment, Order, CartItem, ExamResult, CourseUser, Content, Section,
+            Payment, Order, CartItem, ExamAttempt, Enrollment, Content, Section,
             Routine, Coupon, CoursePrice, CourseInstructor, Course, CourseCategory,
-            McqQuestion, McqStore, Product, CourseMaterial, ContactMessage,
+            Question, QuestionBank, Product, CourseMaterial, ContactMessage,
             Notice, NoticeCategory, EBook, Advertisement, Testimonial, Teacher,
         ]:
             model.objects.all().delete()
@@ -564,14 +564,14 @@ class Command(BaseCommand):
     # -- exams --------------------------------------------------------------
 
     def _seed_mcq_bank(self):
-        root, _ = McqStore.objects.get_or_create(title="আইসিটি প্রশ্নব্যাংক",
-                                                 mcq_store=None, defaults={"order": 0})
+        root, _ = QuestionBank.objects.get_or_create(title="আইসিটি প্রশ্নব্যাংক",
+                                                 parent=None, defaults={"order": 0})
         folders = ["সংখ্যা পদ্ধতি", "নেটওয়ার্কিং", "ওয়েব ডিজাইন", "সি প্রোগ্রামিং",
                    "ডেটাবেজ"]
         stores = []
         for index, title in enumerate(folders):
-            store, _ = McqStore.objects.get_or_create(
-                title=title, mcq_store=root, defaults={"order": index}
+            store, _ = QuestionBank.objects.get_or_create(
+                title=title, parent=root, defaults={"order": index}
             )
             stores.append(store)
 
@@ -579,8 +579,8 @@ class Command(BaseCommand):
         for index, row in enumerate(MCQ_BANK):
             question, a, b, c, d, answer, explanation = row
             store = stores[index % len(stores)]
-            McqQuestion.objects.get_or_create(
-                mcq_store=store,
+            Question.objects.get_or_create(
+                bank=store,
                 question=question,
                 defaults={"a": a, "b": b, "c": c, "d": d, "answer": answer,
                           "explanation": explanation, "source_subject": "আইসিটি",
@@ -825,9 +825,9 @@ class Command(BaseCommand):
     def _seed_enrollments(self, courses, students):
         for student in students:
             for course in self.rng.sample(courses, self.rng.randint(1, 3)):
-                CourseUser.objects.get_or_create(
+                Enrollment.objects.get_or_create(
                     course=course, user=student,
-                    defaults={"payment_type": CourseUser.PaymentType.PAID,
+                    defaults={"payment_type": Enrollment.PaymentType.PAID,
                               "valid_till": self.now + timedelta(days=365)},
                 )
         self.stdout.write("  enrollments")
@@ -902,7 +902,7 @@ class Command(BaseCommand):
             for student in self.rng.sample(students, 18):
                 positive = Decimal(self.rng.randint(6, 15))
                 negative = (Decimal(self.rng.randint(0, 4)) * Decimal("0.25"))
-                ExamResult.objects.get_or_create(
+                ExamAttempt.objects.get_or_create(
                     exam=exam, user=student,
                     defaults={
                         "marks": positive - negative,

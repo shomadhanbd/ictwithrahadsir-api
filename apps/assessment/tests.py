@@ -12,8 +12,8 @@ from rest_framework.authtoken.models import Token
 from rest_framework.test import APITestCase
 
 from apps.identity.models import User
-from apps.courses.models import Content, Course, CourseUser, Section
-from apps.assessment.models import Exam, ExamResult, McqQuestion, McqStore
+from apps.courses.models import Content, Course, Enrollment, Section
+from apps.assessment.models import Exam, ExamAttempt, Question, QuestionBank
 
 
 def exam_url(pk):
@@ -39,9 +39,9 @@ class ExamTestBase(APITestCase):
 
         self.course = Course.objects.create(title='ICT', slug='ict')
         self.section = Section.objects.create(course=self.course, title='Ch1', slug='ict-ch1')
-        self.store = McqStore.objects.create(title='Numbers')
-        self.question = McqQuestion.objects.create(
-            mcq_store=self.store, question='2 + 2?', a='3', b='4', c='5', d='6', answer='b'
+        self.store = QuestionBank.objects.create(title='Numbers')
+        self.question = Question.objects.create(
+            bank=self.store, question='2 + 2?', a='3', b='4', c='5', d='6', answer='b'
         )
         self.exam = Content.objects.create(
             course=self.course,
@@ -62,7 +62,7 @@ class ExamTestBase(APITestCase):
         )
 
     def enrol(self, user=None):
-        CourseUser.objects.create(
+        Enrollment.objects.create(
             course=self.course,
             user=user or self.student,
             valid_till=timezone.now() + timezone.timedelta(days=30),
@@ -95,7 +95,7 @@ class ExamAccessTests(ExamTestBase):
         self.assertEqual(self.client.get(exam_url(self.exam.pk), **self.auth).status_code, 200)
 
     def test_expired_enrolment_loses_access(self):
-        CourseUser.objects.create(
+        Enrollment.objects.create(
             course=self.course,
             user=self.student,
             valid_till=timezone.now() - timezone.timedelta(days=1),
@@ -139,14 +139,14 @@ class AnswerKeyExposureTests(ExamTestBase):
         self.assertEqual(question['b'], '4')
 
     def test_the_answer_key_is_returned_after_submitting(self):
-        ExamResult.objects.create(exam=self.exam_config, user=self.student, marks=Decimal('1'))
+        ExamAttempt.objects.create(exam=self.exam_config, user=self.student, marks=Decimal('1'))
 
         question = self.questions()[0]
         self.assertEqual(question['answer'], 'b')
         self.assertIn('explanation', question)
 
     def test_one_students_attempt_does_not_reveal_answers_to_another(self):
-        ExamResult.objects.create(exam=self.exam_config, user=self.student, marks=Decimal('1'))
+        ExamAttempt.objects.create(exam=self.exam_config, user=self.student, marks=Decimal('1'))
 
         classmate = User.objects.create_user(
             phone='01810100099', name='Classmate', password='Str0ngPass!23'
@@ -185,7 +185,7 @@ class ResultPublishTimeTests(ExamTestBase):
     def setUp(self):
         super().setUp()
         self.enrol()
-        ExamResult.objects.create(exam=self.exam_config, user=self.student, marks=Decimal('1'))
+        ExamAttempt.objects.create(exam=self.exam_config, user=self.student, marks=Decimal('1'))
 
     def embargo(self):
         self.exam_config.result_publish_time = timezone.now() + timezone.timedelta(days=1)
@@ -293,7 +293,7 @@ class ExamSubmissionTests(ExamTestBase):
     def test_an_exam_can_only_be_submitted_once(self):
         self.assertEqual(self.submit('b').status_code, 201)
         self.assertEqual(self.submit('b').status_code, 422)
-        self.assertEqual(ExamResult.objects.filter(exam=self.exam_config).count(), 1)
+        self.assertEqual(ExamAttempt.objects.filter(exam=self.exam_config).count(), 1)
 
     def test_sections_must_be_a_list(self):
         response = self.client.post(
@@ -303,7 +303,7 @@ class ExamSubmissionTests(ExamTestBase):
 
     def test_submitting_returns_the_stored_result(self):
         self.submit('b', duration=125)
-        result = ExamResult.objects.get(exam=self.exam_config, user=self.student)
+        result = ExamAttempt.objects.get(exam=self.exam_config, user=self.student)
         self.assertEqual(result.duration, 125)
         self.assertTrue(result.submitted)
 
@@ -315,10 +315,10 @@ class ExamRankingTests(ExamTestBase):
         self.rival = User.objects.create_user(
             phone='01810100002', name='Rival', password='Str0ngPass!23'
         )
-        ExamResult.objects.create(
+        ExamAttempt.objects.create(
             exam=self.exam_config, user=self.rival, marks=Decimal('9'), duration=100
         )
-        ExamResult.objects.create(
+        ExamAttempt.objects.create(
             exam=self.exam_config, user=self.student, marks=Decimal('5'), duration=100
         )
 
@@ -341,7 +341,7 @@ class ExamRankingTests(ExamTestBase):
         self.assertIsNone(body['user_result'])
 
 
-class AdminExamResultTests(ExamTestBase):
+class AdminExamAttemptTests(ExamTestBase):
     def setUp(self):
         super().setUp()
         admin = User.objects.create_user(
@@ -351,7 +351,7 @@ class AdminExamResultTests(ExamTestBase):
         self.admin_auth = {
             'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=admin).key}'
         }
-        ExamResult.objects.create(exam=self.exam_config, user=self.student, marks=Decimal('7'))
+        ExamAttempt.objects.create(exam=self.exam_config, user=self.student, marks=Decimal('7'))
 
     def test_students_are_refused(self):
         url = reverse('api:assessment:v1:admin_exam_results')
@@ -368,7 +368,7 @@ class AdminExamResultTests(ExamTestBase):
         self.assertEqual(body['meta']['total'], 0)
 
 
-class AdminMcqStoreTests(ExamTestBase):
+class AdminQuestionBankTests(ExamTestBase):
     def setUp(self):
         super().setUp()
         admin = User.objects.create_user(
@@ -378,7 +378,7 @@ class AdminMcqStoreTests(ExamTestBase):
         self.admin_auth = {
             'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=admin).key}'
         }
-        self.child = McqStore.objects.create(title='Binary', mcq_store=self.store)
+        self.child = QuestionBank.objects.create(title='Binary', parent=self.store)
 
     def test_list_returns_only_top_level_folders(self):
         url = reverse('api:assessment:v1:admin-mcq-store-list')

@@ -14,7 +14,7 @@ from rest_framework.views import APIView
 from apps.core.api.pagination import LaravelStylePageNumberPagination
 from apps.core.api.permissions import IsAdminRole
 from apps.core.api.viewsets import AdminModelViewSet
-from apps.courses.models import Course, CoursePrice, CourseUser
+from apps.courses.models import Course, CoursePrice, Enrollment
 from apps.courses.services import grant_course_access
 from apps.billing.api.v1.serializers import (
     AdminPaymentSerializer,
@@ -57,7 +57,7 @@ class FreeEnrollmentAPIView(APIView):
         # Enrolling is a courses operation; go through its service rather
         # than writing another app's table.
         grant_course_access(
-            user=request.user, course=course, payment_type=CourseUser.PaymentType.FREE
+            user=request.user, course=course, payment_type=Enrollment.PaymentType.FREE
         )
         return Response({'ok': True, 'course_id': course.id})
 
@@ -226,7 +226,7 @@ class AdminPaymentUpdateAPIView(APIView):
                 grant_course_access(
                     user=order.user,
                     course=order.course,
-                    payment_type=CourseUser.PaymentType.PAID,
+                    payment_type=Enrollment.PaymentType.PAID,
                 )
         elif status_value == Payment.Status.FAILED:
             order.status = Order.Status.FAILED

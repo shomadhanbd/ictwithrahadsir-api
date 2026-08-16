@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Content, Course, CourseCategory, CoursePrice, CourseUser, Coupon, Routine, Section, CourseMaterial
+from .models import Content, Course, CourseCategory, CoursePrice, Enrollment, Coupon, Routine, Section, CourseMaterial
 
 
 class SectionInline(admin.TabularInline):
@@ -52,8 +52,8 @@ class RoutineAdmin(admin.ModelAdmin):
     list_display = ["id", "title", "course"]
 
 
-@admin.register(CourseUser)
-class CourseUserAdmin(admin.ModelAdmin):
+@admin.register(Enrollment)
+class EnrollmentAdmin(admin.ModelAdmin):
     list_display = ["id", "course", "user", "payment_type", "valid_till"]
     list_filter = ["payment_type"]
 

@@ -15,7 +15,7 @@ from apps.courses.models import (
     Course,
     CourseCategory,
     CoursePrice,
-    CourseUser,
+    Enrollment,
     Section,
 )
 
@@ -186,11 +186,11 @@ class ContentAccessTests(APITestCase):
         self.assertEqual(self.client.get(self.url('ict-paid'), **self.auth).status_code, 403)
 
     def test_enrolment_opens_paid_content(self):
-        CourseUser.objects.create(course=self.course, user=self.student)
+        Enrollment.objects.create(course=self.course, user=self.student)
         self.assertEqual(self.client.get(self.url('ict-paid'), **self.auth).status_code, 200)
 
     def test_expired_enrolment_closes_paid_content(self):
-        CourseUser.objects.create(
+        Enrollment.objects.create(
             course=self.course, user=self.student,
             valid_till=timezone.now() - timezone.timedelta(days=1),
         )
@@ -210,7 +210,7 @@ class MyCoursesTests(APITestCase):
         }
         self.enrolled = Course.objects.create(title='Mine', slug='mine')
         Course.objects.create(title='Theirs', slug='theirs')
-        CourseUser.objects.create(course=self.enrolled, user=self.student)
+        Enrollment.objects.create(course=self.enrolled, user=self.student)
 
     def test_authentication_is_required(self):
         self.assertEqual(self.client.get(MY_COURSE_URL).status_code, 401)
@@ -246,7 +246,7 @@ class AdminEnrolmentTests(APITestCase):
             format='json', **self.auth,
         )
         self.assertEqual(response.status_code, 201)
-        self.assertTrue(CourseUser.objects.filter(course=self.course, user=self.student).exists())
+        self.assertTrue(Enrollment.objects.filter(course=self.course, user=self.student).exists())
 
     def test_attach_by_numeric_id(self):
         response = self.client.post(
@@ -261,8 +261,8 @@ class AdminEnrolmentTests(APITestCase):
             {'slugOrId': 'ict', 'user_id': self.student.pk, 'price_id': self.price.pk},
             format='json', **self.auth,
         )
-        enrolment = CourseUser.objects.get(course=self.course, user=self.student)
-        self.assertEqual(enrolment.payment_type, CourseUser.PaymentType.PAID)
+        enrolment = Enrollment.objects.get(course=self.course, user=self.student)
+        self.assertEqual(enrolment.payment_type, Enrollment.PaymentType.PAID)
         self.assertIsNotNone(enrolment.valid_till)
 
     def test_a_price_from_another_course_is_rejected(self):
@@ -291,7 +291,7 @@ class AdminEnrolmentTests(APITestCase):
         self.assertEqual(response.status_code, 422)
 
     def test_update_changes_payment_type(self):
-        CourseUser.objects.create(course=self.course, user=self.student)
+        Enrollment.objects.create(course=self.course, user=self.student)
         response = self.client.patch(
             ENROLLMENT_URL,
             {'slugOrId': 'ict', 'user_id': self.student.pk, 'payment_type': 'paid'},
@@ -299,7 +299,7 @@ class AdminEnrolmentTests(APITestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
-            CourseUser.objects.get(course=self.course, user=self.student).payment_type, 'paid'
+            Enrollment.objects.get(course=self.course, user=self.student).payment_type, 'paid'
         )
 
     def test_update_on_a_missing_enrolment_is_404(self):
@@ -310,13 +310,13 @@ class AdminEnrolmentTests(APITestCase):
         self.assertEqual(response.status_code, 404)
 
     def test_remove_deletes_the_enrolment(self):
-        CourseUser.objects.create(course=self.course, user=self.student)
+        Enrollment.objects.create(course=self.course, user=self.student)
         response = self.client.delete(
             ENROLLMENT_URL, {'slugOrId': 'ict', 'user_id': self.student.pk},
             format='json', **self.auth,
         )
         self.assertTrue(response.json()['ok'])
-        self.assertFalse(CourseUser.objects.exists())
+        self.assertFalse(Enrollment.objects.exists())
 
     def test_remove_reports_false_when_nothing_matched(self):
         response = self.client.delete(

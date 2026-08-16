@@ -3,7 +3,7 @@
 Granting access to a course is a `courses` concern, but it is triggered
 from several places -- an admin attaching a student, a bulk import, a free
 claim, and a confirmed payment over in `billing`. Those four sites each
-wrote `CourseUser` directly, which is how `billing` ended up reaching into
+wrote `Enrollment` directly, which is how `billing` ended up reaching into
 another app's tables.
 
 Routing them through here gives the write one owner and makes the
@@ -13,12 +13,12 @@ reverse.
 
 from django.utils import timezone
 
-from apps.courses.models import CoursePrice, CourseUser
+from apps.courses.models import CoursePrice, Enrollment
 
 
 def grant_course_access(*, user, course, payment_type, valid_till=None):
     """Enrol `user` on `course`, or update an existing enrolment."""
-    enrollment, _ = CourseUser.objects.update_or_create(
+    enrollment, _ = Enrollment.objects.update_or_create(
         course=course,
         user=user,
         defaults={'valid_till': valid_till, 'payment_type': payment_type},
@@ -33,9 +33,9 @@ def grant_from_price(*, user, course, price):
     a relative number of days -- so callers do not have to reimplement it.
     """
     payment_type = (
-        CourseUser.PaymentType.FREE
+        Enrollment.PaymentType.FREE
         if price is None or price.amount == 0
-        else CourseUser.PaymentType.PAID
+        else Enrollment.PaymentType.PAID
     )
 
     valid_till = None
@@ -52,5 +52,5 @@ def grant_from_price(*, user, course, price):
 
 def revoke_course_access(*, user_id, course) -> bool:
     """Remove an enrolment. Returns whether anything was removed."""
-    deleted, _ = CourseUser.objects.filter(course=course, user_id=user_id).delete()
+    deleted, _ = Enrollment.objects.filter(course=course, user_id=user_id).delete()
     return deleted > 0

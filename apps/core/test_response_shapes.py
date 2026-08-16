@@ -24,7 +24,7 @@ from rest_framework.authtoken.models import Token
 from apps.identity.models import User
 from apps.content.models import Advertisement, Page, Testimonial
 from apps.courses.models import Content, Course, CourseCategory, Section
-from apps.assessment.models import Exam, McqStore
+from apps.assessment.models import Exam, QuestionBank
 from apps.faculty.models import CourseInstructor, Teacher
 
 #: Exactly what `/api/v1/home/` returns, in order.
@@ -128,7 +128,7 @@ class ResponseShapeTests(TestCase):
         )
         Exam.objects.create(
             content=self.exam_content,
-            question_bank=McqStore.objects.create(title='Bank'),
+            question_bank=QuestionBank.objects.create(title='Bank'),
             total_marks=15, pass_marks=8,
             positive_marks=Decimal('1.00'),
             negative_marks=Decimal('0.25'),
@@ -218,9 +218,9 @@ class ResponseShapeTests(TestCase):
         student = User.objects.create_user(
             phone='01810900001', name='Student', password='Str0ngPass!23'
         )
-        from apps.courses.models import CourseUser
+        from apps.courses.models import Enrollment
 
-        CourseUser.objects.create(course=self.course, user=student)
+        Enrollment.objects.create(course=self.course, user=student)
         auth = {'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=student).key}'}
 
         url = reverse('api:assessment:v1:exam_detail', args=[self.exam_content.pk])

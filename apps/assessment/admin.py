@@ -1,22 +1,22 @@
 from django.contrib import admin
 
-from .models import Exam, ExamResult, McqQuestion, McqStore
+from .models import Exam, ExamAttempt, Question, QuestionBank
 
 
-@admin.register(McqStore)
-class McqStoreAdmin(admin.ModelAdmin):
-    list_display = ["id", "title", "mcq_store", "order"]
+@admin.register(QuestionBank)
+class QuestionBankAdmin(admin.ModelAdmin):
+    list_display = ["id", "title", "parent", "order"]
     search_fields = ["title"]
 
 
-@admin.register(McqQuestion)
-class McqQuestionAdmin(admin.ModelAdmin):
-    list_display = ["id", "mcq_store", "answer"]
-    list_filter = ["mcq_store"]
+@admin.register(Question)
+class QuestionAdmin(admin.ModelAdmin):
+    list_display = ["id", "bank", "answer"]
+    list_filter = ["bank"]
 
 
-@admin.register(ExamResult)
-class ExamResultAdmin(admin.ModelAdmin):
+@admin.register(ExamAttempt)
+class ExamAttemptAdmin(admin.ModelAdmin):
     list_display = ["id", "exam", "user", "marks", "duration"]
 
 

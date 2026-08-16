@@ -8,7 +8,7 @@ from rest_framework.authtoken.models import Token
 from rest_framework.test import APITestCase
 
 from apps.identity.models import User
-from apps.courses.models import Course, CoursePrice, CourseUser
+from apps.courses.models import Course, CoursePrice, Enrollment
 from apps.billing.models import Order, Payment
 from apps.store.models import Product
 
@@ -252,15 +252,15 @@ class AdminPaymentTests(ShopTestBase):
 
         self.order.refresh_from_db()
         self.assertEqual(self.order.status, Order.Status.PAID)
-        enrolment = CourseUser.objects.get(course=self.course, user=self.student)
-        self.assertEqual(enrolment.payment_type, CourseUser.PaymentType.PAID)
+        enrolment = Enrollment.objects.get(course=self.course, user=self.student)
+        self.assertEqual(enrolment.payment_type, Enrollment.PaymentType.PAID)
 
     def test_failing_a_payment_fails_the_order_without_enrolling(self):
         self.client.patch(self.url(), {'status': 'failed'}, format='json', **self.admin_auth)
 
         self.order.refresh_from_db()
         self.assertEqual(self.order.status, Order.Status.FAILED)
-        self.assertFalse(CourseUser.objects.exists())
+        self.assertFalse(Enrollment.objects.exists())
 
     def test_confirming_a_short_payment_is_refused(self):
         # New payments always carry the order's amount, but rows written
@@ -275,7 +275,7 @@ class AdminPaymentTests(ShopTestBase):
 
         self.order.refresh_from_db()
         self.assertNotEqual(self.order.status, Order.Status.PAID)
-        self.assertFalse(CourseUser.objects.exists())
+        self.assertFalse(Enrollment.objects.exists())
 
     def test_a_mismatch_can_be_confirmed_deliberately(self):
         Payment.objects.filter(pk=self.payment.pk).update(amount=Decimal('1'))
@@ -313,7 +313,7 @@ class FreeCoursePurchaseTests(ShopTestBase):
             FREE_PURCHASE_URL, {'course_id': self.course.pk}, format='json', **self.auth
         )
         self.assertEqual(response.status_code, 200)
-        self.assertTrue(CourseUser.objects.filter(course=self.course).exists())
+        self.assertTrue(Enrollment.objects.filter(course=self.course).exists())
 
     def test_a_zero_priced_course_can_be_claimed(self):
         CoursePrice.objects.create(
@@ -334,4 +334,4 @@ class FreeCoursePurchaseTests(ShopTestBase):
             FREE_PURCHASE_URL, {'course_id': self.course.pk}, format='json', **self.auth
         )
         self.assertEqual(response.status_code, 422)
-        self.assertFalse(CourseUser.objects.exists())
+        self.assertFalse(Enrollment.objects.exists())

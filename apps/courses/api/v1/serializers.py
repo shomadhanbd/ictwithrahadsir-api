@@ -7,9 +7,9 @@ from apps.identity.models import User
 from apps.core.api.fields import MediaField
 from apps.assessment import content_exam
 from apps.faculty.api.v1.serializers import PublicInstructorSerializer
-from apps.assessment.models import Exam, McqStore
+from apps.assessment.models import Exam, QuestionBank
 
-from apps.courses.models import Content, Course, CourseCategory, CourseMaterial, CoursePrice, CourseUser, Coupon, Routine, Section
+from apps.courses.models import Content, Course, CourseCategory, CourseMaterial, CoursePrice, Enrollment, Coupon, Routine, Section
 
 
 class CoursePriceSerializer(serializers.ModelSerializer):
@@ -171,9 +171,9 @@ class ContentDetailSerializer(serializers.ModelSerializer):
 
         result = None
         if request and request.user.is_authenticated and exam is not None:
-            from apps.assessment.models import ExamResult
+            from apps.assessment.models import ExamAttempt
 
-            result = ExamResult.objects.filter(exam=exam, user=request.user).first()
+            result = ExamAttempt.objects.filter(exam=exam, user=request.user).first()
 
         return {
             # Still the Content id: Exam uses it as its own primary key, so
@@ -213,7 +213,7 @@ class AdminContentSerializer(serializers.ModelSerializer):
     section_id = serializers.PrimaryKeyRelatedField(source="section", queryset=Section.objects.all())
 
     exam_store_id = serializers.PrimaryKeyRelatedField(
-        queryset=McqStore.objects.all(), required=False, allow_null=True
+        queryset=QuestionBank.objects.all(), required=False, allow_null=True
     )
     exam_mode = serializers.ChoiceField(
         choices=Exam.Mode.choices, required=False, default=Exam.Mode.EXAM
@@ -342,7 +342,7 @@ def build_course_stats(courses, request=None):
         prices[price.priceable_id].append(price)
 
     enrollment_counts = dict(
-        CourseUser.objects.filter(course_id__in=ids)
+        Enrollment.objects.filter(course_id__in=ids)
         .values_list('course_id')
         .annotate(total=Count('id'))
     )
@@ -351,7 +351,7 @@ def build_course_stats(courses, request=None):
     if request is not None and request.user.is_authenticated:
         enrollments = {
             e.course_id: e
-            for e in CourseUser.objects.filter(course_id__in=ids, user=request.user)
+            for e in Enrollment.objects.filter(course_id__in=ids, user=request.user)
         }
         # `has_order` is a billing fact. Asking through the selector keeps
         # this app from importing the one that already points at it.
@@ -583,8 +583,8 @@ class AdminSectionSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "slug"]
 
 
-class CourseUserSerializer(serializers.ModelSerializer):
-    """Matches the admin panel's real `CourseUser` shape, verified against
+class EnrollmentSerializer(serializers.ModelSerializer):
+    """Matches the admin panel's real `Enrollment` shape, verified against
     its own page source: a flat user record with the enrollment nested
     under `pivot` -- the inverse of the more obvious pivot-wraps-user
     shape, but that's what `app/(dashboard)/course/[id]/users/page.tsx`
@@ -598,7 +598,7 @@ class CourseUserSerializer(serializers.ModelSerializer):
     pivot = serializers.SerializerMethodField()
 
     class Meta:
-        model = CourseUser
+        model = Enrollment
         fields = ["id", "name", "email", "phone", "role", "pivot"]
 
     def get_pivot(self, obj):

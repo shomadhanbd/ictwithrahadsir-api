@@ -5,13 +5,13 @@ from django.utils import timezone
 from apps.core.models import OrderedModel, TimestampModel
 
 
-class McqStore(TimestampModel, OrderedModel):
+class QuestionBank(TimestampModel, OrderedModel):
     """A folder in the MCQ question bank; folders nest (subject > chapter >
     topic, etc.) and an exam Content links to one folder as its question
     source."""
 
     title = models.CharField(max_length=255)
-    mcq_store = models.ForeignKey(
+    parent = models.ForeignKey(
         "self", null=True, blank=True, on_delete=models.CASCADE, related_name="children"
     )
 
@@ -26,13 +26,13 @@ class McqStore(TimestampModel, OrderedModel):
         ids = [self.id]
         frontier = [self.id]
         while frontier:
-            child_ids = list(McqStore.objects.filter(mcq_store_id__in=frontier).values_list("id", flat=True))
+            child_ids = list(QuestionBank.objects.filter(parent_id__in=frontier).values_list("id", flat=True))
             ids.extend(child_ids)
             frontier = child_ids
-        return McqQuestion.objects.filter(mcq_store_id__in=ids)
+        return Question.objects.filter(bank_id__in=ids)
 
 
-class McqQuestion(TimestampModel):
+class Question(TimestampModel):
     class Answer(models.TextChoices):
         A = "a", "A"
         B = "b", "B"
@@ -40,7 +40,7 @@ class McqQuestion(TimestampModel):
         D = "d", "D"
         E = "e", "E"
 
-    mcq_store = models.ForeignKey(McqStore, on_delete=models.CASCADE, related_name="questions")
+    bank = models.ForeignKey(QuestionBank, on_delete=models.CASCADE, related_name="questions")
     question = models.TextField()
     question_image = models.URLField(null=True, blank=True)
     a = models.TextField(null=True, blank=True)
@@ -93,7 +93,7 @@ class Exam(TimestampModel):
         related_name="exam",
     )
     question_bank = models.ForeignKey(
-        McqStore, on_delete=models.SET_NULL, null=True, blank=True, related_name="exams"
+        QuestionBank, on_delete=models.SET_NULL, null=True, blank=True, related_name="exams"
     )
     mode = models.CharField(max_length=20, choices=Mode.choices, default=Mode.EXAM)
     total_marks = models.PositiveIntegerField(null=True, blank=True)
@@ -124,7 +124,7 @@ class Exam(TimestampModel):
         return timezone.now() >= self.result_publish_time
 
 
-class ExamResult(TimestampModel):
+class ExamAttempt(TimestampModel):
     exam = models.ForeignKey(
         Exam, on_delete=models.CASCADE, related_name="attempts"
     )

@@ -3,9 +3,9 @@ from rest_framework.routers import SimpleRouter
 from django.urls import path
 
 from apps.assessment.api.v1.views import (
-    AdminExamResultListAPIView,
-    AdminMcqQuestionViewSet,
-    AdminMcqStoreViewSet,
+    AdminExamAttemptListAPIView,
+    AdminQuestionViewSet,
+    AdminQuestionBankViewSet,
     ExamDetailAPIView,
     ExamRankingAPIView,
     ExamSubmissionAPIView,
@@ -16,8 +16,8 @@ app_name = 'v1'
 router = SimpleRouter()
 # `mcq-store` said nothing about what it holds; these are folders of
 # questions, and `mcq` alone was the question itself.
-router.register('admin/mcq-folders', AdminMcqStoreViewSet, basename='admin-mcq-store')
-router.register('admin/mcq-questions', AdminMcqQuestionViewSet, basename='admin-mcq')
+router.register('admin/mcq-folders', AdminQuestionBankViewSet, basename='admin-mcq-store')
+router.register('admin/mcq-questions', AdminQuestionViewSet, basename='admin-mcq')
 
 urlpatterns = [
     path('exams/<int:pk>/', ExamDetailAPIView.as_view(), name='exam_detail'),
@@ -27,5 +27,5 @@ urlpatterns = [
     # The ranking belongs to the exam; `ranking/<id>` hid that the id was a
     # content id at all.
     path('exams/<int:pk>/ranking/', ExamRankingAPIView.as_view(), name='exam_ranking'),
-    path('admin/exam-results/', AdminExamResultListAPIView.as_view(), name='admin_exam_results'),
+    path('admin/exam-results/', AdminExamAttemptListAPIView.as_view(), name='admin_exam_results'),
 ] + router.urls

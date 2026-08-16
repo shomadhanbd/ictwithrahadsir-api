@@ -270,7 +270,7 @@ class Content(TimestampModel, OrderedModel):
         if not user or not user.is_authenticated:
             return False
 
-        enrollment = CourseUser.objects.filter(course_id=self.course_id, user=user).first()
+        enrollment = Enrollment.objects.filter(course_id=self.course_id, user=user).first()
         if not enrollment:
             return False
         if enrollment.valid_till and enrollment.valid_till < timezone.now():
@@ -278,7 +278,7 @@ class Content(TimestampModel, OrderedModel):
         return True
 
 
-class CourseUser(TimestampModel):
+class Enrollment(TimestampModel):
     """Enrollment pivot -- who has access to which course, until when, and
     how they got it."""
 

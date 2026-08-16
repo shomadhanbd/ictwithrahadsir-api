@@ -3,27 +3,29 @@ from rest_framework import serializers
 from apps.identity.api.v1.serializers import UserSerializer
 from apps.core.api.fields import MediaField
 
-from apps.assessment.models import ExamResult, McqQuestion, McqStore
+from apps.assessment.models import ExamAttempt, Question, QuestionBank
 
 
-class McqStoreSerializer(serializers.ModelSerializer):
+class QuestionBankSerializer(serializers.ModelSerializer):
     mcq_store_id = serializers.PrimaryKeyRelatedField(
-        source="mcq_store", queryset=McqStore.objects.all(), required=False, allow_null=True
+        source="parent", queryset=QuestionBank.objects.all(), required=False, allow_null=True
     )
 
     class Meta:
-        model = McqStore
+        model = QuestionBank
         fields = ["id", "title", "mcq_store_id", "order"]
         read_only_fields = ["id"]
 
 
-class McqQuestionSerializer(serializers.ModelSerializer):
+class QuestionSerializer(serializers.ModelSerializer):
     question_image = MediaField(upload_to="mcq", required=False)
     answer_image = MediaField(upload_to="mcq", required=False)
-    mcq_store_id = serializers.PrimaryKeyRelatedField(source="mcq_store", queryset=McqStore.objects.all())
+    # The admin panel sends `mcq_store_id`; only the model field behind
+    # it was renamed.
+    mcq_store_id = serializers.PrimaryKeyRelatedField(source="bank", queryset=QuestionBank.objects.all())
 
     class Meta:
-        model = McqQuestion
+        model = Question
         fields = [
             "id",
             "mcq_store_id",
@@ -73,7 +75,7 @@ class ExamMcqSerializer(serializers.ModelSerializer):
         return data
 
     class Meta:
-        model = McqQuestion
+        model = Question
         fields = [
             "id",
             "question",
@@ -100,12 +102,12 @@ class ExamMcqSerializer(serializers.ModelSerializer):
         }
 
 
-class ExamResultSerializer(serializers.ModelSerializer):
+class ExamAttemptSerializer(serializers.ModelSerializer):
     exam_id = serializers.PrimaryKeyRelatedField(source="exam", read_only=True)
     user_id = serializers.PrimaryKeyRelatedField(source="user", read_only=True)
 
     class Meta:
-        model = ExamResult
+        model = ExamAttempt
         fields = [
             "id",
             "exam_id",
@@ -122,13 +124,13 @@ class ExamResultSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_at"]
 
 
-class AdminExamResultSerializer(serializers.ModelSerializer):
+class AdminExamAttemptSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
     exam_id = serializers.PrimaryKeyRelatedField(source="exam", read_only=True)
     exam_title = serializers.CharField(source="exam.content.title", read_only=True)
 
     class Meta:
-        model = ExamResult
+        model = ExamAttempt
         fields = [
             "id",
             "exam_id",
@@ -144,7 +146,7 @@ class AdminExamResultSerializer(serializers.ModelSerializer):
 
 class RankEntrySerializer(serializers.ModelSerializer):
     class Meta:
-        model = ExamResult
+        model = ExamAttempt
         fields = ["id", "user", "duration", "marks"]
 
     user = serializers.SerializerMethodField()

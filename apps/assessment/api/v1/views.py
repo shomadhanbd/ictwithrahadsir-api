@@ -13,13 +13,13 @@ from apps.core.api.permissions import IsAdminRole
 from apps.core.api.viewsets import AdminModelViewSet
 from apps.courses.models import Content
 from apps.assessment.api.v1.serializers import (
-    AdminExamResultSerializer,
+    AdminExamAttemptSerializer,
     ExamMcqSerializer,
-    McqQuestionSerializer,
-    McqStoreSerializer,
+    QuestionSerializer,
+    QuestionBankSerializer,
     RankEntrySerializer,
 )
-from apps.assessment.models import Exam, ExamResult, McqQuestion, McqStore
+from apps.assessment.models import Exam, ExamAttempt, Question, QuestionBank
 
 
 def result_payload(result):
@@ -76,9 +76,9 @@ class ExamDetailAPIView(BaseExamAPIView):
         questions = (
             exam.question_bank.all_questions()
             if exam.question_bank
-            else McqQuestion.objects.none()
+            else Question.objects.none()
         )
-        result = ExamResult.objects.filter(exam=exam, user=request.user).first()
+        result = ExamAttempt.objects.filter(exam=exam, user=request.user).first()
 
         # The answer key is part of the review paper, not the exam paper: it
         # goes out only once this user has an attempt on record, and not
@@ -134,7 +134,7 @@ class ExamSubmissionAPIView(BaseExamAPIView):
         content = exam.content
         if not content.is_accessible_by(request.user):
             raise PermissionDenied('Not subscribed')
-        if ExamResult.objects.filter(exam=exam, user=request.user).exists():
+        if ExamAttempt.objects.filter(exam=exam, user=request.user).exists():
             raise ValidationError({'exam': ['You have already submitted this exam.']})
 
         sections = request.data.get('sections', [])
@@ -145,7 +145,7 @@ class ExamSubmissionAPIView(BaseExamAPIView):
         negative = exam.negative_marks or Decimal('0')
         marks = self._score(sections, positive, negative)
 
-        result = ExamResult.objects.create(
+        result = ExamAttempt.objects.create(
             exam=exam,
             user=request.user,
             marks=marks,
@@ -161,7 +161,7 @@ class ExamSubmissionAPIView(BaseExamAPIView):
         total = Decimal('0')
         for section in sections:
             for answer in section.get('answers', []):
-                mcq = McqQuestion.objects.filter(pk=answer.get('mcq_id')).first()
+                mcq = Question.objects.filter(pk=answer.get('mcq_id')).first()
                 user_answer = (answer.get('user_answer') or '').strip().lower()
                 if not mcq or not user_answer:
                     continue
@@ -182,7 +182,7 @@ class ExamRankingAPIView(BaseExamAPIView):
     def get(self, request, pk):
         exam = self.get_exam(pk)
         results = (
-            ExamResult.objects.filter(exam=exam)
+            ExamAttempt.objects.filter(exam=exam)
             .select_related('user')
             .order_by('-marks', 'duration')
         )
@@ -219,40 +219,40 @@ class ExamRankingAPIView(BaseExamAPIView):
 # ---------------------------------------------------------------------------
 
 
-class AdminMcqStoreViewSet(AdminModelViewSet):
-    queryset = McqStore.objects.all()
-    serializer_class = McqStoreSerializer
+class AdminQuestionBankViewSet(AdminModelViewSet):
+    queryset = QuestionBank.objects.all()
+    serializer_class = QuestionBankSerializer
 
     def get_queryset(self):
         qs = super().get_queryset()
         mcq_store_id = self.request.query_params.get('mcq_store_id')
         if mcq_store_id:
-            return qs.filter(mcq_store_id=mcq_store_id)
+            return qs.filter(parent_id=mcq_store_id)
         if self.action == 'list':
             # Top level only, so the admin panel can lazily expand the tree.
-            return qs.filter(mcq_store__isnull=True)
+            return qs.filter(parent__isnull=True)
         return qs
 
 
-class AdminMcqQuestionViewSet(AdminModelViewSet):
-    queryset = McqQuestion.objects.all()
-    serializer_class = McqQuestionSerializer
+class AdminQuestionViewSet(AdminModelViewSet):
+    queryset = Question.objects.all()
+    serializer_class = QuestionSerializer
 
     def get_queryset(self):
         qs = super().get_queryset()
         mcq_store_id = self.request.query_params.get('mcq_store_id')
         if mcq_store_id:
-            qs = qs.filter(mcq_store_id=mcq_store_id)
+            qs = qs.filter(bank_id=mcq_store_id)
         return qs
 
 
-class AdminExamResultListAPIView(ListAPIView):
+class AdminExamAttemptListAPIView(ListAPIView):
     permission_classes = [IsAdminRole]
-    serializer_class = AdminExamResultSerializer
+    serializer_class = AdminExamAttemptSerializer
     pagination_class = LaravelStylePageNumberPagination
 
     def get_queryset(self):
-        qs = ExamResult.objects.select_related('user', 'exam__content')
+        qs = ExamAttempt.objects.select_related('user', 'exam__content')
         exam_id = self.request.query_params.get('exam_id')
         if exam_id:
             # Exam.pk is the Content pk, so the admin panel's existing
