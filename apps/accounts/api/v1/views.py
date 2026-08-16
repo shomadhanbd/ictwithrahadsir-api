@@ -10,6 +10,12 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.core.api.permissions import IsAdminRole
+from apps.core.api.throttling import (
+    AuthBurstThrottle,
+    AuthSustainedThrottle,
+    LoginBurstThrottle,
+    LoginSustainedThrottle,
+)
 from apps.core.api.viewsets import AdminModelViewSet
 
 from apps.accounts.models import OTP, User
@@ -94,6 +100,7 @@ class OtpRequestAPIView(OtpIssueMixin, APIView):
     """
 
     permission_classes = [AllowAny]
+    throttle_classes = [AuthBurstThrottle, AuthSustainedThrottle]
 
     def get(self, request):
         serializer = PhoneRequestSerializer(data=request.query_params)
@@ -125,6 +132,7 @@ class OtpVerifyAPIView(APIView):
     """
 
     permission_classes = [AllowAny]
+    throttle_classes = [AuthBurstThrottle, AuthSustainedThrottle]
 
     def post(self, request):
         serializer = OtpVerifyRequestSerializer(data=request.data)
@@ -151,6 +159,7 @@ class UserRegisterAPIView(APIView):
     """POST /register -- fill in the profile for an OTP-verified number."""
 
     permission_classes = [AllowAny]
+    throttle_classes = [AuthBurstThrottle, AuthSustainedThrottle]
 
     def post(self, request):
         serializer = UserRegisterRequestSerializer(data=request.data)
@@ -184,6 +193,7 @@ class UserLoginAPIView(APIView):
     """POST /login -- phone-or-email plus password."""
 
     permission_classes = [AllowAny]
+    throttle_classes = [LoginBurstThrottle, LoginSustainedThrottle]
 
     def post(self, request):
         serializer = UserLoginRequestSerializer(data=request.data)
@@ -196,6 +206,7 @@ class PasswordForgotAPIView(OtpIssueMixin, APIView):
     """POST /forget-password -- send a reset code to a known number."""
 
     permission_classes = [AllowAny]
+    throttle_classes = [AuthBurstThrottle, AuthSustainedThrottle]
 
     def post(self, request):
         serializer = PhoneRequestSerializer(data=request.data)
@@ -215,6 +226,7 @@ class PasswordResetAPIView(APIView):
     """POST /password-reset -- set a new password against a valid OTP."""
 
     permission_classes = [AllowAny]
+    throttle_classes = [AuthBurstThrottle, AuthSustainedThrottle]
 
     def post(self, request):
         serializer = PasswordResetRequestSerializer(data=request.data)

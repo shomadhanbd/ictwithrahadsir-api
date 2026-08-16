@@ -194,10 +194,23 @@ class PaymentSubmitAPIView(APIView):
             raise ValidationError({'order_id': ['This order has already been paid.']})
 
         details = self._parse_details(request.data.get('details'))
+        transaction_id = str(request.data.get('transaction_id') or '').strip()
+
+        # Checked here as well as by the DB constraint so a reused TrxID comes
+        # back as a validation error rather than an IntegrityError 500.
+        if transaction_id and Payment.objects.filter(transaction_id=transaction_id).exists():
+            raise ValidationError(
+                {'transaction_id': ['This transaction ID has already been submitted.']}
+            )
+
         payment = Payment.objects.create(
             order=order,
-            amount=request.data.get('amount') or order.amount,
-            transaction_id=request.data.get('transaction_id', ''),
+            # Always the order's own amount. This used to be
+            # `request.data.get('amount') or order.amount`, so the client
+            # decided what a payment was worth and could record ৳1 against a
+            # ৳4,000 order.
+            amount=order.amount,
+            transaction_id=transaction_id,
             vendor=details.get('vendor', Payment.Vendor.BKASH),
             sent_from=details.get('sent_from', ''),
             sent_to=details.get('sent_to', ''),

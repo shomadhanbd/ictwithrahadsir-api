@@ -115,7 +115,7 @@ class Payment(TimestampModel):
 
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="payments")
     amount = models.DecimalField(max_digits=10, decimal_places=2)
-    transaction_id = models.CharField(max_length=100)
+    transaction_id = models.CharField(max_length=100, db_index=True)
     vendor = models.CharField(max_length=20, choices=Vendor.choices, default=Vendor.BKASH)
     sent_from = models.CharField(max_length=20, blank=True)
     sent_to = models.CharField(max_length=20, blank=True)
@@ -123,6 +123,18 @@ class Payment(TimestampModel):
 
     class Meta:
         ordering = ["-created_at"]
+        constraints = [
+            # A mobile-banking TrxID identifies exactly one real transfer, so
+            # it must not be claimed twice -- otherwise a student can reuse a
+            # TrxID they have seen elsewhere and an admin confirming it grants
+            # course access for a transfer that was never made to us.
+            # Blank is excluded because the API allows submitting without one.
+            models.UniqueConstraint(
+                fields=["transaction_id"],
+                condition=~models.Q(transaction_id=""),
+                name="unique_non_blank_payment_transaction_id",
+            )
+        ]
 
     def __str__(self):
         return f"Payment for order #{self.order_id}"

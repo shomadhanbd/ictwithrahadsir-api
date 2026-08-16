@@ -10,7 +10,7 @@ from django.conf import settings
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework.authtoken.models import Token
-from rest_framework.test import APITestCase
+from apps.core.testing import ThrottledAPITestCase
 
 from apps.accounts.models import OTP, User
 
@@ -31,7 +31,7 @@ def latest_code(phone):
     return OTP.objects.filter(phone=phone).order_by("-created_at").first().code
 
 
-class AuthFlowTests(APITestCase):
+class AuthFlowTests(ThrottledAPITestCase):
     """Registration is a three-step dance: get-otp -> verify-otp (which
     creates a bare row and returns a token) -> register (which fills in the
     profile and sets the password)."""
@@ -180,7 +180,7 @@ class AuthFlowTests(APITestCase):
         self.assertEqual(response.status_code, 422)
 
 
-class LoginTests(APITestCase):
+class LoginTests(ThrottledAPITestCase):
     def setUp(self):
         self.user = User.objects.create_user(
             phone="01810002222", email="s@example.com", name="Student",
@@ -227,7 +227,7 @@ class LoginTests(APITestCase):
         self.assertEqual(response.status_code, 422)
 
 
-class PasswordResetTests(APITestCase):
+class PasswordResetTests(ThrottledAPITestCase):
     def setUp(self):
         self.user = User.objects.create_user(
             phone="01810003333", name="Student", password="Str0ngPass!23"
@@ -288,7 +288,7 @@ class PasswordResetTests(APITestCase):
         self.assertIn("otp", response.json()["errors"])
 
 
-class MeAndLogoutTests(APITestCase):
+class MeAndLogoutTests(ThrottledAPITestCase):
     def setUp(self):
         self.user = User.objects.create_user(
             phone="01810004444", name="Student", password="Str0ngPass!23"
@@ -320,7 +320,64 @@ class MeAndLogoutTests(APITestCase):
         self.assertFalse(Token.objects.filter(user=self.user).exists())
 
 
-class OtpCooldownTests(APITestCase):
+class LoginThrottleTests(ThrottledAPITestCase):
+    """Nothing was rate limited before, so /api/login accepted password
+    guesses as fast as they could be sent."""
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user(
+            phone='01810005555', name='Victim', password='Str0ngPass!23'
+        )
+
+    def guess(self, password='wrong'):
+        return self.client.post(
+            LOGIN_URL, {'phone': self.user.phone, 'password': password}, format='json'
+        )
+
+    def test_repeated_password_guesses_are_eventually_throttled(self):
+        statuses = [self.guess().status_code for _ in range(15)]
+        self.assertIn(429, statuses, f'no throttle fired: {statuses}')
+
+    def test_the_throttle_also_stops_a_correct_password(self):
+        # Otherwise an attacker could keep guessing and simply notice which
+        # attempt stopped returning 422.
+        for _ in range(15):
+            self.guess()
+        self.assertEqual(self.guess('Str0ngPass!23').status_code, 429)
+
+    def test_the_limit_is_not_hit_by_ordinary_use(self):
+        # A handful of typos must not lock a real user out.
+        for _ in range(5):
+            self.assertEqual(self.guess().status_code, 422)
+        self.assertEqual(self.guess('Str0ngPass!23').status_code, 200)
+
+    def test_the_throttled_response_keeps_the_error_envelope(self):
+        for _ in range(15):
+            self.guess()
+        body = self.guess().json()
+        self.assertIn('message', body)
+
+
+class RegistrationThrottleTests(ThrottledAPITestCase):
+    def test_registration_attempts_are_throttled(self):
+        statuses = []
+        for i in range(15):
+            response = self.client.post(
+                REGISTER_URL,
+                {
+                    'name': 'Spam',
+                    'phone': f'018100600{i:02d}',
+                    'password': 'Str0ngPass!23',
+                    'password_confirmation': 'Str0ngPass!23',
+                },
+                format='json',
+            )
+            statuses.append(response.status_code)
+        self.assertIn(429, statuses, f'no throttle fired: {statuses}')
+
+
+class OtpCooldownTests(ThrottledAPITestCase):
     """OTP_RESEND_COOLDOWN_SECONDS existed in settings but was never read, so
     the public get-otp endpoint could be used to bombard a number with SMS."""
 
@@ -362,7 +419,7 @@ class OtpCooldownTests(APITestCase):
         self.assertEqual(second.status_code, 429)
 
 
-class OtpBruteForceTests(APITestCase):
+class OtpBruteForceTests(ThrottledAPITestCase):
     """A verified OTP mints a full auth token, so an unlimited-guess 6-digit
     code was an account-takeover path."""
 
@@ -398,7 +455,7 @@ class OtpBruteForceTests(APITestCase):
         self.assertEqual(self._guess(latest_code(self.phone)).status_code, 422)
 
 
-class PasswordResetSecurityTests(APITestCase):
+class PasswordResetSecurityTests(ThrottledAPITestCase):
     def setUp(self):
         self.user = User.objects.create_user(
             phone="01810004321", name="Student", password="Str0ngPass!23"
@@ -438,7 +495,7 @@ class PasswordResetSecurityTests(APITestCase):
         self.assertEqual(self.client.get(ME_URL, **stale_auth).status_code, 401)
 
 
-class AdminRoleEscalationTests(APITestCase):
+class AdminRoleEscalationTests(ThrottledAPITestCase):
     """IsAdminRole admits instructors, so /admin/user must not let them hand
     out privileged roles or edit privileged accounts."""
 
@@ -504,7 +561,7 @@ class AdminRoleEscalationTests(APITestCase):
         self.assertEqual(response.status_code, 201)
 
 
-class AdminUserTests(APITestCase):
+class AdminUserTests(ThrottledAPITestCase):
     def setUp(self):
         self.admin = User.objects.create_user(
             phone="01710000001", name="Admin", password="Str0ngPass!23",

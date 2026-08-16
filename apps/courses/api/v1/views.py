@@ -25,6 +25,7 @@ from apps.courses.api.v1.serializers import (
     CourseUserSerializer,
     InstructorSerializer,
     RoutineSerializer,
+    build_course_stats,
 )
 from apps.courses.models import (
     Content,
@@ -45,13 +46,41 @@ TRUTHY = ('1', 'true', 'True')
 # ---------------------------------------------------------------------------
 
 
-class PublicCourseListAPIView(ListAPIView):
+class CourseListContextMixin:
+    """Serialises a page of courses without a per-course query storm.
+
+    `prefetch_related` collapses the m2m/reverse lookups to one query each
+    for the whole page, and `build_course_stats` does the same for the
+    aggregates the serializer computes itself.
+    """
+
+    PREFETCH = ('categories', 'instructors', 'routines')
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        page = getattr(self, '_page_for_stats', None)
+        if page is not None:
+            context['course_stats'] = build_course_stats(page, self.request)
+        return context
+
+    def paginate_queryset(self, queryset):
+        page = super().paginate_queryset(queryset)
+        self._page_for_stats = page if page is not None else list(queryset)
+        return page
+
+    def list(self, request, *args, **kwargs):
+        # Populated by paginate_queryset for paginated views; unpaginated
+        # subclasses set it themselves before serialising.
+        return super().list(request, *args, **kwargs)
+
+
+class PublicCourseListAPIView(CourseListContextMixin, ListAPIView):
     permission_classes = [AllowAny]
     serializer_class = CourseListSerializer
     pagination_class = LaravelStylePageNumberPagination
 
     def get_queryset(self):
-        qs = Course.objects.filter(active=True)
+        qs = Course.objects.filter(active=True).prefetch_related(*self.PREFETCH)
 
         is_online = self.request.query_params.get('is_online')
         if is_online is not None:
@@ -121,7 +150,7 @@ class ContentPdfAPIView(BaseContentAPIView):
         return response
 
 
-class MyCourseListAPIView(ListAPIView):
+class MyCourseListAPIView(CourseListContextMixin, ListAPIView):
     """Courses the caller is enrolled on."""
 
     permission_classes = [IsAuthenticated]
@@ -132,10 +161,14 @@ class MyCourseListAPIView(ListAPIView):
         course_ids = CourseUser.objects.filter(user=self.request.user).values_list(
             'course_id', flat=True
         )
-        return Course.objects.filter(id__in=course_ids, active=True)
+        return Course.objects.filter(id__in=course_ids, active=True).prefetch_related(
+            *self.PREFETCH
+        )
 
     def list(self, request, *args, **kwargs):
-        serializer = self.get_serializer(self.get_queryset(), many=True)
+        courses = list(self.get_queryset())
+        self._page_for_stats = courses
+        serializer = self.get_serializer(courses, many=True)
         return Response({'data': serializer.data})
 
 

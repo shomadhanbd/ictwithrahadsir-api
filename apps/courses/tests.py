@@ -2,6 +2,8 @@
 
 from decimal import Decimal
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework.authtoken.models import Token
@@ -60,6 +62,53 @@ class CatalogueTests(APITestCase):
         CourseCategory.objects.create(title='HSC 26', slug='hsc-26', category=self.category)
         body = self.client.get(CATEGORY_LIST_URL).json()
         self.assertEqual([c['title'] for c in body['data']], ['HSC'])
+
+
+class CourseListQueryCountTests(APITestCase):
+    """Serialising a course used to cost 11 queries of its own, so a full
+    page ran ~170 and the paginator's per_page=200 ceiling meant ~2,200.
+    The cost must not scale with the number of courses.
+    """
+
+    def make_courses(self, count):
+        for i in range(count):
+            course = Course.objects.create(title=f'Course {i}', slug=f'course-{i}')
+            section = Section.objects.create(
+                course=course, title='Ch1', slug=f'course-{i}-ch1'
+            )
+            for j, content_type in enumerate(
+                [Content.Type.VIDEO, Content.Type.EXAM, Content.Type.NOTE]
+            ):
+                Content.objects.create(
+                    course=course, section=section, title=f'C{j}',
+                    slug=f'course-{i}-c{j}', type=content_type,
+                )
+            CoursePrice.objects.create(
+                priceable_type=CoursePrice.PRICEABLE_COURSE,
+                priceable_id=course.id, title='Full', amount=Decimal('100'),
+            )
+
+    def count_queries(self, course_count):
+        Course.objects.all().delete()
+        self.make_courses(course_count)
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.get(COURSE_LIST_URL, {'per_page': 50})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.json()['data']), course_count)
+        return len(ctx)
+
+    def test_query_count_does_not_grow_with_the_number_of_courses(self):
+        few = self.count_queries(2)
+        many = self.count_queries(10)
+        self.assertEqual(
+            few,
+            many,
+            f'query count scales with page size: 2 courses -> {few}, '
+            f'10 courses -> {many}. An N+1 has been reintroduced.',
+        )
+
+    def test_the_page_is_served_in_a_small_fixed_number_of_queries(self):
+        self.assertLessEqual(self.count_queries(10), 15)
 
 
 class ContentAccessTests(APITestCase):

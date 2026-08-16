@@ -98,12 +98,16 @@ class HomeAPIView(APIView):
         from apps.courses.api.v1.serializers import (
             CourseCategorySerializer,
             CourseListSerializer,
+            build_course_stats,
         )
         from apps.courses.models import Course, CourseCategory
         from apps.team.api.v1.serializers import TeacherSerializer
         from apps.team.models import Teacher
 
-        courses = Course.objects.filter(active=True, featured=True)[:12]
+        courses = list(
+            Course.objects.filter(active=True, featured=True)
+            .prefetch_related('categories', 'instructors', 'routines')[:12]
+        )
         categories = CourseCategory.objects.filter(category__isnull=True)
 
         # Homepage counters and banner are managed as `Page` rows through the
@@ -118,7 +122,12 @@ class HomeAPIView(APIView):
         return Response(
             {
                 'courses': CourseListSerializer(
-                    courses, many=True, context={'request': request}
+                    courses,
+                    many=True,
+                    context={
+                        'request': request,
+                        'course_stats': build_course_stats(courses, request),
+                    },
                 ).data,
                 'courseCategories': CourseCategorySerializer(categories, many=True).data,
                 'advertisement': AdvertisementSerializer(

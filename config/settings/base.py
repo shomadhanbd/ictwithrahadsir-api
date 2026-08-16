@@ -205,6 +205,14 @@ REST_FRAMEWORK = {
         "rest_framework.filters.OrderingFilter",
     ],
     "EXCEPTION_HANDLER": "apps.core.api.exception_handler.laravel_style_exception_handler",
+    # Applied per-view via throttle_classes (see apps.core.api.throttling);
+    # there is no default throttle, so ordinary reads stay unlimited.
+    "DEFAULT_THROTTLE_RATES": {
+        "login_burst": env("THROTTLE_LOGIN_BURST", default="10/min"),
+        "login_sustained": env("THROTTLE_LOGIN_SUSTAINED", default="100/hour"),
+        "auth_burst": env("THROTTLE_AUTH_BURST", default="10/min"),
+        "auth_sustained": env("THROTTLE_AUTH_SUSTAINED", default="60/hour"),
+    },
     "DEFAULT_PARSER_CLASSES": [
         "rest_framework.parsers.JSONParser",
         "rest_framework.parsers.MultiPartParser",
@@ -212,6 +220,29 @@ REST_FRAMEWORK = {
     ],
     "TEST_REQUEST_DEFAULT_FORMAT": "json",
 }
+
+# ---------------------------------------------------------------------------
+# Cache
+#
+# This backs the auth rate limits, so it matters in production: the default
+# LocMemCache is per-process, and the container runs gunicorn with 3
+# workers, which means each worker keeps its own throttle counter and the
+# effective limit is roughly 3x whatever is configured (and resets on every
+# deploy). Point CACHE_URL at a shared Redis to make the limits real:
+#
+#     CACHE_URL=redis://redis:6379/1        (needs `pip install redis`)
+# ---------------------------------------------------------------------------
+
+_cache_url = env("CACHE_URL", default="")
+if _cache_url:
+    CACHES = {"default": env.cache_url("CACHE_URL")}
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "shomadhan-local",
+        }
+    }
 
 # ---------------------------------------------------------------------------
 # Logging

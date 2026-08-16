@@ -1,3 +1,4 @@
+from django.db.models import Count
 from rest_framework import serializers
 
 from apps.accounts.models import User
@@ -272,6 +273,70 @@ class AdminContentSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "slug"]
 
 
+def build_course_stats(courses, request=None):
+    """Batch every per-course aggregate the list serializer needs.
+
+    Serialising a course used to cost 11 queries on its own -- six COUNTs for
+    the per-type content totals, plus prices, categories, instructors,
+    routines and the enrolment count -- so a page of 15 ran ~170 queries and
+    the paginator's `per_page=200` ceiling meant ~2,200.
+
+    Everything here is keyed by course id and resolved in a fixed number of
+    queries regardless of page size. Pass the result to the serializer as
+    `context['course_stats']`; without it the serializer falls back to the
+    per-object queries, which is fine for a single course.
+    """
+    from collections import defaultdict
+
+    ids = [course.pk for course in courses]
+    if not ids:
+        return {}
+
+    content_counts = defaultdict(lambda: defaultdict(int))
+    rows = (
+        Content.objects.filter(course_id__in=ids)
+        .values('course_id', 'type')
+        .annotate(total=Count('id'))
+    )
+    for row in rows:
+        content_counts[row['course_id']][row['type']] = row['total']
+
+    prices = defaultdict(list)
+    price_rows = CoursePrice.objects.filter(
+        priceable_type=CoursePrice.PRICEABLE_COURSE, priceable_id__in=ids
+    ).order_by('amount')
+    for price in price_rows:
+        prices[price.priceable_id].append(price)
+
+    enrollment_counts = dict(
+        CourseUser.objects.filter(course_id__in=ids)
+        .values_list('course_id')
+        .annotate(total=Count('id'))
+    )
+
+    enrollments, ordered = {}, set()
+    if request is not None and request.user.is_authenticated:
+        enrollments = {
+            e.course_id: e
+            for e in CourseUser.objects.filter(course_id__in=ids, user=request.user)
+        }
+        # Imported here: shop imports courses, so a module-level import cycles.
+        from apps.shop.models import Order
+
+        ordered = set(
+            Order.objects.filter(user=request.user, course_id__in=ids)
+            .values_list('course_id', flat=True)
+        )
+
+    return {
+        'content_counts': content_counts,
+        'prices': prices,
+        'enrollment_counts': enrollment_counts,
+        'enrollments': enrollments,
+        'ordered': ordered,
+    }
+
+
 class CourseListSerializer(serializers.ModelSerializer):
     image = MediaField(required=False)
     price = serializers.SerializerMethodField()
@@ -281,6 +346,14 @@ class CourseListSerializer(serializers.ModelSerializer):
     has_order = serializers.SerializerMethodField()
     users_count = serializers.SerializerMethodField()
     routines = RoutineSerializer(many=True, read_only=True)
+    # Declared explicitly so they can read the batched totals instead of
+    # firing the model properties' one-COUNT-each queries.
+    video_count = serializers.SerializerMethodField()
+    class_count = serializers.SerializerMethodField()
+    exam_count = serializers.SerializerMethodField()
+    note_count = serializers.SerializerMethodField()
+    link_count = serializers.SerializerMethodField()
+    live_count = serializers.SerializerMethodField()
     # No "audio" content type or online/offline content distinction is
     # modeled yet -- stubbed to 0 so the client's `Course` type is satisfied
     # without breaking anything that reads these fields.
@@ -328,8 +401,46 @@ class CourseListSerializer(serializers.ModelSerializer):
     def get_offline_count(self, obj):
         return 0
 
+    def _stats(self, key, obj, default=None):
+        """Batched value for `obj` if the view supplied one, else None."""
+        stats = self.context.get("course_stats")
+        if not stats:
+            return None
+        return stats[key].get(obj.pk, default)
+
+    def _content_count(self, obj, content_type):
+        counts = self._stats("content_counts", obj, {})
+        if counts is not None:
+            return counts.get(content_type, 0)
+        return obj.contents.filter(type=content_type).count()
+
+    def get_video_count(self, obj):
+        return self._content_count(obj, Content.Type.VIDEO)
+
+    def get_exam_count(self, obj):
+        return self._content_count(obj, Content.Type.EXAM)
+
+    def get_note_count(self, obj):
+        return self._content_count(obj, Content.Type.NOTE)
+
+    def get_link_count(self, obj):
+        return self._content_count(obj, Content.Type.LINK)
+
+    def get_live_count(self, obj):
+        return self._content_count(obj, Content.Type.LIVE)
+
+    def get_class_count(self, obj):
+        counts = self._stats("content_counts", obj, {})
+        if counts is not None:
+            return sum(counts.values())
+        return obj.contents.count()
+
     def get_price(self, obj):
-        price = obj.prices.order_by("amount").first()
+        batched = self._stats("prices", obj, [])
+        if batched is not None:
+            price = batched[0] if batched else None
+        else:
+            price = obj.prices.order_by("amount").first()
         return CoursePriceSerializer(price).data if price else None
 
     def get_instructors(self, obj):
@@ -339,6 +450,10 @@ class CourseListSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         if not request or not request.user.is_authenticated:
             return None
+
+        stats = self.context.get("course_stats")
+        if stats:
+            return stats["enrollments"].get(obj.pk)
         return obj.enrollments.filter(user=request.user).first()
 
     def get_subscription_status(self, obj):
@@ -360,11 +475,19 @@ class CourseListSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         if not request or not request.user.is_authenticated:
             return False
+
+        stats = self.context.get("course_stats")
+        if stats:
+            return obj.pk in stats["ordered"]
+
         from apps.shop.models import Order
 
         return Order.objects.filter(user=request.user, course=obj).exists()
 
     def get_users_count(self, obj):
+        batched = self._stats("enrollment_counts", obj, 0)
+        if batched is not None:
+            return batched
         return obj.enrollments.count()
 
 

@@ -240,6 +240,64 @@ class PaymentTests(ShopTestBase):
         )
         self.assertEqual(response.status_code, 404)
 
+    def test_the_recorded_amount_comes_from_the_order_not_the_client(self):
+        # The client used to be able to record any amount it liked against an
+        # order, so a 1,500 course could be "paid" for 1.
+        response = self.client.post(
+            PAYMENT_URL,
+            {'order_id': self.order.pk, 'amount': '1.00', 'transaction_id': 'TAMPER'},
+            format='json', **self.auth,
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(Payment.objects.get().amount, Decimal('1500'))
+
+    def test_a_reused_transaction_id_is_refused(self):
+        payload = {'order_id': self.order.pk, 'transaction_id': 'TRX-REUSED'}
+        self.assertEqual(
+            self.client.post(PAYMENT_URL, payload, format='json', **self.auth).status_code, 201
+        )
+
+        second = self.client.post(PAYMENT_URL, payload, format='json', **self.auth)
+        self.assertEqual(second.status_code, 422)
+        self.assertIn('transaction_id', second.json()['errors'])
+        self.assertEqual(Payment.objects.filter(transaction_id='TRX-REUSED').count(), 1)
+
+    def test_a_transaction_id_cannot_be_reused_by_another_student(self):
+        self.client.post(
+            PAYMENT_URL,
+            {'order_id': self.order.pk, 'transaction_id': 'TRX-SHARED'},
+            format='json', **self.auth,
+        )
+
+        thief = User.objects.create_user(
+            phone='01810400009', name='Thief', password='Str0ngPass!23'
+        )
+        their_order = Order.objects.create(
+            user=thief, course=self.course, amount=Decimal('1500'), total=Decimal('1500')
+        )
+        auth = {'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=thief).key}'}
+
+        response = self.client.post(
+            PAYMENT_URL,
+            {'order_id': their_order.pk, 'transaction_id': 'TRX-SHARED'},
+            format='json', **auth,
+        )
+        self.assertEqual(response.status_code, 422)
+
+    def test_blank_transaction_ids_do_not_collide(self):
+        # The constraint is conditional, so several payments may legitimately
+        # carry no TrxID at all.
+        second_order = Order.objects.create(
+            user=self.student, course=self.course,
+            amount=Decimal('1500'), total=Decimal('1500'),
+        )
+        for order_id in (self.order.pk, second_order.pk):
+            response = self.client.post(
+                PAYMENT_URL, {'order_id': order_id}, format='json', **self.auth
+            )
+            self.assertEqual(response.status_code, 201)
+        self.assertEqual(Payment.objects.filter(transaction_id='').count(), 2)
+
     def test_an_already_paid_order_is_refused(self):
         self.order.status = Order.Status.PAID
         self.order.save(update_fields=['status'])
