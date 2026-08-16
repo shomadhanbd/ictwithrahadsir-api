@@ -1,7 +1,7 @@
 from django.conf import settings
 from django.db import models
 
-from apps.core.models import OrderedModel, TimeStampedModel
+from apps.core.models import OrderedModel, TimestampModel
 from apps.core.slugs import ascii_slug
 from apps.courses.models import Course
 
@@ -16,7 +16,7 @@ def unique_slugify(model, instance, base_text):
     return slug
 
 
-class NoticeCategory(TimeStampedModel, OrderedModel):
+class NoticeCategory(TimestampModel, OrderedModel):
     title = models.CharField(max_length=150)
     slug = models.SlugField(max_length=220, unique=True, blank=True)
     notice_category = models.ForeignKey(
@@ -36,7 +36,7 @@ class NoticeCategory(TimeStampedModel, OrderedModel):
         super().save(*args, **kwargs)
 
 
-class Notice(TimeStampedModel):
+class Notice(TimestampModel):
     title = models.CharField(max_length=255)
     slug = models.SlugField(max_length=280, unique=True, blank=True)
     body = models.TextField(blank=True)
@@ -52,7 +52,7 @@ class Notice(TimeStampedModel):
         super().save(*args, **kwargs)
 
 
-class Testimonial(TimeStampedModel):
+class Testimonial(TimestampModel):
     name = models.CharField(max_length=150)
     designation = models.CharField(max_length=150, blank=True)
     description = models.TextField(blank=True)
@@ -63,7 +63,7 @@ class Testimonial(TimeStampedModel):
         return self.name
 
 
-class Advertisement(TimeStampedModel):
+class Advertisement(TimestampModel):
     title = models.CharField(max_length=255, blank=True)
     description = models.TextField(blank=True)
     link = models.URLField(null=True, blank=True)
@@ -74,7 +74,7 @@ class Advertisement(TimeStampedModel):
         return self.title or f"Advertisement #{self.pk}"
 
 
-class EBook(TimeStampedModel):
+class EBook(TimestampModel):
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True)
     booking_link = models.URLField(null=True, blank=True)
@@ -85,7 +85,7 @@ class EBook(TimeStampedModel):
         return self.title
 
 
-class CourseMaterial(TimeStampedModel):
+class CourseMaterial(TimestampModel):
     title = models.CharField(max_length=255)
     type = models.CharField(max_length=50, blank=True)
     course = models.ForeignKey(
@@ -97,7 +97,7 @@ class CourseMaterial(TimeStampedModel):
         return self.title
 
 
-class ContactMessage(TimeStampedModel):
+class ContactMessage(TimestampModel):
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -131,7 +131,7 @@ class ContactMessage(TimeStampedModel):
         return self.reply_message
 
 
-class Page(TimeStampedModel):
+class Page(TimestampModel):
     """Fixed-key CMS pages (about-us, terms, privacy, ...) -- seeded once,
     edited (never created/deleted) from the admin panel."""
 
@@ -156,7 +156,7 @@ class Page(TimeStampedModel):
         super().save(*args, **kwargs)
 
 
-class Counter(TimeStampedModel):
+class Counter(TimestampModel):
     """Homepage stat counters (students taught, courses, instructors, ...)."""
 
     key = models.SlugField(max_length=100, unique=True)

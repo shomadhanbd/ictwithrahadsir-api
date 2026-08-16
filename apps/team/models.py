@@ -1,9 +1,9 @@
 from django.db import models
 
-from apps.core.models import OrderedModel, TimeStampedModel
+from apps.core.models import OrderedModel, TimestampModel
 
 
-class Teacher(TimeStampedModel, OrderedModel):
+class Teacher(TimestampModel, OrderedModel):
     """The "Teachers/Team" roster shown on the admin panel's Teachers page
     and used as the public "founder/instructor" listing on the client site."""
 

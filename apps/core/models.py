@@ -1,7 +1,7 @@
 from django.db import models
 
 
-class TimeStampedModel(models.Model):
+class TimestampModel(models.Model):
     """Abstract base adding created_at/updated_at, used by every domain model."""
 
     created_at = models.DateTimeField(auto_now_add=True)

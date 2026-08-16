@@ -8,7 +8,7 @@ from django.db import models
 from django.utils import timezone
 from django.utils.crypto import constant_time_compare
 
-from apps.core.sms import get_sms_backend
+from apps.core.services.factory import get_sms_backend
 
 
 class UserManager(BaseUserManager):
@@ -80,7 +80,7 @@ class User(AbstractBaseUser, PermissionsMixin):
 
 class OTP(models.Model):
     """One-time codes for phone verification (registration) and password
-    reset. Delivery goes through apps.core.sms so swapping in a real SMS
+    reset. Delivery goes through apps.core.services.factory so swapping in a real SMS
     gateway later needs no changes here."""
 
     #: A wrong guess burns an attempt; the code is dead once they run out.

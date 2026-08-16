@@ -1,8 +1,8 @@
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 
-from apps.core.permissions import IsAdminRole
-from apps.core.viewsets import AdminModelViewSet
+from apps.core.api.permissions import IsAdminRole
+from apps.core.api.viewsets import AdminModelViewSet
 
 from .models import Teacher
 from .serializers import TeacherSerializer

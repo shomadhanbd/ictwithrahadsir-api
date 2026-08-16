@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from apps.core.fields import MediaField
+from apps.core.api.fields import MediaField
 
 from .models import Teacher
 

@@ -3,9 +3,9 @@ from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticatedOrReadOnly
 from rest_framework.response import Response
 
-from apps.core.pagination import LaravelStylePageNumberPagination
-from apps.core.permissions import IsAdminRole
-from apps.core.viewsets import AdminModelViewSet
+from apps.core.api.pagination import LaravelStylePageNumberPagination
+from apps.core.api.permissions import IsAdminRole
+from apps.core.api.viewsets import AdminModelViewSet
 
 from .models import Advertisement, CourseMaterial, ContactMessage, EBook, Notice, NoticeCategory, Page, Testimonial
 from .serializers import (

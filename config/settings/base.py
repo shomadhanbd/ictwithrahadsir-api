@@ -191,20 +191,20 @@ CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS", default=[])
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
-        "apps.core.authentication.BearerTokenAuthentication",
+        "apps.core.api.authentication.BearerTokenAuthentication",
         "rest_framework.authentication.TokenAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticatedOrReadOnly",
     ],
-    "DEFAULT_PAGINATION_CLASS": "apps.core.pagination.LaravelStylePageNumberPagination",
+    "DEFAULT_PAGINATION_CLASS": "apps.core.api.pagination.LaravelStylePageNumberPagination",
     "PAGE_SIZE": 15,
     "DEFAULT_FILTER_BACKENDS": [
         "django_filters.rest_framework.DjangoFilterBackend",
         "rest_framework.filters.SearchFilter",
         "rest_framework.filters.OrderingFilter",
     ],
-    "EXCEPTION_HANDLER": "apps.core.exceptions.laravel_style_exception_handler",
+    "EXCEPTION_HANDLER": "apps.core.api.exception_handler.laravel_style_exception_handler",
     "DEFAULT_PARSER_CLASSES": [
         "rest_framework.parsers.JSONParser",
         "rest_framework.parsers.MultiPartParser",
@@ -271,7 +271,7 @@ LOGGING = {
 
 # OTP / SMS gateway. SMS_BACKEND="console" (default) logs OTPs instead of
 # sending real SMS -- swap to a real provider later by implementing
-# apps.core.sms.base.SmsBackend and pointing SMS_BACKEND at it.
+# apps.core.services.factory.base.SmsBackend and pointing SMS_BACKEND at it.
 SMS_BACKEND = env("SMS_BACKEND", default="console")
 OTP_LENGTH = env.int("OTP_LENGTH", default=6)
 OTP_TTL_SECONDS = env.int("OTP_TTL_SECONDS", default=5 * 60)

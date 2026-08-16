@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from apps.core.fields import MediaField
+from apps.core.api.fields import MediaField
 from apps.courses.models import Course
 
 from .models import Advertisement, Counter, CourseMaterial, ContactMessage, EBook, Notice, NoticeCategory, Page, Testimonial

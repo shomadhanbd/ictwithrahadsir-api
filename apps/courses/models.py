@@ -1,7 +1,7 @@
 from django.conf import settings
 from django.db import models
 
-from apps.core.models import OrderedModel, TimeStampedModel
+from apps.core.models import OrderedModel, TimestampModel
 from apps.core.slugs import ascii_slug
 
 
@@ -16,7 +16,7 @@ def unique_slugify(instance, base_text, slug_field="slug"):
     return slug
 
 
-class CourseCategory(TimeStampedModel, OrderedModel):
+class CourseCategory(TimestampModel, OrderedModel):
     title = models.CharField(max_length=150)
     slug = models.SlugField(max_length=220, unique=True, blank=True)
     image = models.URLField(null=True, blank=True)
@@ -37,7 +37,7 @@ class CourseCategory(TimeStampedModel, OrderedModel):
         super().save(*args, **kwargs)
 
 
-class Course(TimeStampedModel):
+class Course(TimestampModel):
     title = models.CharField(max_length=255)
     subtitle = models.CharField(max_length=255, blank=True)
     slug = models.SlugField(max_length=280, unique=True, blank=True)
@@ -103,7 +103,7 @@ class Course(TimeStampedModel):
         return CoursePrice.objects.filter(priceable_type=CoursePrice.PRICEABLE_COURSE, priceable_id=self.id)
 
 
-class CoursePrice(TimeStampedModel):
+class CoursePrice(TimestampModel):
     PRICEABLE_COURSE = "course"
     PRICEABLE_TYPE_CHOICES = [
         (PRICEABLE_COURSE, "Course"),
@@ -150,7 +150,7 @@ class CoursePrice(TimeStampedModel):
         return Course.objects.filter(pk=self.priceable_id).first()
 
 
-class Coupon(TimeStampedModel):
+class Coupon(TimestampModel):
     class DiscountType(models.TextChoices):
         PERCENT = "percent", "Percent"
         FIXED = "fixed", "Fixed"
@@ -170,7 +170,7 @@ class Coupon(TimeStampedModel):
         return self.code
 
 
-class Routine(TimeStampedModel):
+class Routine(TimestampModel):
     course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="routines")
     title = models.CharField(max_length=150)
     link = models.URLField(null=True, blank=True)
@@ -179,7 +179,7 @@ class Routine(TimeStampedModel):
         return self.title
 
 
-class Instructor(TimeStampedModel, OrderedModel):
+class Instructor(TimestampModel, OrderedModel):
     """Per-course teacher assignment (with commission tracking) managed from
     the admin panel's Instructor page. Also serialized on the public course
     detail as `instructors[]`."""
@@ -215,7 +215,7 @@ class Instructor(TimeStampedModel, OrderedModel):
         return self.name
 
 
-class Section(TimeStampedModel, OrderedModel):
+class Section(TimestampModel, OrderedModel):
     course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="sections")
     section = models.ForeignKey(
         "self", null=True, blank=True, on_delete=models.CASCADE, related_name="sub_sections"
@@ -236,7 +236,7 @@ class Section(TimeStampedModel, OrderedModel):
         super().save(*args, **kwargs)
 
 
-class Content(TimeStampedModel, OrderedModel):
+class Content(TimestampModel, OrderedModel):
     class Type(models.TextChoices):
         VIDEO = "video", "Video"
         NOTE = "note", "Note"
@@ -316,7 +316,7 @@ class Content(TimeStampedModel, OrderedModel):
         super().save(*args, **kwargs)
 
 
-class CourseUser(TimeStampedModel):
+class CourseUser(TimestampModel):
     """Enrollment pivot -- who has access to which course, until when, and
     how they got it."""
 

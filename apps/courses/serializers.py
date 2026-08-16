@@ -1,7 +1,7 @@
 from rest_framework import serializers
 
 from apps.accounts.models import User
-from apps.core.fields import MediaField
+from apps.core.api.fields import MediaField
 from apps.exams.models import McqStore
 
 from .models import Content, Course, CourseCategory, CoursePrice, CourseUser, Coupon, Instructor, Routine, Section

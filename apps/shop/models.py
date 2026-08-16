@@ -1,7 +1,7 @@
 from django.conf import settings
 from django.db import models
 
-from apps.core.models import OrderedModel, TimeStampedModel
+from apps.core.models import OrderedModel, TimestampModel
 from apps.core.slugs import ascii_slug
 from apps.courses.models import Course, CoursePrice, CourseCategory
 
@@ -16,7 +16,7 @@ def unique_product_slug(instance, base_text):
     return slug
 
 
-class Product(TimeStampedModel, OrderedModel):
+class Product(TimestampModel, OrderedModel):
     """Physical/digital items sold outside the course-subscription flow
     (books, ICT Digest, etc.)."""
 
@@ -59,7 +59,7 @@ class Product(TimeStampedModel, OrderedModel):
         super().save(*args, **kwargs)
 
 
-class CartItem(TimeStampedModel):
+class CartItem(TimestampModel):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="cart_items")
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="cart_items")
     quantity = models.PositiveIntegerField(default=1)
@@ -71,7 +71,7 @@ class CartItem(TimeStampedModel):
         return f"{self.user} x {self.product} ({self.quantity})"
 
 
-class Order(TimeStampedModel):
+class Order(TimestampModel):
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"
         PAID = "paid", "Paid"
@@ -102,7 +102,7 @@ class Order(TimeStampedModel):
         return f"Order #{self.pk} ({self.user})"
 
 
-class Payment(TimeStampedModel):
+class Payment(TimestampModel):
     class Vendor(models.TextChoices):
         BKASH = "bkash", "bKash"
         NAGAD = "nagad", "Nagad"

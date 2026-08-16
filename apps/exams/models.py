@@ -1,10 +1,10 @@
 from django.conf import settings
 from django.db import models
 
-from apps.core.models import OrderedModel, TimeStampedModel
+from apps.core.models import OrderedModel, TimestampModel
 
 
-class McqStore(TimeStampedModel, OrderedModel):
+class McqStore(TimestampModel, OrderedModel):
     """A folder in the MCQ question bank; folders nest (subject > chapter >
     topic, etc.) and an exam Content links to one folder as its question
     source."""
@@ -31,7 +31,7 @@ class McqStore(TimeStampedModel, OrderedModel):
         return McqQuestion.objects.filter(mcq_store_id__in=ids)
 
 
-class McqQuestion(TimeStampedModel):
+class McqQuestion(TimestampModel):
     class Answer(models.TextChoices):
         A = "a", "A"
         B = "b", "B"
@@ -65,7 +65,7 @@ class McqQuestion(TimeStampedModel):
         return self.question[:60]
 
 
-class ExamResult(TimeStampedModel):
+class ExamResult(TimestampModel):
     content = models.ForeignKey(
         "courses.Content", on_delete=models.CASCADE, related_name="exam_results"
     )

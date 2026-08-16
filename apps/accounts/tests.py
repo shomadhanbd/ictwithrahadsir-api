@@ -1,8 +1,8 @@
 """Contract tests for the accounts endpoints.
 
 Written to pin the exact request/response shapes both frontends already
-depend on (see the Laravel-compatible envelope in apps.core.exceptions and
-apps.core.pagination) before refactoring the views, so the function-based ->
+depend on (see the Laravel-compatible envelope in apps.core.api.exception_handler and
+apps.core.api.pagination) before refactoring the views, so the function-based ->
 class-based move is provably behaviour-preserving.
 """
 
