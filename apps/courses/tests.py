@@ -109,6 +109,51 @@ class CourseListQueryCountTests(APITestCase):
         self.assertLessEqual(self.count_queries(10), 15)
 
 
+class HasOrderWiringTests(APITestCase):
+    """`has_order` is a billing fact served on a courses payload.
+
+    Courses must not import the app that owns orders, so billing fills a
+    provider hook at startup. If that wiring ever breaks the field degrades
+    silently to False -- which no other test would notice, because False is
+    the correct answer for most rows.
+    """
+
+    def setUp(self):
+        self.student = User.objects.create_user(
+            phone='01810600001', name='Student', password='Str0ngPass!23'
+        )
+        self.auth = {
+            'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=self.student).key}'
+        }
+        self.bought = Course.objects.create(title='Bought', slug='bought')
+        self.browsed = Course.objects.create(title='Browsed', slug='browsed')
+
+        from apps.shop.models import Order
+
+        Order.objects.create(
+            user=self.student, course=self.bought,
+            amount=Decimal('100'), total=Decimal('100'),
+        )
+
+    def test_the_provider_is_wired_at_startup(self):
+        from apps.courses import selectors
+
+        self.assertIsNotNone(
+            selectors.ordered_course_ids_provider,
+            'billing did not register its provider; has_order is now always False',
+        )
+
+    def test_has_order_reflects_a_real_order(self):
+        body = self.client.get(COURSE_LIST_URL, {'per_page': 50}, **self.auth).json()
+        flags = {row['slug']: row['has_order'] for row in body['data']}
+        self.assertTrue(flags['bought'])
+        self.assertFalse(flags['browsed'])
+
+    def test_has_order_is_false_for_anonymous_callers(self):
+        body = self.client.get(COURSE_LIST_URL, {'per_page': 50}).json()
+        self.assertFalse(any(row['has_order'] for row in body['data']))
+
+
 class ContentAccessTests(APITestCase):
     def setUp(self):
         self.student = User.objects.create_user(

@@ -1,4 +1,6 @@
 from django.db.models import Count
+
+from apps.courses import selectors as course_selectors
 from rest_framework import serializers
 
 from apps.accounts.models import User
@@ -320,13 +322,9 @@ def build_course_stats(courses, request=None):
             e.course_id: e
             for e in CourseUser.objects.filter(course_id__in=ids, user=request.user)
         }
-        # Imported here: shop imports courses, so a module-level import cycles.
-        from apps.shop.models import Order
-
-        ordered = set(
-            Order.objects.filter(user=request.user, course_id__in=ids)
-            .values_list('course_id', flat=True)
-        )
+        # `has_order` is a billing fact. Asking through the selector keeps
+        # this app from importing the one that already points at it.
+        ordered = course_selectors.ordered_course_ids(request.user, ids)
 
     return {
         'content_counts': content_counts,
@@ -480,9 +478,7 @@ class CourseListSerializer(serializers.ModelSerializer):
         if stats:
             return obj.pk in stats["ordered"]
 
-        from apps.shop.models import Order
-
-        return Order.objects.filter(user=request.user, course=obj).exists()
+        return obj.pk in course_selectors.ordered_course_ids(request.user, [obj.pk])
 
     def get_users_count(self, obj):
         batched = self._stats("enrollment_counts", obj, 0)

@@ -13,6 +13,7 @@ from apps.core.api.pagination import LaravelStylePageNumberPagination
 from apps.core.api.permissions import IsAdminRole
 from apps.core.api.viewsets import AdminModelViewSet
 from apps.courses.models import Course, CoursePrice, CourseUser
+from apps.courses.services import grant_course_access
 from apps.shop.api.v1.serializers import (
     AdminPaymentSerializer,
     CartItemSerializer,
@@ -161,10 +162,10 @@ class FreeEnrollmentAPIView(APIView):
         if not free_price and course.prices.exists():
             raise ValidationError({'course_id': ['This course is not free.']})
 
-        CourseUser.objects.update_or_create(
-            course=course,
-            user=request.user,
-            defaults={'payment_type': CourseUser.PaymentType.FREE},
+        # Enrolling is a courses operation; go through its service rather
+        # than writing another app's table.
+        grant_course_access(
+            user=request.user, course=course, payment_type=CourseUser.PaymentType.FREE
         )
         return Response({'ok': True, 'course_id': course.id})
 
@@ -330,10 +331,10 @@ class AdminPaymentUpdateAPIView(APIView):
             order.status = Order.Status.PAID
             order.save(update_fields=['status'])
             if order.course:
-                CourseUser.objects.update_or_create(
-                    course=order.course,
+                grant_course_access(
                     user=order.user,
-                    defaults={'payment_type': CourseUser.PaymentType.PAID},
+                    course=order.course,
+                    payment_type=CourseUser.PaymentType.PAID,
                 )
         elif status_value == Payment.Status.FAILED:
             order.status = Order.Status.FAILED
