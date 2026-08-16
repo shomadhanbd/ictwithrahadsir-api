@@ -20,6 +20,10 @@ def exam_url(pk):
     return reverse('api:exams:v1:exam_detail', args=[pk])
 
 
+def submission_url(pk):
+    return reverse('api:exams:v1:exam_submission', args=[pk])
+
+
 def ranking_url(pk):
     return reverse('api:exams:v1:exam_ranking', args=[pk])
 
@@ -255,7 +259,7 @@ class ExamSubmissionTests(ExamTestBase):
 
     def submit(self, user_answer, duration=60):
         return self.client.post(
-            exam_url(self.exam.pk),
+            submission_url(self.exam.pk),
             {
                 'duration': duration,
                 'sections': [
@@ -288,7 +292,7 @@ class ExamSubmissionTests(ExamTestBase):
 
     def test_sections_must_be_a_list(self):
         response = self.client.post(
-            exam_url(self.exam.pk), {'sections': 'nope'}, format='json', **self.auth
+            submission_url(self.exam.pk), {'sections': 'nope'}, format='json', **self.auth
         )
         self.assertEqual(response.status_code, 422)
 

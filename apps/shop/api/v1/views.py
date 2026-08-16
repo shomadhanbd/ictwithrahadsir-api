@@ -61,9 +61,8 @@ class BaseCartAPIView(APIView):
         return Response(CartItemSerializer(items, many=True).data)
 
 
-class CartAPIView(BaseCartAPIView):
-    def get(self, request):
-        return self.cart_response()
+class CartItemAPIView(BaseCartAPIView):
+    """POST /cart/items/ -- put a product in the cart."""
 
     def post(self, request):
         product = Product.objects.filter(
@@ -79,15 +78,31 @@ class CartAPIView(BaseCartAPIView):
         return self.cart_response()
 
 
-class CartAddRemoveAPIView(BaseCartAPIView):
-    def post(self, request):
-        item = CartItem.objects.filter(
-            user=request.user, product_id=request.data.get('product_id')
-        ).first()
+class CartAPIView(CartItemAPIView):
+    """GET /cart/ -- the caller's cart.
+
+    Inherits POST so the legacy `POST /cart` add still works.
+    """
+
+    def get(self, request):
+        return self.cart_response()
+
+
+class CartItemDetailAPIView(BaseCartAPIView):
+    """One line in the cart: PATCH adjusts the quantity, DELETE removes it."""
+
+    def patch(self, request, product_id):
+        return self.adjust_quantity(request, product_id, request.data.get('action'))
+
+    def delete(self, request, product_id):
+        CartItem.objects.filter(user=request.user, product_id=product_id).delete()
+        return self.cart_response()
+
+    def adjust_quantity(self, request, product_id, action):
+        item = CartItem.objects.filter(user=request.user, product_id=product_id).first()
         if not item:
             raise NotFound('Item is not in the cart.')
 
-        action = request.data.get('action')
         if action == 'increment':
             item.quantity += 1
             item.save(update_fields=['quantity'])
@@ -103,10 +118,17 @@ class CartAddRemoveAPIView(BaseCartAPIView):
         return self.cart_response()
 
 
-class CartDeleteAPIView(BaseCartAPIView):
-    def delete(self, request, product_id):
-        CartItem.objects.filter(user=request.user, product_id=product_id).delete()
-        return self.cart_response()
+class CartAddRemoveAPIView(CartItemDetailAPIView):
+    """Legacy `POST /cart/add-remove` -- product id and action in the body."""
+
+    def post(self, request):
+        return self.adjust_quantity(
+            request, request.data.get('product_id'), request.data.get('action')
+        )
+
+
+class CartDeleteAPIView(CartItemDetailAPIView):
+    """Legacy `DELETE /cart/delete/<product_id>`."""
 
 
 # ---------------------------------------------------------------------------
@@ -121,8 +143,12 @@ def price_after_discount(price: CoursePrice) -> Decimal:
     return amount
 
 
-class FreeCoursePurchaseAPIView(APIView):
-    """Self-enrolment on a course that has a zero-cost price."""
+class FreeEnrollmentAPIView(APIView):
+    """Self-enrolment on a course that has a zero-cost price.
+
+    Named for what it creates. The legacy path called it
+    `free-course-purchase`, though nothing is purchased.
+    """
 
     permission_classes = [IsAuthenticated]
 
@@ -143,8 +169,22 @@ class FreeCoursePurchaseAPIView(APIView):
         return Response({'ok': True, 'course_id': course.id})
 
 
-class OrderCreateAPIView(APIView):
+class FreeCoursePurchaseAPIView(FreeEnrollmentAPIView):
+    """Legacy `POST /free-course-purchase`."""
+
+
+class OrderAPIView(APIView):
+    """GET lists the caller's orders, POST places one.
+
+    The legacy API split these across a singular `order` and a plural
+    `orders`, which read as two different resources.
+    """
+
     permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        orders = Order.objects.filter(user=request.user)
+        return Response({'data': OrderSerializer(orders, many=True).data})
 
     def post(self, request):
         course_id = request.data.get('course_id')
@@ -227,16 +267,12 @@ class PaymentSubmitAPIView(APIView):
             raise ValidationError({'details': ['Must be valid JSON.']})
 
 
-class MyOrderListAPIView(ListAPIView):
-    permission_classes = [IsAuthenticated]
-    serializer_class = OrderSerializer
-    pagination_class = None
+class OrderCreateAPIView(OrderAPIView):
+    """Legacy `POST /order`."""
 
-    def get_queryset(self):
-        return Order.objects.filter(user=self.request.user)
 
-    def list(self, request, *args, **kwargs):
-        return Response({'data': self.get_serializer(self.get_queryset(), many=True).data})
+class MyOrderListAPIView(OrderAPIView):
+    """Legacy `GET /orders`."""
 
 
 # ---------------------------------------------------------------------------

@@ -47,11 +47,8 @@ class BaseExamAPIView(APIView):
         return content
 
 
-class ExamAPIView(BaseExamAPIView):
-    """GET returns the paper; POST submits it.
-
-    Kept on one route because that is the shape the client already calls.
-    """
+class ExamDetailAPIView(BaseExamAPIView):
+    """GET /exams/<id>/ -- the paper, plus this user's own attempt."""
 
     def get(self, request, pk):
         content = self.get_exam_content(pk)
@@ -118,6 +115,9 @@ class ExamAPIView(BaseExamAPIView):
             }
         )
 
+class ExamSubmissionAPIView(BaseExamAPIView):
+    """POST /exams/<id>/submission/ -- sit the exam once and get the marks."""
+
     def post(self, request, pk):
         content = self.get_exam_content(pk)
         if not content.is_accessible_by(request.user):
@@ -155,6 +155,11 @@ class ExamAPIView(BaseExamAPIView):
                     continue
                 total += positive if user_answer == mcq.answer else -negative
         return total
+
+
+class ExamAPIView(ExamDetailAPIView, ExamSubmissionAPIView):
+    """The legacy flat API served both the paper and its submission from one
+    path. Kept so `/api/exams/<id>` keeps accepting GET and POST."""
 
 
 class ExamRankingAPIView(BaseExamAPIView):

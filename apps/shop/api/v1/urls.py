@@ -7,29 +7,32 @@ from apps.shop.api.v1.views import (
     AdminPaymentUpdateAPIView,
     AdminProductViewSet,
     CartAPIView,
-    CartAddRemoveAPIView,
-    CartDeleteAPIView,
-    FreeCoursePurchaseAPIView,
-    MyOrderListAPIView,
-    OrderCreateAPIView,
+    CartItemAPIView,
+    CartItemDetailAPIView,
+    FreeEnrollmentAPIView,
+    OrderAPIView,
     PaymentSubmitAPIView,
     PublicProductListAPIView,
 )
 
 app_name = 'v1'
 
-router = SimpleRouter(trailing_slash=False)
-router.register('admin/product', AdminProductViewSet, basename='admin-product')
+router = SimpleRouter()
+router.register('admin/products', AdminProductViewSet, basename='admin-product')
 
 urlpatterns = [
-    path('products', PublicProductListAPIView.as_view(), name='product_list'),
-    path('cart', CartAPIView.as_view(), name='cart'),
-    path('cart/add-remove', CartAddRemoveAPIView.as_view(), name='cart_add_remove'),
-    path('cart/delete/<int:product_id>', CartDeleteAPIView.as_view(), name='cart_delete'),
-    path('free-course-purchase', FreeCoursePurchaseAPIView.as_view(), name='free_course_purchase'),
-    path('order', OrderCreateAPIView.as_view(), name='order_create'),
-    path('payment', PaymentSubmitAPIView.as_view(), name='payment_submit'),
-    path('orders', MyOrderListAPIView.as_view(), name='my_order_list'),
-    path('admin/payment', AdminPaymentListAPIView.as_view(), name='admin_payment_list'),
-    path('admin/payment/<int:pk>', AdminPaymentUpdateAPIView.as_view(), name='admin_payment_update'),
+    path('products/', PublicProductListAPIView.as_view(), name='product_list'),
+    # The cart holds items, so adding and removing act on the items rather
+    # than on paths called add-remove and delete/<id>.
+    path('cart/', CartAPIView.as_view(), name='cart'),
+    path('cart/items/', CartItemAPIView.as_view(), name='cart_item_add'),
+    path('cart/items/<int:product_id>/', CartItemDetailAPIView.as_view(), name='cart_item_detail'),
+    # One collection: GET lists the caller's orders, POST places one. The
+    # legacy API split these across singular `order` and plural `orders`.
+    path('orders/', OrderAPIView.as_view(), name='orders'),
+    path('payments/', PaymentSubmitAPIView.as_view(), name='payment_submit'),
+    # Claiming a free course creates an enrolment; it is not a "purchase".
+    path('enrollments/free/', FreeEnrollmentAPIView.as_view(), name='free_enrollment'),
+    path('admin/payments/', AdminPaymentListAPIView.as_view(), name='admin_payment_list'),
+    path('admin/payments/<int:pk>/', AdminPaymentUpdateAPIView.as_view(), name='admin_payment_update'),
 ] + router.urls

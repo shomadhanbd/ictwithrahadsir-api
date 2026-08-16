@@ -347,12 +347,24 @@ class BaseCourseEnrollmentAPIView(APIView):
         return Course.objects.filter(slug=value).first()
 
 
-class AdminCourseUserAttachAPIView(BaseCourseEnrollmentAPIView):
+class AdminEnrollmentAPIView(BaseCourseEnrollmentAPIView):
+    """Attach, amend or remove a student's enrolment.
+
+    One resource with a method per action. The legacy API exposed this as
+    three POST-only endpoints (user-attach / user-update / user-remove);
+    those names still route here through the subclasses below.
+    """
+
     def post(self, request):
         course = self.get_course(request.data)
         user_id = request.data.get('user_id')
         if not course or not user_id:
             raise ValidationError({'user_id': ['A valid course and user_id are required.']})
+
+        # Checked rather than left to the FK constraint, which surfaced an
+        # unknown id as an IntegrityError 500 instead of a validation error.
+        if not User.objects.filter(pk=user_id).exists():
+            raise ValidationError({'user_id': ['No such user.']})
 
         # The admin UI only sends `price_id` on attach -- validity and payment
         # type are derived from that price's own rule, not supplied by the caller.
@@ -388,8 +400,7 @@ class AdminCourseUserAttachAPIView(BaseCourseEnrollmentAPIView):
         return Response(CourseUserSerializer(enrollment).data, status=status.HTTP_201_CREATED)
 
 
-class AdminCourseUserUpdateAPIView(BaseCourseEnrollmentAPIView):
-    def post(self, request):
+    def patch(self, request):
         course = self.get_course(request.data)
         user_id = request.data.get('user_id')
         enrollment = (
@@ -408,8 +419,7 @@ class AdminCourseUserUpdateAPIView(BaseCourseEnrollmentAPIView):
         return Response(CourseUserSerializer(enrollment).data)
 
 
-class AdminCourseUserRemoveAPIView(BaseCourseEnrollmentAPIView):
-    def post(self, request):
+    def delete(self, request):
         course = self.get_course(request.data)
         user_id = request.data.get('user_id')
 
@@ -417,6 +427,24 @@ class AdminCourseUserRemoveAPIView(BaseCourseEnrollmentAPIView):
         if course:
             deleted, _ = CourseUser.objects.filter(course=course, user_id=user_id).delete()
         return Response({'ok': deleted > 0})
+
+
+# The legacy flat API exposed the three actions above as separate POST-only
+# endpoints. These keep those paths working without duplicating the logic.
+
+
+class AdminCourseUserAttachAPIView(AdminEnrollmentAPIView):
+    pass
+
+
+class AdminCourseUserUpdateAPIView(AdminEnrollmentAPIView):
+    def post(self, request):
+        return self.patch(request)
+
+
+class AdminCourseUserRemoveAPIView(AdminEnrollmentAPIView):
+    def post(self, request):
+        return self.delete(request)
 
 
 class AdminCourseUserImportAPIView(APIView):

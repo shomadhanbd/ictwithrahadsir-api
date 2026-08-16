@@ -24,7 +24,7 @@ from apps.team.models import Teacher
 HOME_URL = reverse('api:cms:v1:home')
 NOTICES_URL = reverse('api:cms:v1:notice_list')
 NOTICE_CATEGORY_URL = reverse('api:cms:v1:notice_category_list')
-CONTACT_URL = reverse('api:cms:v1:contact_us')
+CONTACT_URL = reverse('api:cms:v1:contact_messages')
 ADMIN_PAGE_LIST_URL = reverse('api:cms:v1:admin_page_list')
 ADMIN_CONTACT_LIST_URL = reverse('api:cms:v1:admin_contact_list')
 

@@ -22,9 +22,7 @@ from apps.courses.models import (
 COURSE_LIST_URL = reverse('api:courses:v1:course_list')
 CATEGORY_LIST_URL = reverse('api:courses:v1:course_category_list')
 MY_COURSE_URL = reverse('api:courses:v1:my_course_list')
-ATTACH_URL = reverse('api:courses:v1:admin_course_user_attach')
-UPDATE_URL = reverse('api:courses:v1:admin_course_user_update')
-REMOVE_URL = reverse('api:courses:v1:admin_course_user_remove')
+ENROLLMENT_URL = reverse('api:courses:v1:admin_enrollment')
 
 
 class CatalogueTests(APITestCase):
@@ -199,7 +197,7 @@ class AdminEnrolmentTests(APITestCase):
 
     def test_attach_by_slug(self):
         response = self.client.post(
-            ATTACH_URL, {'slugOrId': 'ict', 'user_id': self.student.pk},
+            ENROLLMENT_URL, {'slugOrId': 'ict', 'user_id': self.student.pk},
             format='json', **self.auth,
         )
         self.assertEqual(response.status_code, 201)
@@ -207,14 +205,14 @@ class AdminEnrolmentTests(APITestCase):
 
     def test_attach_by_numeric_id(self):
         response = self.client.post(
-            ATTACH_URL, {'slugOrId': str(self.course.pk), 'user_id': self.student.pk},
+            ENROLLMENT_URL, {'slugOrId': str(self.course.pk), 'user_id': self.student.pk},
             format='json', **self.auth,
         )
         self.assertEqual(response.status_code, 201)
 
     def test_attaching_with_a_price_sets_validity_and_payment_type(self):
         self.client.post(
-            ATTACH_URL,
+            ENROLLMENT_URL,
             {'slugOrId': 'ict', 'user_id': self.student.pk, 'price_id': self.price.pk},
             format='json', **self.auth,
         )
@@ -225,23 +223,32 @@ class AdminEnrolmentTests(APITestCase):
     def test_a_price_from_another_course_is_rejected(self):
         other = Course.objects.create(title='Other', slug='other')
         response = self.client.post(
-            ATTACH_URL,
+            ENROLLMENT_URL,
             {'slugOrId': other.slug, 'user_id': self.student.pk, 'price_id': self.price.pk},
             format='json', **self.auth,
         )
         self.assertEqual(response.status_code, 422)
 
+    def test_attaching_an_unknown_user_is_a_validation_error(self):
+        # The FK constraint used to surface this as an IntegrityError 500.
+        response = self.client.post(
+            ENROLLMENT_URL, {'slugOrId': 'ict', 'user_id': 999999},
+            format='json', **self.auth,
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertIn('user_id', response.json()['errors'])
+
     def test_attach_requires_a_valid_course_and_user(self):
         response = self.client.post(
-            ATTACH_URL, {'slugOrId': 'ghost', 'user_id': self.student.pk},
+            ENROLLMENT_URL, {'slugOrId': 'ghost', 'user_id': self.student.pk},
             format='json', **self.auth,
         )
         self.assertEqual(response.status_code, 422)
 
     def test_update_changes_payment_type(self):
         CourseUser.objects.create(course=self.course, user=self.student)
-        response = self.client.post(
-            UPDATE_URL,
+        response = self.client.patch(
+            ENROLLMENT_URL,
             {'slugOrId': 'ict', 'user_id': self.student.pk, 'payment_type': 'paid'},
             format='json', **self.auth,
         )
@@ -251,24 +258,24 @@ class AdminEnrolmentTests(APITestCase):
         )
 
     def test_update_on_a_missing_enrolment_is_404(self):
-        response = self.client.post(
-            UPDATE_URL, {'slugOrId': 'ict', 'user_id': self.student.pk},
+        response = self.client.patch(
+            ENROLLMENT_URL, {'slugOrId': 'ict', 'user_id': self.student.pk},
             format='json', **self.auth,
         )
         self.assertEqual(response.status_code, 404)
 
     def test_remove_deletes_the_enrolment(self):
         CourseUser.objects.create(course=self.course, user=self.student)
-        response = self.client.post(
-            REMOVE_URL, {'slugOrId': 'ict', 'user_id': self.student.pk},
+        response = self.client.delete(
+            ENROLLMENT_URL, {'slugOrId': 'ict', 'user_id': self.student.pk},
             format='json', **self.auth,
         )
         self.assertTrue(response.json()['ok'])
         self.assertFalse(CourseUser.objects.exists())
 
     def test_remove_reports_false_when_nothing_matched(self):
-        response = self.client.post(
-            REMOVE_URL, {'slugOrId': 'ict', 'user_id': self.student.pk},
+        response = self.client.delete(
+            ENROLLMENT_URL, {'slugOrId': 'ict', 'user_id': self.student.pk},
             format='json', **self.auth,
         )
         self.assertFalse(response.json()['ok'])
@@ -278,7 +285,7 @@ class AdminEnrolmentTests(APITestCase):
             'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=self.student).key}'
         }
         response = self.client.post(
-            ATTACH_URL, {'slugOrId': 'ict', 'user_id': self.student.pk},
+            ENROLLMENT_URL, {'slugOrId': 'ict', 'user_id': self.student.pk},
             format='json', **student_auth,
         )
         self.assertEqual(response.status_code, 403)

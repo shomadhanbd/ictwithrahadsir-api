@@ -9,8 +9,117 @@ from pathlib import Path
 
 from django.conf import settings
 from django.test import TestCase
+from django.urls import resolve
 
 from apps.core.url_contract import SNAPSHOT_PATH, current_url_contract
+
+
+class LegacyAliasTests(TestCase):
+    """The flat paths are deprecated but must keep resolving until clients
+    have moved, so the backend can deploy ahead of them.
+
+    Asserting the route resolves is enough here -- the behaviour behind each
+    one is covered by its own app's tests, and both paths reach the same
+    view.
+    """
+
+    #: (deprecated path, canonical replacement)
+    ALIASES = [
+        ('/api/login', '/api/v1/auth/login/'),
+        ('/api/register', '/api/v1/auth/register/'),
+        ('/api/get-otp', '/api/v1/auth/otp/'),
+        ('/api/verify-otp', '/api/v1/auth/otp/verify/'),
+        ('/api/check-phone', '/api/v1/auth/phone-check/'),
+        ('/api/forget-password', '/api/v1/auth/password/forgot/'),
+        ('/api/password-reset', '/api/v1/auth/password/reset/'),
+        ('/api/user', '/api/v1/me/'),
+        ('/api/my-course', '/api/v1/me/courses/'),
+        ('/api/courses', '/api/v1/courses/'),
+        ('/api/course-category', '/api/v1/course-categories/'),
+        ('/api/notices', '/api/v1/notices/'),
+        ('/api/notice-category', '/api/v1/notice-categories/'),
+        ('/api/products', '/api/v1/products/'),
+        ('/api/home', '/api/v1/home/'),
+        ('/api/contact-us', '/api/v1/contact-messages/'),
+        ('/api/cart', '/api/v1/cart/'),
+        ('/api/cart/add-remove', '/api/v1/cart/items/1/'),
+        ('/api/order', '/api/v1/orders/'),
+        ('/api/orders', '/api/v1/orders/'),
+        ('/api/payment', '/api/v1/payments/'),
+        ('/api/free-course-purchase', '/api/v1/enrollments/free/'),
+        ('/api/aws-upload-url', '/api/v1/uploads/signed-url/'),
+        ('/api/exams/1', '/api/v1/exams/1/'),
+        ('/api/ranking/1', '/api/v1/exams/1/ranking/'),
+        ('/api/admin/user', '/api/v1/admin/users/'),
+        ('/api/admin/user-search', '/api/v1/admin/users/search/'),
+        ('/api/admin/user/import', '/api/v1/admin/users/import/'),
+        ('/api/admin/team', '/api/v1/admin/teachers/'),
+        ('/api/admin/teacher', '/api/v1/admin/teachers/lookup/'),
+        ('/api/admin/course', '/api/v1/admin/courses/'),
+        ('/api/admin/course-category', '/api/v1/admin/course-categories/'),
+        ('/api/admin/section', '/api/v1/admin/sections/'),
+        ('/api/admin/content', '/api/v1/admin/contents/'),
+        ('/api/admin/price', '/api/v1/admin/prices/'),
+        ('/api/admin/coupon', '/api/v1/admin/coupons/'),
+        ('/api/admin/routine', '/api/v1/admin/routines/'),
+        ('/api/admin/instructor', '/api/v1/admin/instructors/'),
+        ('/api/admin/mcq', '/api/v1/admin/mcq-questions/'),
+        ('/api/admin/mcq-store', '/api/v1/admin/mcq-folders/'),
+        ('/api/admin/result', '/api/v1/admin/exam-results/'),
+        ('/api/admin/product', '/api/v1/admin/products/'),
+        ('/api/admin/payment', '/api/v1/admin/payments/'),
+        ('/api/admin/notice', '/api/v1/admin/notices/'),
+        ('/api/admin/notice-category', '/api/v1/admin/notice-categories/'),
+        ('/api/admin/testimonial', '/api/v1/admin/testimonials/'),
+        ('/api/admin/advertisement', '/api/v1/admin/advertisements/'),
+        ('/api/admin/exclusive-ebook', '/api/v1/admin/ebooks/'),
+        ('/api/admin/page', '/api/v1/admin/pages/'),
+        ('/api/admin/contact', '/api/v1/admin/contact-messages/'),
+        ('/api/admin/course-materials', '/api/v1/admin/course-materials/'),
+        ('/api/admin/dashboard', '/api/v1/admin/dashboard/'),
+        ('/api/admin/sms-balance', '/api/v1/admin/sms-balance/'),
+        ('/api/admin/logout', '/api/v1/admin/auth/logout/'),
+    ]
+
+    def test_every_deprecated_path_still_resolves(self):
+        for legacy, _ in self.ALIASES:
+            with self.subTest(path=legacy):
+                self.assertIsNotNone(resolve(legacy), f'{legacy} no longer routes')
+
+    def test_every_canonical_replacement_resolves(self):
+        for legacy, canonical in self.ALIASES:
+            with self.subTest(path=canonical):
+                self.assertIsNotNone(
+                    resolve(canonical), f'{canonical} (replacing {legacy}) does not route'
+                )
+
+    def test_both_paths_share_an_implementation(self):
+        # Some aliases are the canonical view itself; the rest are thin
+        # subclasses that remap a method (the flat API had POST-only
+        # endpoints where the canonical one uses PATCH/DELETE). Either is
+        # fine -- what must not happen is the two drifting onto unrelated
+        # code, which would leave clients on the old path running something
+        # else entirely.
+        skip = {
+            # The flat API served the paper and its submission from one path,
+            # so its view genuinely combines two canonical ones.
+            '/api/exams/1',
+            # Distinct endpoints that happen to share a prefix.
+            '/api/admin/teacher',
+            '/api/cart/add-remove',
+        }
+        for legacy, canonical in self.ALIASES:
+            if legacy in skip:
+                continue
+            legacy_view = resolve(legacy).func.cls
+            canonical_view = resolve(canonical).func.cls
+            with self.subTest(path=legacy):
+                self.assertTrue(
+                    legacy_view is canonical_view
+                    or issubclass(legacy_view, canonical_view),
+                    f'{legacy} resolves to {legacy_view.__name__}, which is unrelated '
+                    f'to {canonical_view.__name__} behind {canonical}',
+                )
 
 
 class UrlContractTests(TestCase):
