@@ -45,7 +45,8 @@ from apps.courses.models import (
     Section,
 )
 from apps.assessment.models import ExamResult, McqQuestion, McqStore
-from apps.billing.models import CartItem, Order, Payment, Product
+from apps.billing.models import Order, Payment
+from apps.store.models import CartItem, Product
 from apps.faculty.models import Teacher
 
 User = get_user_model()
