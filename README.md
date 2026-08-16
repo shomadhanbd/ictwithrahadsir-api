@@ -18,7 +18,7 @@ backend (just set `BACKEND_URL` / `NEXT_PUBLIC_BACKEND_URL` to this API's
 - Storage: local disk by default; flip `USE_S3=True` + AWS/DigitalOcean
   Spaces credentials to switch to S3-compatible object storage with no code
   changes (`django-storages`)
-- OTP delivery: pluggable `SmsBackend` (`apps/core/sms.py`), defaults to a
+- OTP delivery: pluggable `SmsBackend` (`apps/core/services/`), defaults to a
   console/log backend so the whole auth flow works without a real SMS
   gateway account
 
@@ -26,21 +26,29 @@ backend (just set `BACKEND_URL` / `NEXT_PUBLIC_BACKEND_URL` to this API's
 
 ```
 apps/
-  core/        shared infra: pagination, error envelope, media field/upload
-               endpoint, permissions, dashboard aggregates, SMS backend
-  accounts/    User model (phone+OTP and email+password auth), admin user CRUD
-  team/        Teacher/founder roster
-  courses/     Categories, Course, Price, Coupon, Routine, Instructor,
-               Section/Content tree, enrollment (CourseUser)
-  exams/       MCQ question bank (McqStore/McqQuestion), exam taking +
-               results + ranking
-  shop/        Product, Cart, Order, manual bKash/Nagad/Rocket Payment
-  cms/         Notice, static Page, Testimonial, Advertisement, EBook,
-               Contact messages, homepage aggregate (`/home`)
+  core/        infrastructure only: DRF plumbing (auth, pagination,
+               permissions, throttling, fields, error envelope), slugs,
+               middleware, SMS services, uploads, management commands
+  identity/    User (phone+OTP and email+password auth), OTP, admin user CRUD
+  faculty/     Teacher roster and CourseInstructor, their per-course
+               assignment with commission
+  courses/     Course, CourseCategory, CoursePrice, Coupon, Routine,
+               Section/Content tree, Enrollment, CourseMaterial
+  assessment/  Exam, QuestionBank, Question, ExamAttempt -- exam taking,
+               results and ranking
+  billing/     Order, Payment, and the admin dashboard aggregates
+  store/       Product and CartItem, the catalogue and basket
+  content/     Notice, static Page, Testimonial, Advertisement, EBook,
+               homepage aggregate (`/home`)
+  support/     Contact messages -- the staff inbox behind the contact form
+
+Each app owns one domain and is named after it. Apps depend downward only:
+billing and store depend on courses, courses never depends on them (see
+apps/courses/selectors.py for the one inverted read).
 ```
 
 Every `/admin/*` endpoint requires a token belonging to a `staff`, `admin`,
-or `instructor` user (`apps.core.permissions.IsAdminRole`). Everything else
+or `instructor` user (`apps.core.api.permissions.IsAdminRole`). Everything else
 is public read / authenticated write per-resource, matching how the existing
 frontends already call the API.
 
@@ -79,9 +87,9 @@ them before running to override the defaults baked into `docker-compose.yml`.
 - **Object storage**: set `USE_S3=True` plus `AWS_ACCESS_KEY_ID`,
   `AWS_SECRET_ACCESS_KEY`, `AWS_STORAGE_BUCKET_NAME`, `AWS_S3_REGION_NAME`,
   `AWS_S3_ENDPOINT_URL` (DigitalOcean Spaces or S3). No code changes needed —
-  every image/file field already goes through `apps.core.fields.MediaField`
+  every image/file field already goes through `apps.core.api.fields.MediaField`
   and the `/aws-upload-url` presigned-upload endpoint.
-- **SMS/OTP gateway**: implement a class in `apps/core/sms.py` extending
+- **SMS/OTP gateway**: implement a class in `apps/core/services/` extending
   `SmsBackend`, register it in `get_sms_backend()`'s `backends` dict, and set
   `SMS_BACKEND=<name>` in `.env`. Until then, OTP codes are logged to the
   server console/log instead of being texted.
