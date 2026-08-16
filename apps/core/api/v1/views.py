@@ -62,7 +62,7 @@ class AdminDashboardAPIView(APIView):
     def get(self, request):
         from apps.identity.models import User
         from apps.courses.models import Course
-        from apps.shop.models import Order
+        from apps.billing.models import Order
 
         now = timezone.now()
         month_start = _month_start(now)
@@ -115,7 +115,7 @@ class AdminDashboardSalesOverviewAPIView(APIView):
     permission_classes = [IsAdminRole]
 
     def get(self, request):
-        from apps.shop.models import Order
+        from apps.billing.models import Order
 
         start = timezone.now().replace(day=1) - timezone.timedelta(days=365)
         rows = (
@@ -139,7 +139,7 @@ class AdminDashboardPaymentChartAPIView(APIView):
     permission_classes = [IsAdminRole]
 
     def get(self, request):
-        from apps.shop.models import Order
+        from apps.billing.models import Order
 
         start = timezone.now() - timezone.timedelta(days=30)
         rows = (

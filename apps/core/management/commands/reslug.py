@@ -19,10 +19,10 @@ import re
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
-from apps.cms.models import Notice, NoticeCategory
+from apps.content.models import Notice, NoticeCategory
 from apps.core.slugs import ascii_slug
 from apps.courses.models import Content, Course, CourseCategory, Section
-from apps.shop.models import Product
+from apps.billing.models import Product
 
 # Slugs the old code produced when it had nothing usable to work with.
 BROKEN = re.compile(r"^(item|product)(-\d+)?$")

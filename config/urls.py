@@ -26,11 +26,11 @@ api_v1_patterns = (
     [
         path('', include('apps.core.api.urls')),
         path('', include('apps.identity.api.urls')),
-        path('', include('apps.team.api.urls')),
+        path('', include('apps.faculty.api.urls')),
         path('', include('apps.courses.api.urls')),
-        path('', include('apps.exams.api.urls')),
-        path('', include('apps.shop.api.urls')),
-        path('', include('apps.cms.api.urls')),
+        path('', include('apps.assessment.api.urls')),
+        path('', include('apps.billing.api.urls')),
+        path('', include('apps.content.api.urls')),
     ],
     'api',
 )

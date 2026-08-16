@@ -22,10 +22,10 @@ from django.urls import reverse
 from rest_framework.authtoken.models import Token
 
 from apps.identity.models import User
-from apps.cms.models import Advertisement, Page, Testimonial
+from apps.content.models import Advertisement, Page, Testimonial
 from apps.courses.models import Content, Course, CourseCategory, Instructor, Section
-from apps.exams.models import McqStore
-from apps.team.models import Teacher
+from apps.assessment.models import McqStore
+from apps.faculty.models import Teacher
 
 #: Exactly what `/api/v1/home/` returns, in order.
 HOME_KEYS = [
@@ -134,13 +134,13 @@ class ResponseShapeTests(TestCase):
     # -- public ----------------------------------------------------------
 
     def test_home_payload_shape(self):
-        body = self.client.get(reverse('api:cms:v1:home')).json()
+        body = self.client.get(reverse('api:content:v1:home')).json()
         self.assertEqual(list(body.keys()), HOME_KEYS)
         self.assertEqual(list(body['instructors'][0].keys()), PUBLIC_INSTRUCTOR_KEYS)
         self.assertEqual(list(body['courses'][0].keys()), COURSE_LIST_KEYS)
 
     def test_home_instructors_are_the_teacher_roster(self):
-        body = self.client.get(reverse('api:cms:v1:home')).json()
+        body = self.client.get(reverse('api:content:v1:home')).json()
         self.assertEqual(body['instructors'][0]['name'], 'Rahad Sir')
         self.assertEqual(body['instructors'][0]['type'], 'founder')
         self.assertEqual(
@@ -215,7 +215,7 @@ class ResponseShapeTests(TestCase):
         CourseUser.objects.create(course=self.course, user=student)
         auth = {'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=student).key}'}
 
-        url = reverse('api:exams:v1:exam_detail', args=[self.exam_content.pk])
+        url = reverse('api:assessment:v1:exam_detail', args=[self.exam_content.pk])
         body = self.client.get(url, **auth).json()
 
         self.assertEqual(

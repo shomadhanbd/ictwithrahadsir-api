@@ -289,7 +289,7 @@ class Content(TimestampModel, OrderedModel):
 
     # -- exam --
     exam_store = models.ForeignKey(
-        "exams.McqStore", on_delete=models.SET_NULL, null=True, blank=True, related_name="contents"
+        "assessment.McqStore", on_delete=models.SET_NULL, null=True, blank=True, related_name="contents"
     )
     exam_mode = models.CharField(max_length=20, choices=ExamMode.choices, default=ExamMode.EXAM)
     exam_total_marks = models.PositiveIntegerField(null=True, blank=True)

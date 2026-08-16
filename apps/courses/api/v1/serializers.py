@@ -5,7 +5,7 @@ from rest_framework import serializers
 
 from apps.identity.models import User
 from apps.core.api.fields import MediaField
-from apps.exams.models import McqStore
+from apps.assessment.models import McqStore
 
 from apps.courses.models import Content, Course, CourseCategory, CoursePrice, CourseUser, Coupon, Instructor, Routine, Section
 
@@ -204,7 +204,7 @@ class ContentDetailSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         result = None
         if request and request.user.is_authenticated:
-            from apps.exams.models import ExamResult
+            from apps.assessment.models import ExamResult
 
             result = ExamResult.objects.filter(content=obj, user=request.user).first()
         return {

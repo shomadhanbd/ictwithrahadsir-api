@@ -23,7 +23,7 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone
 
-from apps.cms.models import (
+from apps.content.models import (
     Advertisement,
     ContactMessage,
     CourseMaterial,
@@ -44,9 +44,9 @@ from apps.courses.models import (
     Routine,
     Section,
 )
-from apps.exams.models import ExamResult, McqQuestion, McqStore
-from apps.shop.models import CartItem, Order, Payment, Product
-from apps.team.models import Teacher
+from apps.assessment.models import ExamResult, McqQuestion, McqStore
+from apps.billing.models import CartItem, Order, Payment, Product
+from apps.faculty.models import Teacher
 
 User = get_user_model()
 

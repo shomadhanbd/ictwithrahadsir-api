@@ -128,7 +128,7 @@ class HasOrderWiringTests(APITestCase):
         self.bought = Course.objects.create(title='Bought', slug='bought')
         self.browsed = Course.objects.create(title='Browsed', slug='browsed')
 
-        from apps.shop.models import Order
+        from apps.billing.models import Order
 
         Order.objects.create(
             user=self.student, course=self.bought,
