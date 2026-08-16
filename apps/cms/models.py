@@ -154,23 +154,3 @@ class Page(TimestampModel):
         if not self.slug:
             self.slug = self.key
         super().save(*args, **kwargs)
-
-
-class Counter(TimestampModel):
-    """DEPRECATED -- do not build on this.
-
-    Homepage counters are `Page` rows with `value_type="counter"`, which is
-    what `/home` reads and what the admin panel's Pages screen edits. This
-    model is written and read by nothing; its serializer has been removed.
-
-    Left in place only because dropping it drops its table. Delete the model
-    and generate the migration once you have confirmed the table is empty in
-    production.
-    """
-
-    key = models.SlugField(max_length=100, unique=True)
-    label = models.CharField(max_length=150, blank=True)
-    value = models.PositiveIntegerField(default=0)
-
-    def __str__(self):
-        return f"{self.key}: {self.value}"

@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Advertisement, Counter, CourseMaterial, ContactMessage, EBook, Notice, NoticeCategory, Page, Testimonial
+from .models import Advertisement, CourseMaterial, ContactMessage, EBook, Notice, NoticeCategory, Page, Testimonial
 
 
 @admin.register(Notice)
@@ -44,7 +44,3 @@ class ContactMessageAdmin(admin.ModelAdmin):
 class PageAdmin(admin.ModelAdmin):
     list_display = ["id", "key", "value_type"]
 
-
-@admin.register(Counter)
-class CounterAdmin(admin.ModelAdmin):
-    list_display = ["id", "key", "label", "value"]
