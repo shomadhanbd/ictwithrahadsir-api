@@ -25,6 +25,7 @@ from apps.courses.api.v1.serializers import (
     CouponSerializer,
     EnrollmentSerializer,
     RoutineSerializer,
+    build_category_children,
     build_course_stats,
 )
 from apps.courses.models import (
@@ -97,10 +98,26 @@ class PublicCourseDetailAPIView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request, slug):
-        course = Course.objects.filter(slug=slug, active=True).first()
+        course = (
+            Course.objects.filter(slug=slug, active=True)
+            .prefetch_related(*CourseListContextMixin.PREFETCH)
+            .first()
+        )
         if not course:
             raise NotFound('Course not found.')
-        return Response(CourseDetailSerializer(course, context={'request': request}).data)
+
+        # Detail inherits every field the list serializer computes, so it
+        # inherits the same six COUNTs and the price/enrolment lookups. It
+        # was the one course endpoint not going through the batcher.
+        return Response(
+            CourseDetailSerializer(
+                course,
+                context={
+                    'request': request,
+                    'course_stats': build_course_stats([course], request),
+                },
+            ).data
+        )
 
 
 class BaseContentAPIView(APIView):
@@ -109,7 +126,8 @@ class BaseContentAPIView(APIView):
     permission_classes = [AllowAny]
 
     def get_accessible_content(self, slug):
-        content = Content.objects.filter(slug=slug, active=True).first()
+        # The detail payload reads the linked Exam for exam content.
+        content = Content.objects.select_related('exam').filter(slug=slug, active=True).first()
         if not content:
             raise NotFound('Content not found.')
         if not content.is_accessible_by(self.request.user):
@@ -179,7 +197,13 @@ class PublicCourseCategoryListAPIView(ListAPIView):
     queryset = CourseCategory.objects.filter(category__isnull=True)
 
     def list(self, request, *args, **kwargs):
-        serializer = self.get_serializer(self.get_queryset(), many=True)
+        roots = list(self.get_queryset())
+        serializer = self.get_serializer(
+            roots, many=True, context={
+                **self.get_serializer_context(),
+                'category_children': build_category_children(roots),
+            }
+        )
         return Response({'data': serializer.data})
 
 
@@ -189,7 +213,9 @@ class PublicCourseCategoryListAPIView(ListAPIView):
 
 
 class AdminCourseViewSet(AdminModelViewSet):
-    queryset = Course.objects.all()
+    # `categories` is a m2m on the serializer, so it is one query per course
+    # on the list without this.
+    queryset = Course.objects.prefetch_related('categories')
     serializer_class = AdminCourseSerializer
     lookup_field = 'slug'
 
@@ -275,7 +301,10 @@ class AdminSectionViewSet(AdminModelViewSet):
 
 
 class AdminContentViewSet(AdminModelViewSet):
-    queryset = Content.objects.all()
+    # The serializer merges the flat `exam_*` keys in from the related Exam
+    # row on every content, exam or not -- a reverse one-to-one, so it is a
+    # query each without this.
+    queryset = Content.objects.select_related('exam')
     serializer_class = AdminContentSerializer
     lookup_field = 'slug'
 

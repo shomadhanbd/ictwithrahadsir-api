@@ -2,17 +2,7 @@ from django.conf import settings
 from django.db import models
 
 from apps.core.models import OrderedModel, TimestampModel
-from apps.core.slugs import ascii_slug
-
-
-def unique_slugify(model, instance, base_text):
-    base_slug = ascii_slug(base_text)
-    slug = base_slug
-    i = 1
-    while model.objects.filter(slug=slug).exclude(pk=instance.pk).exists():
-        i += 1
-        slug = f"{base_slug}-{i}"
-    return slug
+from apps.core.slugs import unique_slug
 
 
 class NoticeCategory(TimestampModel, OrderedModel):
@@ -31,7 +21,7 @@ class NoticeCategory(TimestampModel, OrderedModel):
 
     def save(self, *args, **kwargs):
         if not self.slug:
-            self.slug = unique_slugify(NoticeCategory, self, self.title)
+            self.slug = unique_slug(self, self.title)
         super().save(*args, **kwargs)
 
 
@@ -47,7 +37,7 @@ class Notice(TimestampModel):
 
     def save(self, *args, **kwargs):
         if not self.slug:
-            self.slug = unique_slugify(Notice, self, self.title)
+            self.slug = unique_slug(self, self.title)
         super().save(*args, **kwargs)
 
 

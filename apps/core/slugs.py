@@ -102,3 +102,34 @@ def ascii_slug(text, fallback="item"):
     if not slug:
         slug = slugify(transliterate(text))
     return slug[:200] or fallback
+
+
+def unique_slug(instance, base_text, slug_field="slug"):
+    """A slug for `instance` that no other row of its model holds.
+
+    `courses` and `content` each had their own copy of this, with different
+    signatures and the same behaviour: probe "title", then "title-2", then
+    "title-3", one `EXISTS` query per attempt. That is fine for a unique
+    title and quadratic for a common one -- seeding thirty "Model Test"
+    contents cost 1 + 2 + ... + 30 queries.
+
+    This reads the taken suffixes once and picks the first free number.
+    """
+    base = ascii_slug(base_text)
+    model = instance.__class__
+
+    taken = set(
+        model.objects.filter(**{f"{slug_field}__startswith": base})
+        .exclude(pk=instance.pk)
+        .values_list(slug_field, flat=True)
+    )
+    if base not in taken:
+        return base
+
+    # `startswith` also matches unrelated longer slugs ("math" vs
+    # "mathematics"), which is harmless: they simply never collide with a
+    # candidate, so the first free suffix is still correct.
+    suffix = 2
+    while f"{base}-{suffix}" in taken:
+        suffix += 1
+    return f"{base}-{suffix}"

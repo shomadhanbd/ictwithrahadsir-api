@@ -68,7 +68,7 @@ names, rotating file logging -- with these deliberate exceptions:
 | all endpoints as `APIView` | ~20 `ModelViewSet`s retained | router-generated CRUD; converting loses it for nothing |
 | `{'detail': …}` errors | `{message, errors}` | both frontends parse the Laravel-style envelope |
 
-Two guards exist because of the above and should not be worked around:
+Three guards exist because of the above and should not be worked around:
 
 - `apps/core/url_contract.txt` snapshots every served path.
   `manage.py dump_url_contract` regenerates it, and should only be run when
@@ -76,6 +76,24 @@ Two guards exist because of the above and should not be worked around:
 - `apps/core/test_response_shapes.py` pins response *bodies*, which the URL
   contract does not cover. It lives in `core` because several of its
   assertions span apps.
+- `apps/core/test_query_budget.py` pins the *cost* of the read-heavy
+  endpoints, which neither of the above covers — a response is correct
+  whether it took 4 queries or 400. Each endpoint asserts a query ceiling,
+  and `ScaledQueryBudgetTests` repeats every assertion against twice the
+  data: identical counts at both sizes is what proves an endpoint is flat
+  rather than merely small today. If one fails, something became per-row;
+  raise the number only deliberately, with a reason.
+
+### Query-cost conventions
+
+Serializers that need per-row aggregates take them from a batch in
+`context` and fall back to a per-object query when it is absent, so the
+same serializer is cheap in a list and still correct for a single object.
+`build_course_stats`, `build_section_tree` and `build_category_children`
+(all in `apps/courses/api/v1/serializers.py`) are the three of these; a
+view that serializes many rows should pass the matching one. Anything that
+recurses — the section tree, the category tree — must be grouped in Python
+from a whole-tree query rather than asking per node.
 
 ## Getting started (local dev, no external services)
 
@@ -128,6 +146,12 @@ them before running to override the defaults baked into `docker-compose.yml`.
 
 - List endpoints return Laravel's pagination envelope:
   `{data, links: {first,last,prev,next}, meta: {current_page,last_page,per_page,total,...}}`.
+  `meta.links` (the numbered page buttons) is a *window* around the current
+  page with `...` for the elided runs, not one entry per page as Laravel
+  emits: at 50k rows the full list was thousands of link objects and several
+  hundred KB of JSON on every request. Both frontends paginate off
+  `meta.last_page` and read neither the count nor the contents of
+  `meta.links`. Widen it with `page_link_window` if a client ever needs more.
 - Validation errors return `422` with `{message, errors: {field: [msg, ...]}}`.
 - Every image/file field serializes as `{id, link}`; write it as either a
   multipart file upload or a URL string obtained from `/aws-upload-url`.

@@ -20,7 +20,8 @@ class AdminProductViewSet(AdminModelViewSet):
     actually has a management surface -- an industry-standard API shouldn't
     leave `Product` writable only via direct DB access."""
 
-    queryset = Product.objects.all()
+    # `categories` is a m2m on the serializer: one query per product without it.
+    queryset = Product.objects.prefetch_related('categories')
     serializer_class = ProductSerializer
     lookup_field = 'slug'
 
@@ -34,7 +35,7 @@ class PublicProductListAPIView(ListAPIView):
     permission_classes = [AllowAny]
     serializer_class = ProductSerializer
     pagination_class = LaravelStylePageNumberPagination
-    queryset = Product.objects.filter(active=True)
+    queryset = Product.objects.filter(active=True).prefetch_related('categories')
 
 
 # ---------------------------------------------------------------------------
@@ -49,7 +50,13 @@ class BaseCartAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def cart_response(self):
-        items = CartItem.objects.filter(user=self.request.user).select_related('product')
+        # The nested product carries its categories, so those are prefetched
+        # too -- otherwise the cart costs a query per line just for them.
+        items = (
+            CartItem.objects.filter(user=self.request.user)
+            .select_related('product')
+            .prefetch_related('product__categories')
+        )
         return Response(CartItemSerializer(items, many=True).data)
 
 

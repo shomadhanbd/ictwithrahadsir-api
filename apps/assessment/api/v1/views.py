@@ -1,5 +1,6 @@
 from decimal import Decimal
 
+from django.db.models import Q
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
@@ -158,14 +159,43 @@ class ExamSubmissionAPIView(BaseExamAPIView):
         return Response(result_payload(result), status=status.HTTP_201_CREATED)
 
     def _score(self, sections, positive, negative):
+        """Mark the paper.
+
+        The answer keys are fetched in one query rather than one per
+        question: a 100-question paper used to issue 100 SELECTs on submit,
+        at the exact moment a whole class hits the endpoint together.
+        """
+        def question_id(answer):
+            """The referenced question id, or None if it isn't one.
+
+            The client sends whatever it likes here; a non-numeric id used to
+            reach the ORM and raise ValueError, i.e. a 500 that lost the whole
+            submission. It is now simply an answer that matches no question.
+            """
+            try:
+                return int(answer.get('mcq_id'))
+            except (TypeError, ValueError):
+                return None
+
+        submitted = [
+            (question_id(answer), (answer.get('user_answer') or '').strip().lower())
+            for section in sections
+            if isinstance(section, dict)
+            for answer in section.get('answers', [])
+            if isinstance(answer, dict)
+        ]
+        keys = dict(
+            Question.objects.filter(
+                pk__in={qid for qid, _ in submitted if qid is not None}
+            ).values_list('id', 'answer')
+        )
+
         total = Decimal('0')
-        for section in sections:
-            for answer in section.get('answers', []):
-                mcq = Question.objects.filter(pk=answer.get('mcq_id')).first()
-                user_answer = (answer.get('user_answer') or '').strip().lower()
-                if not mcq or not user_answer:
-                    continue
-                total += positive if user_answer == mcq.answer else -negative
+        for qid, user_answer in submitted:
+            correct = keys.get(qid)
+            if correct is None or not user_answer:
+                continue
+            total += positive if user_answer == correct else -negative
         return total
 
 
@@ -190,7 +220,14 @@ class ExamRankingAPIView(BaseExamAPIView):
         user_result = results.filter(user=request.user).first()
         user_rank = None
         if user_result:
-            user_rank = list(results.values_list('id', flat=True)).index(user_result.id) + 1
+            # Counted in the database. Materialising every attempt id just to
+            # call .index() on it pulled the entire leaderboard into memory to
+            # find one position -- on a popular exam that is every row, on
+            # every load of the page.
+            better = Q(marks__gt=user_result.marks) | Q(
+                marks=user_result.marks, duration__lt=user_result.duration
+            )
+            user_rank = results.filter(better).count() + 1
 
         # The board is everybody else's marks, so it is the thing the publish
         # time most clearly governs. The caller's own row stays visible --

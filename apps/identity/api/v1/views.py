@@ -286,10 +286,19 @@ class AdminUserViewSet(AdminModelViewSet):
     search_fields = ["name", "phone", "email", "institution"]
     ordering_fields = ["date_joined", "name"]
 
+    #: What the admin panel's role dropdown sends for its "no filter" option.
+    #: It is not a value `role` can hold, so it can only ever mean "any".
+    ROLE_ANY = "all"
+
     def get_queryset(self):
         qs = super().get_queryset()
         role = self.request.query_params.get("role")
-        if role:
+
+        # The dropdown defaults to "all" and the page sends it on every
+        # request, including the export. Matching it literally filtered the
+        # list down to nothing, so the Users screen was empty on load and
+        # only showed anyone once a specific role was picked.
+        if role and role != self.ROLE_ANY:
             qs = qs.filter(role=role)
         return qs
 

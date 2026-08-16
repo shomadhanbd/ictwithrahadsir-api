@@ -592,6 +592,41 @@ class AdminUserTests(ThrottledAPITestCase):
         response = self.client.get(ADMIN_USER_URL, {"role": "student"}, **self.auth)
         self.assertEqual(response.json()["meta"]["total"], 1)
 
+    def test_role_all_means_every_role(self):
+        """`all` is the admin panel's "no filter" option, not a role.
+
+        The dropdown defaults to it and the page sends it on every request,
+        so matching it literally returned nothing and the Users screen was
+        empty until a specific role was chosen.
+        """
+        response = self.client.get(ADMIN_USER_URL, {"role": "all"}, **self.auth)
+        self.assertEqual(response.json()["meta"]["total"], 2)
+
+    def test_role_all_is_the_same_as_omitting_the_filter(self):
+        with_param = self.client.get(ADMIN_USER_URL, {"role": "all"}, **self.auth)
+        without = self.client.get(ADMIN_USER_URL, **self.auth)
+        self.assertEqual(
+            [row["id"] for row in with_param.json()["data"]],
+            [row["id"] for row in without.json()["data"]],
+        )
+
+    def test_role_all_still_combines_with_search(self):
+        """The page sends role and search together; "any role" must not
+        quietly widen the result back out to everyone."""
+        response = self.client.get(
+            ADMIN_USER_URL, {"role": "all", "search": "Rahim"}, **self.auth
+        )
+        body = response.json()
+        self.assertEqual(body["meta"]["total"], 1)
+        self.assertEqual(body["data"][0]["name"], "Rahim Uddin")
+
+    def test_a_real_role_is_still_filtered(self):
+        """The sentinel must not turn into "ignore the role parameter"."""
+        response = self.client.get(ADMIN_USER_URL, {"role": "admin"}, **self.auth)
+        body = response.json()
+        self.assertEqual(body["meta"]["total"], 1)
+        self.assertEqual(body["data"][0]["role"], "admin")
+
     def test_admin_user_search(self):
         response = self.client.get(
             ADMIN_USER_SEARCH_URL, {"search": "Rahim"}, **self.auth

@@ -35,7 +35,9 @@ class AdminContactListAPIView(ListAPIView):
     permission_classes = [IsAdminRole]
     serializer_class = ContactMessageSerializer
     pagination_class = LaravelStylePageNumberPagination
-    queryset = ContactMessage.objects.all()
+    # The serializer nests the sender, so the inbox is one query per message
+    # without this.
+    queryset = ContactMessage.objects.select_related('user')
 
 
 class BaseAdminContactAPIView(APIView):

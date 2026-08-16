@@ -38,7 +38,9 @@ class PublicNoticeListAPIView(ListAPIView):
     pagination_class = LaravelStylePageNumberPagination
 
     def get_queryset(self):
-        qs = Notice.objects.all()
+        # `categories` is serialized on every row, so without the prefetch a
+        # page of notices costs one extra query per notice.
+        qs = Notice.objects.prefetch_related('categories')
         category_id = self.request.query_params.get('category_id')
         if category_id:
             qs = qs.filter(categories__id=category_id)
@@ -76,6 +78,7 @@ class HomeAPIView(APIView):
         from apps.courses.api.v1.serializers import (
             CourseCategorySerializer,
             CourseListSerializer,
+            build_category_children,
             build_course_stats,
         )
         from apps.courses.models import Course, CourseCategory
@@ -86,12 +89,14 @@ class HomeAPIView(APIView):
             Course.objects.filter(active=True, featured=True)
             .prefetch_related('categories', 'instructors__teacher', 'routines')[:12]
         )
-        categories = CourseCategory.objects.filter(category__isnull=True)
+        categories = list(CourseCategory.objects.filter(category__isnull=True))
 
         # Homepage counters and banner are managed as `Page` rows through the
         # admin panel's Pages screen (value_type="counter"/"image"), not the
         # separate `Counter` model, which nothing in either frontend edits.
-        counters = Page.objects.filter(value_type=Page.ValueType.COUNTER)
+        # Listed once and reused: `counters` is iterated for both the counter
+        # payload and the success-story lookup.
+        counters = list(Page.objects.filter(value_type=Page.ValueType.COUNTER))
         banner = Page.objects.filter(key='homeBannerImage').first()
         success_story = next(
             (c.value for c in counters if c.key == 'homeInstructorCounter'), 0
@@ -107,7 +112,11 @@ class HomeAPIView(APIView):
                         'course_stats': build_course_stats(courses, request),
                     },
                 ).data,
-                'courseCategories': CourseCategorySerializer(categories, many=True).data,
+                'courseCategories': CourseCategorySerializer(
+                    categories,
+                    many=True,
+                    context={'category_children': build_category_children(categories)},
+                ).data,
                 'advertisement': AdvertisementSerializer(
                     Advertisement.objects.all(), many=True
                 ).data,
@@ -128,7 +137,7 @@ class HomeAPIView(APIView):
 
 
 class AdminNoticeViewSet(AdminModelViewSet):
-    queryset = Notice.objects.all()
+    queryset = Notice.objects.prefetch_related('categories')
     serializer_class = NoticeSerializer
     lookup_field = 'slug'
 

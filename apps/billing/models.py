@@ -31,6 +31,13 @@ class Order(TimestampModel):
 
     class Meta:
         ordering = ["-created_at"]
+        indexes = [
+            # `has_order` on every course payload asks exactly this pair.
+            models.Index(fields=["user", "course"]),
+            # The admin dashboard's income and order counters all filter on
+            # a status plus a date floor.
+            models.Index(fields=["status", "created_at"]),
+        ]
 
     def __str__(self):
         return f"Order #{self.pk} ({self.user})"

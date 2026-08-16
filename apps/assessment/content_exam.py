@@ -68,4 +68,11 @@ def write_exam_fields(content, values):
         return
 
     defaults = {FIELD_MAP[key]: value for key, value in values.items() if key in FIELD_MAP}
-    Exam.objects.update_or_create(content=content, defaults=defaults)
+    exam, _ = Exam.objects.update_or_create(content=content, defaults=defaults)
+
+    # Point `content.exam` at what was just written. `read_exam_fields` runs
+    # immediately afterwards to build the response, and if `content` was
+    # loaded with `select_related('exam')` it is carrying a cached relation
+    # from before this write -- so the caller would be answered with the
+    # values it just replaced.
+    content.exam = exam

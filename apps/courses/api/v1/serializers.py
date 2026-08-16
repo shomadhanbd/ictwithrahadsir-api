@@ -50,6 +50,33 @@ class RoutineSerializer(serializers.ModelSerializer):
         read_only_fields = ["id"]
 
 
+def build_category_children(categories):
+    """Group every descendant of `categories` by parent id, in one query.
+
+    `CourseCategorySerializer` renders the tree recursively, so without this
+    it spends one query per node just to ask whether that node has children
+    -- a three-by-three tree cost 13 queries to return 12 rows, and the
+    homepage paid it too. Pass the result as `context['category_children']`.
+    """
+    from collections import defaultdict
+
+    frontier = [category.pk for category in categories]
+    children = defaultdict(list)
+    seen = set(frontier)
+
+    # One query per depth level, not per node. Real trees are two or three
+    # deep, and the `seen` guard means a cycle in the data terminates the
+    # walk instead of hanging it.
+    while frontier:
+        rows = list(CourseCategory.objects.filter(category_id__in=frontier))
+        for row in rows:
+            children[row.category_id].append(row)
+        frontier = [row.pk for row in rows if row.pk not in seen]
+        seen.update(frontier)
+
+    return children
+
+
 class CourseCategorySerializer(serializers.ModelSerializer):
     image = MediaField(upload_to="course-category", required=False)
     course_category_id = serializers.PrimaryKeyRelatedField(
@@ -63,7 +90,11 @@ class CourseCategorySerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "slug"]
 
     def get_children(self, obj):
-        return CourseCategorySerializer(obj.children.all(), many=True, context=self.context).data
+        batched = self.context.get("category_children")
+        # Without the batch this falls back to the per-node query, which is
+        # what a single-object admin response wants anyway.
+        kids = batched[obj.pk] if batched is not None else obj.children.all()
+        return CourseCategorySerializer(kids, many=True, context=self.context).data
 
 
 class CourseCategoryBadgeSerializer(serializers.ModelSerializer):
@@ -77,6 +108,38 @@ class CourseCategoryBadgeSerializer(serializers.ModelSerializer):
     class Meta:
         model = CourseCategory
         fields = ["id", "title", "slug", "image"]
+
+
+def build_section_tree(course):
+    """Every active section and content of `course`, grouped for the tree.
+
+    The section serializer recurses, and each level used to ask the database
+    for its own contents and its own sub-sections: two queries per section,
+    however deep the tree went. A course with six sections and six
+    sub-sections spent 26 of its 38 queries here, and the cost grew with
+    every section an instructor added.
+
+    Both maps are built from two queries covering the whole course. Pass
+    them as `context['section_children']` / `context['section_contents']`.
+    """
+    from collections import defaultdict
+
+    rows = list(Section.objects.filter(course=course, active=True))
+    sections = defaultdict(list)
+    for section in rows:
+        sections[section.section_id].append(section)
+
+    # Keyed on the section ids just found rather than on the course, so this
+    # is exactly the union of the per-section queries it replaces -- a
+    # content whose section belongs to another course is placed the same way
+    # either way.
+    contents = defaultdict(list)
+    for content in Content.objects.filter(
+        section_id__in=[section.pk for section in rows], active=True
+    ):
+        contents[content.section_id].append(content)
+
+    return sections, contents
 
 
 class SectionSerializer(serializers.ModelSerializer):
@@ -101,10 +164,14 @@ class SectionSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "slug"]
 
     def get_contents(self, obj):
-        return ContentListSerializer(obj.contents.filter(active=True), many=True, context=self.context).data
+        batched = self.context.get("section_contents")
+        rows = batched[obj.pk] if batched is not None else obj.contents.filter(active=True)
+        return ContentListSerializer(rows, many=True, context=self.context).data
 
     def get_sub_sections(self, obj):
-        return SectionSerializer(obj.sub_sections.filter(active=True), many=True, context=self.context).data
+        batched = self.context.get("section_children")
+        rows = batched[obj.pk] if batched is not None else obj.sub_sections.filter(active=True)
+        return SectionSerializer(rows, many=True, context=self.context).data
 
 
 class ContentListSerializer(serializers.ModelSerializer):
@@ -520,8 +587,15 @@ class CourseListSerializer(serializers.ModelSerializer):
 
 class CourseDetailSerializer(CourseListSerializer):
     course_details = serializers.SerializerMethodField()
-    prices = CoursePriceSerializer(many=True, read_only=True)
+    prices = serializers.SerializerMethodField()
     sections = serializers.SerializerMethodField()
+
+    def get_prices(self, obj):
+        # `build_course_stats` already fetched this course's prices, ordered
+        # by amount, to pick the headline one for `price`.
+        batched = self._stats("prices", obj, [])
+        rows = batched if batched is not None else obj.prices.all()
+        return CoursePriceSerializer(rows, many=True).data
 
     class Meta(CourseListSerializer.Meta):
         fields = CourseListSerializer.Meta.fields + [
@@ -539,8 +613,10 @@ class CourseDetailSerializer(CourseListSerializer):
         }
 
     def get_sections(self, obj):
-        top_level = obj.sections.filter(section__isnull=True, active=True)
-        return SectionSerializer(top_level, many=True, context=self.context).data
+        children, contents = build_section_tree(obj)
+        context = {**self.context, "section_children": children, "section_contents": contents}
+        # `children[None]` is the top level: sections with no parent.
+        return SectionSerializer(children[None], many=True, context=context).data
 
 
 class AdminCourseSerializer(serializers.ModelSerializer):

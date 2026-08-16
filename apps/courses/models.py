@@ -3,18 +3,7 @@ from django.db import models
 from django.utils import timezone
 
 from apps.core.models import OrderedModel, TimestampModel
-from apps.core.slugs import ascii_slug
-
-
-def unique_slugify(instance, base_text, slug_field="slug"):
-    base_slug = ascii_slug(base_text)
-    slug = base_slug
-    model = instance.__class__
-    i = 1
-    while model.objects.filter(**{slug_field: slug}).exclude(pk=instance.pk).exists():
-        i += 1
-        slug = f"{base_slug}-{i}"
-    return slug
+from apps.core.slugs import unique_slug
 
 
 class CourseCategory(TimestampModel, OrderedModel):
@@ -34,7 +23,7 @@ class CourseCategory(TimestampModel, OrderedModel):
 
     def save(self, *args, **kwargs):
         if not self.slug:
-            self.slug = unique_slugify(self, self.title)
+            self.slug = unique_slug(self, self.title)
         super().save(*args, **kwargs)
 
 
@@ -58,13 +47,19 @@ class Course(TimestampModel):
 
     class Meta:
         ordering = ["-created_at"]
+        indexes = [
+            # Every public listing filters on active, and the homepage adds
+            # featured. Both are low-cardinality on their own but the pair
+            # selects the small set the catalogue actually serves.
+            models.Index(fields=["active", "featured"]),
+        ]
 
     def __str__(self):
         return self.title
 
     def save(self, *args, **kwargs):
         if not self.slug:
-            self.slug = unique_slugify(self, self.title)
+            self.slug = unique_slug(self, self.title)
         super().save(*args, **kwargs)
 
     @property
@@ -191,13 +186,18 @@ class Section(TimestampModel, OrderedModel):
 
     class Meta:
         ordering = ["order", "id"]
+        indexes = [
+            # The course detail page pulls a course's whole active section
+            # tree in one go.
+            models.Index(fields=["course", "active"]),
+        ]
 
     def __str__(self):
         return self.title
 
     def save(self, *args, **kwargs):
         if not self.slug:
-            self.slug = unique_slugify(self, f"{self.course_id}-{self.title}")
+            self.slug = unique_slug(self, f"{self.course_id}-{self.title}")
         super().save(*args, **kwargs)
 
 
@@ -248,13 +248,20 @@ class Content(TimestampModel, OrderedModel):
 
     class Meta:
         ordering = ["order", "id"]
+        indexes = [
+            # The per-type totals on every course payload group by exactly
+            # this pair, over every course on the page.
+            models.Index(fields=["course", "type"]),
+            # The section tree loads a course's active contents in one query.
+            models.Index(fields=["course", "active"]),
+        ]
 
     def __str__(self):
         return self.title
 
     def save(self, *args, **kwargs):
         if not self.slug:
-            self.slug = unique_slugify(self, self.title)
+            self.slug = unique_slug(self, self.title)
         super().save(*args, **kwargs)
 
     def is_accessible_by(self, user) -> bool:

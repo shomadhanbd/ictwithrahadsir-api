@@ -142,6 +142,11 @@ class ExamAttempt(TimestampModel):
     class Meta:
         ordering = ["-marks", "duration"]
         unique_together = ["exam", "user"]
+        indexes = [
+            # The leaderboard reads an exam's attempts in this exact order,
+            # and the caller's rank is a COUNT over the same three columns.
+            models.Index(fields=["exam", "-marks", "duration"]),
+        ]
 
     def __str__(self):
         return f"{self.user} - {self.exam} ({self.marks})"
