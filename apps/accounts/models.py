@@ -6,6 +6,9 @@ from django.contrib.auth.base_user import AbstractBaseUser, BaseUserManager
 from django.contrib.auth.models import PermissionsMixin
 from django.db import models
 from django.utils import timezone
+from django.utils.crypto import constant_time_compare
+
+from apps.core.sms import get_sms_backend
 
 
 class UserManager(BaseUserManager):
@@ -80,36 +83,83 @@ class OTP(models.Model):
     reset. Delivery goes through apps.core.sms so swapping in a real SMS
     gateway later needs no changes here."""
 
+    #: A wrong guess burns an attempt; the code is dead once they run out.
+    #: Without this a 6-digit code is brute-forceable in seconds, which
+    #: (since a verified OTP mints a full auth token) is account takeover.
+    MAX_ATTEMPTS = 5
+
     phone = models.CharField(max_length=20, db_index=True)
     code = models.CharField(max_length=10)
     created_at = models.DateTimeField(auto_now_add=True)
     consumed_at = models.DateTimeField(null=True, blank=True)
+    attempts = models.PositiveSmallIntegerField(default=0)
 
     class Meta:
         ordering = ["-created_at"]
+        indexes = [models.Index(fields=["phone", "-created_at"])]
+
+    def __str__(self):
+        return f"OTP for {self.phone}"
+
+    @property
+    def is_expired(self) -> bool:
+        age = timezone.now() - self.created_at
+        return age.total_seconds() > settings.OTP_TTL_SECONDS
+
+    @property
+    def is_usable(self) -> bool:
+        return (
+            self.consumed_at is None
+            and self.attempts < self.MAX_ATTEMPTS
+            and not self.is_expired
+        )
+
+    @classmethod
+    def latest_for(cls, phone: str) -> "OTP | None":
+        return cls.objects.filter(phone=phone).order_by("-created_at").first()
+
+    @classmethod
+    def seconds_until_resend(cls, phone: str) -> int:
+        """Remaining cooldown before `phone` may request another code, or 0.
+
+        `OTP_RESEND_COOLDOWN_SECONDS` has always been in settings but was
+        never read, so nothing stopped an attacker from using the public
+        get-otp endpoint to bombard a number with SMS at the platform's
+        expense.
+        """
+        cooldown = getattr(settings, "OTP_RESEND_COOLDOWN_SECONDS", 0)
+        if not cooldown:
+            return 0
+        last = cls.latest_for(phone)
+        if last is None:
+            return 0
+        elapsed = (timezone.now() - last.created_at).total_seconds()
+        return max(0, int(cooldown - elapsed))
 
     @classmethod
     def issue(cls, phone: str) -> "OTP":
-        length = settings.OTP_LENGTH
-        code = "".join(random.choices(string.digits, k=length))
+        code = "".join(random.choices(string.digits, k=settings.OTP_LENGTH))
         otp = cls.objects.create(phone=phone, code=code)
-        from apps.core.sms import get_sms_backend
-
         get_sms_backend().send(phone, f"Your ICT with Rahad Sir verification code is {code}")
         return otp
 
     @classmethod
     def verify(cls, phone: str, code: str) -> bool:
-        cutoff = timezone.now() - timezone.timedelta(seconds=settings.OTP_TTL_SECONDS)
-        otp = (
-            cls.objects.filter(
-                phone=phone, code=code, consumed_at__isnull=True, created_at__gte=cutoff
-            )
-            .order_by("-created_at")
-            .first()
-        )
-        if not otp:
+        """Check `code` against the most recent code issued to `phone`.
+
+        Deliberately keyed on the phone rather than on (phone, code): looking
+        the row up by code meant a wrong guess matched nothing and so could
+        not be counted, leaving the code brute-forceable.
+        """
+        otp = cls.latest_for(phone)
+        if otp is None or not otp.is_usable:
             return False
+
+        if not constant_time_compare(otp.code, str(code or "")):
+            otp.attempts += 1
+            otp.save(update_fields=["attempts"])
+            return False
+
         otp.consumed_at = timezone.now()
         otp.save(update_fields=["consumed_at"])
         return True
