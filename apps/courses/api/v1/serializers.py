@@ -4,7 +4,7 @@ from apps.accounts.models import User
 from apps.core.api.fields import MediaField
 from apps.exams.models import McqStore
 
-from .models import Content, Course, CourseCategory, CoursePrice, CourseUser, Coupon, Instructor, Routine, Section
+from apps.courses.models import Content, Course, CourseCategory, CoursePrice, CourseUser, Coupon, Instructor, Routine, Section
 
 
 class CoursePriceSerializer(serializers.ModelSerializer):

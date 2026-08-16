@@ -3,7 +3,7 @@ from rest_framework import serializers
 from apps.core.api.fields import MediaField
 from apps.courses.models import CourseCategory
 
-from .models import CartItem, Order, Payment, Product
+from apps.shop.models import CartItem, Order, Payment, Product
 
 
 class ProductSerializer(serializers.ModelSerializer):
