@@ -97,40 +97,6 @@ class CourseMaterial(TimestampModel):
         return self.title
 
 
-class ContactMessage(TimestampModel):
-    user = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="contact_messages",
-    )
-    name = models.CharField(max_length=150, blank=True)
-    phone = models.CharField(max_length=20, blank=True)
-    email = models.EmailField(blank=True)
-    subject = models.CharField(max_length=255, blank=True)
-    message = models.TextField()
-    is_read = models.BooleanField(default=False)
-    reply_message = models.TextField(blank=True)
-    replied_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="contact_replies",
-    )
-
-    class Meta:
-        ordering = ["-created_at"]
-
-    def __str__(self):
-        return f"{self.name} - {self.subject}"
-
-    @property
-    def reply(self):
-        return self.reply_message
-
-
 class Page(TimestampModel):
     """Fixed-key CMS pages (about-us, terms, privacy, ...) -- seeded once,
     edited (never created/deleted) from the admin panel."""

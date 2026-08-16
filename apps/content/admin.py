@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Advertisement, CourseMaterial, ContactMessage, EBook, Notice, NoticeCategory, Page, Testimonial
+from .models import Advertisement, CourseMaterial, EBook, Notice, NoticeCategory, Page, Testimonial
 
 
 @admin.register(Notice)
@@ -32,12 +32,6 @@ class EBookAdmin(admin.ModelAdmin):
 @admin.register(CourseMaterial)
 class CourseMaterialAdmin(admin.ModelAdmin):
     list_display = ["id", "title", "course", "type"]
-
-
-@admin.register(ContactMessage)
-class ContactMessageAdmin(admin.ModelAdmin):
-    list_display = ["id", "name", "subject", "is_read", "created_at"]
-    list_filter = ["is_read"]
 
 
 @admin.register(Page)
