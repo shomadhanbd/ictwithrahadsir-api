@@ -104,6 +104,70 @@ class ExamAccessTests(ExamTestBase):
         self.assertEqual(self.client.get(exam_url(video.pk), **self.auth).status_code, 404)
 
 
+class AnswerKeyExposureTests(ExamTestBase):
+    """The paper used to ship the correct option and explanation for every
+    question, so any student could read the answers out of the network tab
+    before submitting -- which also made the rankings meaningless."""
+
+    def setUp(self):
+        super().setUp()
+        self.enrol()
+
+    def questions(self):
+        response = self.client.get(exam_url(self.exam.pk), **self.auth)
+        self.assertEqual(response.status_code, 200)
+        return response.json()['question']['body']['sections'][0]['questions']
+
+    def test_the_answer_key_is_absent_before_submitting(self):
+        question = self.questions()[0]
+        for field in ('answer', 'answer_image', 'explanation'):
+            self.assertNotIn(field, question, f'{field} leaked to an unsubmitted student')
+
+    def test_the_question_itself_is_still_served(self):
+        question = self.questions()[0]
+        for field in ('id', 'question', 'a', 'b', 'c', 'd'):
+            self.assertIn(field, question)
+        self.assertEqual(question['b'], '4')
+
+    def test_the_answer_key_is_returned_after_submitting(self):
+        ExamResult.objects.create(content=self.exam, user=self.student, marks=Decimal('1'))
+
+        question = self.questions()[0]
+        self.assertEqual(question['answer'], 'b')
+        self.assertIn('explanation', question)
+
+    def test_one_students_attempt_does_not_reveal_answers_to_another(self):
+        ExamResult.objects.create(content=self.exam, user=self.student, marks=Decimal('1'))
+
+        classmate = User.objects.create_user(
+            phone='01810100099', name='Classmate', password='Str0ngPass!23'
+        )
+        self.enrol(classmate)
+        auth = {'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=classmate).key}'}
+
+        response = self.client.get(exam_url(self.exam.pk), **auth)
+        question = response.json()['question']['body']['sections'][0]['questions'][0]
+        self.assertNotIn('answer', question)
+
+    def test_the_serializer_fails_closed_without_context(self):
+        # A new call site that forgets to opt in must not leak by default.
+        from apps.exams.api.v1.serializers import ExamMcqSerializer
+
+        data = ExamMcqSerializer(self.question).data
+        self.assertNotIn('answer', data)
+
+    def test_admins_still_see_answers_in_the_question_bank(self):
+        admin = User.objects.create_user(
+            phone='01710100099', name='Admin', password='Str0ngPass!23',
+            role=User.Role.ADMIN, is_staff=True,
+        )
+        auth = {'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=admin).key}'}
+
+        url = reverse('api:exams:v1:admin-mcq-list')
+        row = self.client.get(url, **auth).json()['data'][0]
+        self.assertEqual(row['answer'], 'b')
+
+
 class ExamWindowTests(ExamTestBase):
     def setUp(self):
         super().setUp()

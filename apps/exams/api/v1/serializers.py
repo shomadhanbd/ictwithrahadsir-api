@@ -48,10 +48,29 @@ class McqQuestionSerializer(serializers.ModelSerializer):
 
 
 class ExamMcqSerializer(serializers.ModelSerializer):
-    """Question shape returned to a student sitting the exam -- everything
-    the McqQuestion has, matching the client's `ExamMcq` type exactly."""
+    """Question shape returned to a student sitting the exam.
+
+    The correct option and its explanation are stripped unless the caller
+    has already submitted an attempt. They used to be sent with the paper
+    itself, so every exam was solvable from the network tab and the
+    leaderboards meant nothing -- the client only hid them behind a
+    `revealed` flag in the UI.
+
+    Fails closed: with no context the answer fields are removed, so a new
+    call site has to opt in deliberately.
+    """
+
+    #: Only ever exposed once an attempt exists for this user.
+    ANSWER_FIELDS = ('answer', 'answer_image', 'explanation')
 
     source = serializers.SerializerMethodField()
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        if not self.context.get('reveal_answers', False):
+            for field in self.ANSWER_FIELDS:
+                data.pop(field, None)
+        return data
 
     class Meta:
         model = McqQuestion

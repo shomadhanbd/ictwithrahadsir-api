@@ -72,6 +72,11 @@ class ExamAPIView(BaseExamAPIView):
         )
         result = ExamResult.objects.filter(content=content, user=request.user).first()
 
+        # The answer key is part of the review paper, not the exam paper: it
+        # goes out only once this user has an attempt on record. The client
+        # re-fetches after submitting to pick it up.
+        question_context = {'reveal_answers': result is not None}
+
         return Response(
             {
                 'id': content.id,
@@ -96,7 +101,9 @@ class ExamAPIView(BaseExamAPIView):
                                     else content.title
                                 ),
                                 'required': True,
-                                'questions': ExamMcqSerializer(questions, many=True).data,
+                                'questions': ExamMcqSerializer(
+                                    questions, many=True, context=question_context
+                                ).data,
                             }
                         ],
                         'max_sections': 1,
