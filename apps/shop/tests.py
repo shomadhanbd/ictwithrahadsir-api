@@ -350,6 +350,40 @@ class AdminPaymentTests(ShopTestBase):
         self.assertEqual(self.order.status, Order.Status.FAILED)
         self.assertFalse(CourseUser.objects.exists())
 
+    def test_confirming_a_short_payment_is_refused(self):
+        # New payments always carry the order's amount, but rows written
+        # before that fix may not -- confirming one grants course access.
+        Payment.objects.filter(pk=self.payment.pk).update(amount=Decimal('1'))
+
+        response = self.client.patch(
+            self.url(), {'status': 'successful'}, format='json', **self.admin_auth
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertIn('amount', response.json()['errors'])
+
+        self.order.refresh_from_db()
+        self.assertNotEqual(self.order.status, Order.Status.PAID)
+        self.assertFalse(CourseUser.objects.exists())
+
+    def test_a_mismatch_can_be_confirmed_deliberately(self):
+        Payment.objects.filter(pk=self.payment.pk).update(amount=Decimal('1'))
+
+        response = self.client.patch(
+            self.url(),
+            {'status': 'successful', 'confirm_amount_mismatch': True},
+            format='json', **self.admin_auth,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.status, Order.Status.PAID)
+
+    def test_the_amount_check_does_not_block_failing_a_payment(self):
+        Payment.objects.filter(pk=self.payment.pk).update(amount=Decimal('1'))
+        response = self.client.patch(
+            self.url(), {'status': 'failed'}, format='json', **self.admin_auth
+        )
+        self.assertEqual(response.status_code, 200)
+
     def test_an_invalid_status_is_rejected(self):
         response = self.client.patch(
             self.url(), {'status': 'maybe'}, format='json', **self.admin_auth

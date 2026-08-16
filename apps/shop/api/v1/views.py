@@ -265,6 +265,27 @@ class AdminPaymentUpdateAPIView(APIView):
         if status_value not in Payment.Status.values:
             raise ValidationError({'status': ['Invalid status.']})
 
+        # Confirming is what grants course access, so it should not be
+        # possible to do it by accident against a payment that does not cover
+        # the order. New payments always carry the order's own amount, but
+        # rows created before that fix may not -- and the client used to
+        # choose the figure. `confirm_amount_mismatch` is the deliberate
+        # override for a genuine part payment or a corrected amount.
+        if (
+            status_value == Payment.Status.SUCCESSFUL
+            and payment.amount != payment.order.amount
+            and not request.data.get('confirm_amount_mismatch')
+        ):
+            raise ValidationError(
+                {
+                    'amount': [
+                        f'This payment records {payment.amount} but the order is for '
+                        f'{payment.order.amount}. Re-send with '
+                        f'confirm_amount_mismatch=true to accept it anyway.'
+                    ]
+                }
+            )
+
         payment.status = status_value
         payment.save(update_fields=['status'])
 

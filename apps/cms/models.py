@@ -157,7 +157,16 @@ class Page(TimestampModel):
 
 
 class Counter(TimestampModel):
-    """Homepage stat counters (students taught, courses, instructors, ...)."""
+    """DEPRECATED -- do not build on this.
+
+    Homepage counters are `Page` rows with `value_type="counter"`, which is
+    what `/home` reads and what the admin panel's Pages screen edits. This
+    model is written and read by nothing; its serializer has been removed.
+
+    Left in place only because dropping it drops its table. Delete the model
+    and generate the migration once you have confirmed the table is empty in
+    production.
+    """
 
     key = models.SlugField(max_length=100, unique=True)
     label = models.CharField(max_length=150, blank=True)

@@ -73,9 +73,11 @@ class ExamAPIView(BaseExamAPIView):
         result = ExamResult.objects.filter(content=content, user=request.user).first()
 
         # The answer key is part of the review paper, not the exam paper: it
-        # goes out only once this user has an attempt on record. The client
-        # re-fetches after submitting to pick it up.
-        question_context = {'reveal_answers': result is not None}
+        # goes out only once this user has an attempt on record, and not
+        # before the configured publish time. The client re-fetches after
+        # submitting to pick it up.
+        published = content.results_published
+        question_context = {'reveal_answers': result is not None and published}
 
         return Response(
             {
@@ -89,6 +91,9 @@ class ExamAPIView(BaseExamAPIView):
                 'start_time': content.exam_start_time,
                 'end_time': content.exam_end_time,
                 'result_publish_time': content.exam_result_publish_time,
+                # Additive: lets the client say "results not published yet"
+                # instead of silently showing an unmarked review paper.
+                'result_published': published,
                 'question': {
                     'id': content.id,
                     'exam_id': content.id,
@@ -170,12 +175,24 @@ class ExamRankingAPIView(BaseExamAPIView):
         if user_result:
             user_rank = list(results.values_list('id', flat=True)).index(user_result.id) + 1
 
+        # The board is everybody else's marks, so it is the thing the publish
+        # time most clearly governs. The caller's own row stays visible --
+        # they already know how they did -- and the response keeps its shape
+        # so the client degrades to an empty board rather than an error.
+        published = content.results_published
+
         return Response(
             {
                 'exam_title': content.title,
-                'user_rank': user_rank,
+                'user_rank': user_rank if published else None,
                 'user_result': RankEntrySerializer(user_result).data if user_result else None,
-                'rankings': RankEntrySerializer(results[: self.RANKING_LIMIT], many=True).data,
+                'rankings': (
+                    RankEntrySerializer(results[: self.RANKING_LIMIT], many=True).data
+                    if published
+                    else []
+                ),
+                'result_published': published,
+                'result_publish_time': content.exam_result_publish_time,
             }
         )
 

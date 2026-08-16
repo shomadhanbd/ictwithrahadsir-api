@@ -316,6 +316,21 @@ class Content(TimestampModel, OrderedModel):
             self.slug = unique_slugify(self, self.title)
         super().save(*args, **kwargs)
 
+    @property
+    def results_published(self) -> bool:
+        """Whether this exam's results may be shown yet.
+
+        `exam_result_publish_time` was stored and echoed back to the client
+        but never actually checked, so marks, the answer key and the
+        leaderboard were all readable the instant an attempt was submitted.
+
+        An unset time means "no embargo", so content that never configured
+        one keeps behaving exactly as before.
+        """
+        if self.exam_result_publish_time is None:
+            return True
+        return timezone.now() >= self.exam_result_publish_time
+
     def is_accessible_by(self, user) -> bool:
         """Whether `user` may open this content.
 

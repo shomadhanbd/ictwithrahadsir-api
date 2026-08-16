@@ -1,4 +1,4 @@
-from rest_framework.permissions import BasePermission, SAFE_METHODS
+from rest_framework.permissions import BasePermission
 
 
 class IsAdminRole(BasePermission):
@@ -12,25 +12,3 @@ class IsAdminRole(BasePermission):
     def has_permission(self, request, view):
         user = request.user
         return bool(user and user.is_authenticated and (user.is_staff or user.role in ("admin", "instructor")))
-
-
-class IsOwnerOrAdmin(BasePermission):
-    """Object-level check for student-facing resources (cart, orders, ...)."""
-
-    def has_object_permission(self, request, view, obj):
-        user = request.user
-        owner = getattr(obj, "user", None) or getattr(obj, "user_id", None)
-        if user.is_staff or getattr(user, "role", None) == "admin":
-            return True
-        return owner == user or owner == user.id
-
-
-class ReadOnlyOrAdmin(BasePermission):
-    """Public GET, admin-only writes -- used by public catalog endpoints
-    that are also exposed for convenience under the same viewset."""
-
-    def has_permission(self, request, view):
-        if request.method in SAFE_METHODS:
-            return True
-        user = request.user
-        return bool(user and user.is_authenticated and (user.is_staff or getattr(user, "role", None) in ("admin", "instructor")))

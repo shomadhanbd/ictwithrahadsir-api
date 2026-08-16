@@ -168,6 +168,64 @@ class AnswerKeyExposureTests(ExamTestBase):
         self.assertEqual(row['answer'], 'b')
 
 
+class ResultPublishTimeTests(ExamTestBase):
+    """`exam_result_publish_time` was stored and echoed back but never
+    checked, so the answer key and the leaderboard were readable the moment
+    an attempt was submitted regardless of the configured embargo."""
+
+    def setUp(self):
+        super().setUp()
+        self.enrol()
+        ExamResult.objects.create(content=self.exam, user=self.student, marks=Decimal('1'))
+
+    def embargo(self):
+        self.exam.exam_result_publish_time = timezone.now() + timezone.timedelta(days=1)
+        self.exam.save(update_fields=['exam_result_publish_time'])
+
+    def publish(self):
+        self.exam.exam_result_publish_time = timezone.now() - timezone.timedelta(minutes=1)
+        self.exam.save(update_fields=['exam_result_publish_time'])
+
+    def test_an_unset_publish_time_means_no_embargo(self):
+        self.assertIsNone(self.exam.exam_result_publish_time)
+        body = self.client.get(exam_url(self.exam.pk), **self.auth).json()
+        self.assertTrue(body['result_published'])
+        self.assertIn('answer', body['question']['body']['sections'][0]['questions'][0])
+
+    def test_the_answer_key_stays_hidden_before_the_publish_time(self):
+        self.embargo()
+        body = self.client.get(exam_url(self.exam.pk), **self.auth).json()
+        self.assertFalse(body['result_published'])
+        self.assertNotIn('answer', body['question']['body']['sections'][0]['questions'][0])
+
+    def test_the_answer_key_appears_once_published(self):
+        self.publish()
+        body = self.client.get(exam_url(self.exam.pk), **self.auth).json()
+        self.assertTrue(body['result_published'])
+        self.assertIn('answer', body['question']['body']['sections'][0]['questions'][0])
+
+    def test_the_caller_still_sees_their_own_result_under_embargo(self):
+        self.embargo()
+        body = self.client.get(exam_url(self.exam.pk), **self.auth).json()
+        self.assertIsNotNone(body['result'])
+
+    def test_the_leaderboard_is_withheld_before_the_publish_time(self):
+        self.embargo()
+        body = self.client.get(ranking_url(self.exam.pk), **self.auth).json()
+        self.assertEqual(body['rankings'], [])
+        self.assertIsNone(body['user_rank'])
+        self.assertFalse(body['result_published'])
+        # Shape is preserved so the client degrades to an empty board.
+        self.assertEqual(body['exam_title'], 'Ch1 Exam')
+
+    def test_the_leaderboard_appears_once_published(self):
+        self.publish()
+        body = self.client.get(ranking_url(self.exam.pk), **self.auth).json()
+        self.assertEqual(len(body['rankings']), 1)
+        self.assertEqual(body['user_rank'], 1)
+        self.assertTrue(body['result_published'])
+
+
 class ExamWindowTests(ExamTestBase):
     def setUp(self):
         super().setUp()

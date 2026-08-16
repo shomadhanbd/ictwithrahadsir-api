@@ -3,7 +3,7 @@ from rest_framework import serializers
 from apps.core.api.fields import MediaField
 from apps.courses.models import Course
 
-from apps.cms.models import Advertisement, Counter, CourseMaterial, ContactMessage, EBook, Notice, NoticeCategory, Page, Testimonial
+from apps.cms.models import Advertisement, CourseMaterial, ContactMessage, EBook, Notice, NoticeCategory, Page, Testimonial
 
 
 class NoticeCategorySerializer(serializers.ModelSerializer):
@@ -114,11 +114,6 @@ class PageSerializer(serializers.ModelSerializer):
         fields = ["id", "key", "slug", "value_type", "value", "image", "video", "created_at", "updated_at"]
         read_only_fields = ["id", "key", "slug", "created_at", "updated_at"]
 
-
-class CounterSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Counter
-        fields = ["id", "key", "label", "value"]
 
 
 class HomeCounterSerializer(serializers.ModelSerializer):
