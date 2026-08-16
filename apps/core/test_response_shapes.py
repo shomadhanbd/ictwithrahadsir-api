@@ -24,7 +24,7 @@ from rest_framework.authtoken.models import Token
 from apps.identity.models import User
 from apps.content.models import Advertisement, Page, Testimonial
 from apps.courses.models import Content, Course, CourseCategory, Instructor, Section
-from apps.assessment.models import McqStore
+from apps.assessment.models import Exam, McqStore
 from apps.faculty.models import Teacher
 
 #: Exactly what `/api/v1/home/` returns, in order.
@@ -120,11 +120,14 @@ class ResponseShapeTests(TestCase):
         self.exam_content = Content.objects.create(
             course=self.course, section=self.section, title='Exam',
             slug='ict-exam', type=Content.Type.EXAM,
-            exam_store=McqStore.objects.create(title='Bank'),
-            exam_total_marks=15, exam_pass_marks=8,
-            exam_positive_marks=Decimal('1.00'),
-            exam_negative_marks=Decimal('0.25'),
-            exam_duration_minutes=15,
+        )
+        Exam.objects.create(
+            content=self.exam_content,
+            question_bank=McqStore.objects.create(title='Bank'),
+            total_marks=15, pass_marks=8,
+            positive_marks=Decimal('1.00'),
+            negative_marks=Decimal('0.25'),
+            duration_minutes=15,
         )
         self.video_content = Content.objects.create(
             course=self.course, section=self.section, title='Video',

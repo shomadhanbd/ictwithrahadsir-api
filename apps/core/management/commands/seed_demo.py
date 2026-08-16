@@ -44,7 +44,7 @@ from apps.courses.models import (
     Routine,
     Section,
 )
-from apps.assessment.models import ExamResult, McqQuestion, McqStore
+from apps.assessment.models import Exam, ExamResult, McqQuestion, McqStore
 from apps.billing.models import Order, Payment
 from apps.store.models import CartItem, Product
 from apps.faculty.models import Teacher
@@ -742,21 +742,24 @@ class Command(BaseCommand):
             order += 1
 
             store = stores[(course_index + chapter_index) % len(stores)]
-            Content.objects.create(
+            exam_content = Content.objects.create(
                 course=course, section=section,
                 title=f"{chapter} — অধ্যায়ভিত্তিক পরীক্ষা",
                 slug=f"{chapter_slug}-exam",
                 type=Content.Type.EXAM, paid=True, order=order,
-                exam_store=store,
-                exam_mode=Content.ExamMode.EXAM,
-                exam_total_marks=15,
-                exam_pass_marks=8,
-                exam_positive_marks=Decimal("1.00"),
-                exam_negative_marks=Decimal("0.25"),
-                exam_duration_minutes=15,
-                exam_start_time=self.now - timedelta(days=7),
-                exam_end_time=self.now + timedelta(days=30),
-                exam_result_publish_time=self.now - timedelta(days=6),
+            )
+            Exam.objects.create(
+                content=exam_content,
+                question_bank=store,
+                mode=Exam.Mode.EXAM,
+                total_marks=15,
+                pass_marks=8,
+                positive_marks=Decimal("1.00"),
+                negative_marks=Decimal("0.25"),
+                duration_minutes=15,
+                start_time=self.now - timedelta(days=7),
+                end_time=self.now + timedelta(days=30),
+                result_publish_time=self.now - timedelta(days=6),
             )
 
     def _seed_materials(self, courses):
@@ -893,16 +896,16 @@ class Command(BaseCommand):
     def _seed_exam_results(self, courses, students):
         """Fill the leaderboard behind /ranking/[id] for the first exam of the
         first few courses."""
-        exams = Content.objects.filter(
-            type=Content.Type.EXAM, course__in=courses[:3]
-        ).order_by("id")[:4]
+        exams = Exam.objects.filter(
+            content__type=Content.Type.EXAM, content__course__in=courses[:3]
+        ).order_by("pk")[:4]
 
         for exam in exams:
             for student in self.rng.sample(students, 18):
                 positive = Decimal(self.rng.randint(6, 15))
                 negative = (Decimal(self.rng.randint(0, 4)) * Decimal("0.25"))
                 ExamResult.objects.get_or_create(
-                    content=exam, user=student,
+                    exam=exam, user=student,
                     defaults={
                         "marks": positive - negative,
                         "positive_marks": positive,

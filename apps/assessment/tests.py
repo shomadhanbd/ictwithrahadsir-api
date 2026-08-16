@@ -13,7 +13,7 @@ from rest_framework.test import APITestCase
 
 from apps.identity.models import User
 from apps.courses.models import Content, Course, CourseUser, Section
-from apps.assessment.models import ExamResult, McqQuestion, McqStore
+from apps.assessment.models import Exam, ExamResult, McqQuestion, McqStore
 
 
 def exam_url(pk):
@@ -50,10 +50,15 @@ class ExamTestBase(APITestCase):
             slug='ict-ch1-exam',
             type=Content.Type.EXAM,
             paid=True,
-            exam_store=self.store,
-            exam_total_marks=10,
-            exam_positive_marks=Decimal('1.00'),
-            exam_negative_marks=Decimal('0.25'),
+        )
+        # Exam.pk is the Content pk, so `self.exam.pk` still addresses the
+        # exam everywhere the URLs and payloads use it.
+        self.exam_config = Exam.objects.create(
+            content=self.exam,
+            question_bank=self.store,
+            total_marks=10,
+            positive_marks=Decimal('1.00'),
+            negative_marks=Decimal('0.25'),
         )
 
     def enrol(self, user=None):
@@ -134,14 +139,14 @@ class AnswerKeyExposureTests(ExamTestBase):
         self.assertEqual(question['b'], '4')
 
     def test_the_answer_key_is_returned_after_submitting(self):
-        ExamResult.objects.create(content=self.exam, user=self.student, marks=Decimal('1'))
+        ExamResult.objects.create(exam=self.exam_config, user=self.student, marks=Decimal('1'))
 
         question = self.questions()[0]
         self.assertEqual(question['answer'], 'b')
         self.assertIn('explanation', question)
 
     def test_one_students_attempt_does_not_reveal_answers_to_another(self):
-        ExamResult.objects.create(content=self.exam, user=self.student, marks=Decimal('1'))
+        ExamResult.objects.create(exam=self.exam_config, user=self.student, marks=Decimal('1'))
 
         classmate = User.objects.create_user(
             phone='01810100099', name='Classmate', password='Str0ngPass!23'
@@ -180,18 +185,18 @@ class ResultPublishTimeTests(ExamTestBase):
     def setUp(self):
         super().setUp()
         self.enrol()
-        ExamResult.objects.create(content=self.exam, user=self.student, marks=Decimal('1'))
+        ExamResult.objects.create(exam=self.exam_config, user=self.student, marks=Decimal('1'))
 
     def embargo(self):
-        self.exam.exam_result_publish_time = timezone.now() + timezone.timedelta(days=1)
-        self.exam.save(update_fields=['exam_result_publish_time'])
+        self.exam_config.result_publish_time = timezone.now() + timezone.timedelta(days=1)
+        self.exam_config.save(update_fields=['result_publish_time'])
 
     def publish(self):
-        self.exam.exam_result_publish_time = timezone.now() - timezone.timedelta(minutes=1)
-        self.exam.save(update_fields=['exam_result_publish_time'])
+        self.exam_config.result_publish_time = timezone.now() - timezone.timedelta(minutes=1)
+        self.exam_config.save(update_fields=['result_publish_time'])
 
     def test_an_unset_publish_time_means_no_embargo(self):
-        self.assertIsNone(self.exam.exam_result_publish_time)
+        self.assertIsNone(self.exam_config.result_publish_time)
         body = self.client.get(exam_url(self.exam.pk), **self.auth).json()
         self.assertTrue(body['result_published'])
         self.assertIn('answer', body['question']['body']['sections'][0]['questions'][0])
@@ -236,19 +241,19 @@ class ExamWindowTests(ExamTestBase):
         self.enrol()
 
     def test_exam_before_its_start_time_is_refused(self):
-        self.exam.exam_start_time = timezone.now() + timezone.timedelta(hours=1)
-        self.exam.save(update_fields=['exam_start_time'])
+        self.exam_config.start_time = timezone.now() + timezone.timedelta(hours=1)
+        self.exam_config.save(update_fields=['start_time'])
         self.assertEqual(self.client.get(exam_url(self.exam.pk), **self.auth).status_code, 403)
 
     def test_exam_after_its_end_time_is_refused(self):
-        self.exam.exam_end_time = timezone.now() - timezone.timedelta(hours=1)
-        self.exam.save(update_fields=['exam_end_time'])
+        self.exam_config.end_time = timezone.now() - timezone.timedelta(hours=1)
+        self.exam_config.save(update_fields=['end_time'])
         self.assertEqual(self.client.get(exam_url(self.exam.pk), **self.auth).status_code, 403)
 
     def test_practice_mode_ignores_the_window(self):
-        self.exam.exam_mode = Content.ExamMode.PRACTICE
-        self.exam.exam_end_time = timezone.now() - timezone.timedelta(hours=1)
-        self.exam.save(update_fields=['exam_mode', 'exam_end_time'])
+        self.exam_config.mode = Exam.Mode.PRACTICE
+        self.exam_config.end_time = timezone.now() - timezone.timedelta(hours=1)
+        self.exam_config.save(update_fields=['mode', 'end_time'])
         self.assertEqual(self.client.get(exam_url(self.exam.pk), **self.auth).status_code, 200)
 
 
@@ -288,7 +293,7 @@ class ExamSubmissionTests(ExamTestBase):
     def test_an_exam_can_only_be_submitted_once(self):
         self.assertEqual(self.submit('b').status_code, 201)
         self.assertEqual(self.submit('b').status_code, 422)
-        self.assertEqual(ExamResult.objects.filter(content=self.exam).count(), 1)
+        self.assertEqual(ExamResult.objects.filter(exam=self.exam_config).count(), 1)
 
     def test_sections_must_be_a_list(self):
         response = self.client.post(
@@ -298,7 +303,7 @@ class ExamSubmissionTests(ExamTestBase):
 
     def test_submitting_returns_the_stored_result(self):
         self.submit('b', duration=125)
-        result = ExamResult.objects.get(content=self.exam, user=self.student)
+        result = ExamResult.objects.get(exam=self.exam_config, user=self.student)
         self.assertEqual(result.duration, 125)
         self.assertTrue(result.submitted)
 
@@ -311,10 +316,10 @@ class ExamRankingTests(ExamTestBase):
             phone='01810100002', name='Rival', password='Str0ngPass!23'
         )
         ExamResult.objects.create(
-            content=self.exam, user=self.rival, marks=Decimal('9'), duration=100
+            exam=self.exam_config, user=self.rival, marks=Decimal('9'), duration=100
         )
         ExamResult.objects.create(
-            content=self.exam, user=self.student, marks=Decimal('5'), duration=100
+            exam=self.exam_config, user=self.student, marks=Decimal('5'), duration=100
         )
 
     def test_ranking_is_ordered_by_marks(self):
@@ -346,7 +351,7 @@ class AdminExamResultTests(ExamTestBase):
         self.admin_auth = {
             'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=admin).key}'
         }
-        ExamResult.objects.create(content=self.exam, user=self.student, marks=Decimal('7'))
+        ExamResult.objects.create(exam=self.exam_config, user=self.student, marks=Decimal('7'))
 
     def test_students_are_refused(self):
         url = reverse('api:assessment:v1:admin_exam_results')

@@ -101,7 +101,7 @@ class ExamMcqSerializer(serializers.ModelSerializer):
 
 
 class ExamResultSerializer(serializers.ModelSerializer):
-    exam_id = serializers.PrimaryKeyRelatedField(source="content", read_only=True)
+    exam_id = serializers.PrimaryKeyRelatedField(source="exam", read_only=True)
     user_id = serializers.PrimaryKeyRelatedField(source="user", read_only=True)
 
     class Meta:
@@ -124,8 +124,8 @@ class ExamResultSerializer(serializers.ModelSerializer):
 
 class AdminExamResultSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
-    exam_id = serializers.PrimaryKeyRelatedField(source="content", read_only=True)
-    exam_title = serializers.CharField(source="content.title", read_only=True)
+    exam_id = serializers.PrimaryKeyRelatedField(source="exam", read_only=True)
+    exam_title = serializers.CharField(source="exam.content.title", read_only=True)
 
     class Meta:
         model = ExamResult

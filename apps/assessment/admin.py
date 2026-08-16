@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import ExamResult, McqQuestion, McqStore
+from .models import Exam, ExamResult, McqQuestion, McqStore
 
 
 @admin.register(McqStore)
@@ -17,4 +17,11 @@ class McqQuestionAdmin(admin.ModelAdmin):
 
 @admin.register(ExamResult)
 class ExamResultAdmin(admin.ModelAdmin):
-    list_display = ["id", "content", "user", "marks", "duration"]
+    list_display = ["id", "exam", "user", "marks", "duration"]
+
+
+@admin.register(Exam)
+class ExamAdmin(admin.ModelAdmin):
+    list_display = ("pk", "content", "mode", "total_marks", "duration_minutes")
+    list_filter = ("mode",)
+    readonly_fields = ("created_at", "updated_at")

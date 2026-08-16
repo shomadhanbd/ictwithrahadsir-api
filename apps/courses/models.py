@@ -252,11 +252,6 @@ class Content(TimestampModel, OrderedModel):
         REVISION = "Revision", "Revision"
         DRAFT = "Draft", "Draft"
 
-    class ExamMode(models.TextChoices):
-        EXAM = "exam", "Exam"
-        PRACTICE = "practice", "Practice"
-        QUIZ = "quiz", "Quiz"
-
     course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="contents")
     section = models.ForeignKey(Section, on_delete=models.CASCADE, related_name="contents")
     title = models.CharField(max_length=255)
@@ -287,24 +282,6 @@ class Content(TimestampModel, OrderedModel):
     live_url = models.URLField(null=True, blank=True)
     live_scheduled_at = models.DateTimeField(null=True, blank=True)
 
-    # -- exam --
-    exam_store = models.ForeignKey(
-        "assessment.McqStore", on_delete=models.SET_NULL, null=True, blank=True, related_name="contents"
-    )
-    exam_mode = models.CharField(max_length=20, choices=ExamMode.choices, default=ExamMode.EXAM)
-    exam_total_marks = models.PositiveIntegerField(null=True, blank=True)
-    exam_pass_marks = models.PositiveIntegerField(null=True, blank=True)
-    exam_positive_marks = models.DecimalField(
-        max_digits=5, decimal_places=2, null=True, blank=True, default=1
-    )
-    exam_negative_marks = models.DecimalField(
-        max_digits=5, decimal_places=2, null=True, blank=True, default=0
-    )
-    exam_duration_minutes = models.PositiveIntegerField(null=True, blank=True)
-    exam_start_time = models.DateTimeField(null=True, blank=True)
-    exam_end_time = models.DateTimeField(null=True, blank=True)
-    exam_result_publish_time = models.DateTimeField(null=True, blank=True)
-
     class Meta:
         ordering = ["order", "id"]
 
@@ -315,21 +292,6 @@ class Content(TimestampModel, OrderedModel):
         if not self.slug:
             self.slug = unique_slugify(self, self.title)
         super().save(*args, **kwargs)
-
-    @property
-    def results_published(self) -> bool:
-        """Whether this exam's results may be shown yet.
-
-        `exam_result_publish_time` was stored and echoed back to the client
-        but never actually checked, so marks, the answer key and the
-        leaderboard were all readable the instant an attempt was submitted.
-
-        An unset time means "no embargo", so content that never configured
-        one keeps behaving exactly as before.
-        """
-        if self.exam_result_publish_time is None:
-            return True
-        return timezone.now() >= self.exam_result_publish_time
 
     def is_accessible_by(self, user) -> bool:
         """Whether `user` may open this content.
