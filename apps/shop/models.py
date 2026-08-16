@@ -1,13 +1,13 @@
 from django.conf import settings
 from django.db import models
-from django.utils.text import slugify
 
 from apps.core.models import OrderedModel, TimeStampedModel
+from apps.core.slugs import ascii_slug
 from apps.courses.models import Course, CoursePrice, CourseCategory
 
 
 def unique_product_slug(instance, base_text):
-    base_slug = slugify(base_text)[:200] or "product"
+    base_slug = ascii_slug(base_text, fallback="product")
     slug = base_slug
     i = 1
     while Product.objects.filter(slug=slug).exclude(pk=instance.pk).exists():

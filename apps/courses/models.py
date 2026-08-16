@@ -1,12 +1,12 @@
 from django.conf import settings
 from django.db import models
-from django.utils.text import slugify
 
 from apps.core.models import OrderedModel, TimeStampedModel
+from apps.core.slugs import ascii_slug
 
 
 def unique_slugify(instance, base_text, slug_field="slug"):
-    base_slug = slugify(base_text)[:200] or "item"
+    base_slug = ascii_slug(base_text)
     slug = base_slug
     model = instance.__class__
     i = 1
