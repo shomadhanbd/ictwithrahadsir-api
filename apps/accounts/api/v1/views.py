@@ -12,17 +12,17 @@ from rest_framework.views import APIView
 from apps.core.api.permissions import IsAdminRole
 from apps.core.api.viewsets import AdminModelViewSet
 
-from .models import OTP, User
-from .serializers import (
+from apps.accounts.models import OTP, User
+from apps.accounts.api.v1.serializers import (
     AdminUserSerializer,
-    LoginSerializer,
-    PasswordResetSerializer,
-    PhoneSerializer,
-    ProfileUpdateSerializer,
-    RegisterSerializer,
-    UserImportSerializer,
+    UserLoginRequestSerializer,
+    PasswordResetRequestSerializer,
+    PhoneRequestSerializer,
+    ProfileUpdateRequestSerializer,
+    UserRegisterRequestSerializer,
+    UserImportRequestSerializer,
     UserSerializer,
-    VerifyOtpSerializer,
+    OtpVerifyRequestSerializer,
 )
 
 
@@ -71,7 +71,7 @@ class OtpIssueMixin:
 # ---------------------------------------------------------------------------
 
 
-class CheckPhoneView(APIView):
+class PhoneCheckAPIView(APIView):
     """GET /check-phone?phone= -- does an account exist for this number?"""
 
     permission_classes = [AllowAny]
@@ -81,7 +81,7 @@ class CheckPhoneView(APIView):
         return Response({"exists": User.objects.filter(phone=phone).exists()})
 
 
-class RequestOtpView(OtpIssueMixin, APIView):
+class OtpRequestAPIView(OtpIssueMixin, APIView):
     """GET /get-otp?phone= -- send a verification code and report whether the
     number already has an account and a usable password, which is what the
     client uses to branch between the login and registration flows.
@@ -96,7 +96,7 @@ class RequestOtpView(OtpIssueMixin, APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
-        serializer = PhoneSerializer(data=request.query_params)
+        serializer = PhoneRequestSerializer(data=request.query_params)
         serializer.is_valid(raise_exception=True)
         phone = serializer.validated_data["phone"]
 
@@ -117,7 +117,7 @@ class RequestOtpView(OtpIssueMixin, APIView):
         )
 
 
-class VerifyOtpView(APIView):
+class OtpVerifyAPIView(APIView):
     """POST /verify-otp -- consume a code and hand back a session token.
 
     For an unknown number this creates a bare, unusable-password row so that
@@ -127,7 +127,7 @@ class VerifyOtpView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        serializer = VerifyOtpSerializer(data=request.data)
+        serializer = OtpVerifyRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         phone = serializer.validated_data["phone"]
 
@@ -147,13 +147,13 @@ class VerifyOtpView(APIView):
         )
 
 
-class RegisterView(APIView):
+class UserRegisterAPIView(APIView):
     """POST /register -- fill in the profile for an OTP-verified number."""
 
     permission_classes = [AllowAny]
 
     def post(self, request):
-        serializer = RegisterSerializer(data=request.data)
+        serializer = UserRegisterRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
@@ -180,25 +180,25 @@ class RegisterView(APIView):
         )
 
 
-class LoginView(APIView):
+class UserLoginAPIView(APIView):
     """POST /login -- phone-or-email plus password."""
 
     permission_classes = [AllowAny]
 
     def post(self, request):
-        serializer = LoginSerializer(data=request.data)
+        serializer = UserLoginRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = serializer.validated_data["user"]
         return Response({"token": issue_token(user), "user": UserSerializer(user).data})
 
 
-class ForgetPasswordView(OtpIssueMixin, APIView):
+class PasswordForgotAPIView(OtpIssueMixin, APIView):
     """POST /forget-password -- send a reset code to a known number."""
 
     permission_classes = [AllowAny]
 
     def post(self, request):
-        serializer = PhoneSerializer(data=request.data)
+        serializer = PhoneRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         phone = serializer.validated_data["phone"]
 
@@ -211,13 +211,13 @@ class ForgetPasswordView(OtpIssueMixin, APIView):
         return Response({"message": "OTP sent."})
 
 
-class PasswordResetView(APIView):
+class PasswordResetAPIView(APIView):
     """POST /password-reset -- set a new password against a valid OTP."""
 
     permission_classes = [AllowAny]
 
     def post(self, request):
-        serializer = PasswordResetSerializer(data=request.data)
+        serializer = PasswordResetRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
@@ -236,7 +236,7 @@ class PasswordResetView(APIView):
         )
 
 
-class LogoutView(APIView):
+class UserLogoutAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
@@ -244,7 +244,7 @@ class LogoutView(APIView):
         return Response({"ok": True})
 
 
-class MeView(APIView):
+class CurrentUserAPIView(APIView):
     """GET returns the current user; POST patches the profile (the shape the
     existing client already sends -- not a PATCH)."""
 
@@ -254,7 +254,7 @@ class MeView(APIView):
         return Response({"data": UserSerializer(request.user).data})
 
     def post(self, request):
-        serializer = ProfileUpdateSerializer(
+        serializer = ProfileUpdateRequestSerializer(
             request.user, data=request.data, partial=True, context={"request": request}
         )
         serializer.is_valid(raise_exception=True)
@@ -282,7 +282,7 @@ class AdminUserViewSet(AdminModelViewSet):
         return qs
 
 
-class AdminUserSearchView(ListAPIView):
+class AdminUserSearchAPIView(ListAPIView):
     """Typeahead for the course-enrolment screens: students only, capped,
     unpaginated because the admin panel renders it straight into a dropdown."""
 
@@ -307,7 +307,7 @@ class AdminUserSearchView(ListAPIView):
         return Response({"data": serializer.data})
 
 
-class AdminUserImportView(APIView):
+class AdminUserImportAPIView(APIView):
     """PUT /admin/user/import -- bulk-create students from a spreadsheet.
 
     Kept on PUT because that is what the admin panel sends.
@@ -316,7 +316,7 @@ class AdminUserImportView(APIView):
     permission_classes = [IsAdminRole]
 
     def put(self, request):
-        serializer = UserImportSerializer(data=request.data)
+        serializer = UserImportRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         import openpyxl

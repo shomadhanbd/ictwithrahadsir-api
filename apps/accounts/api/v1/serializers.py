@@ -4,7 +4,7 @@ from rest_framework import serializers
 
 from apps.core.api.fields import MediaField
 
-from .models import OTP, User
+from apps.accounts.models import OTP, User
 
 
 def check_password_strength(password, field="password"):
@@ -119,7 +119,7 @@ class AdminUserSerializer(serializers.ModelSerializer):
         return instance
 
 
-class RegisterSerializer(serializers.Serializer):
+class UserRegisterRequestSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=150)
     phone = serializers.CharField(max_length=20)
     institute = serializers.CharField(source="institution", max_length=255, required=False, allow_blank=True)
@@ -136,13 +136,13 @@ class RegisterSerializer(serializers.Serializer):
         return attrs
 
 
-class PhoneSerializer(serializers.Serializer):
+class PhoneRequestSerializer(serializers.Serializer):
     """Shared shape for the endpoints keyed purely on a phone number."""
 
     phone = serializers.CharField(max_length=20)
 
 
-class VerifyOtpSerializer(serializers.Serializer):
+class OtpVerifyRequestSerializer(serializers.Serializer):
     phone = serializers.CharField(max_length=20)
     otp = serializers.CharField(max_length=10)
 
@@ -152,7 +152,7 @@ class VerifyOtpSerializer(serializers.Serializer):
         return attrs
 
 
-class PasswordResetSerializer(serializers.Serializer):
+class PasswordResetRequestSerializer(serializers.Serializer):
     phone = serializers.CharField(max_length=20)
     otp = serializers.CharField(max_length=10)
     password = serializers.CharField(write_only=True)
@@ -173,7 +173,7 @@ class PasswordResetSerializer(serializers.Serializer):
         return attrs
 
 
-class UserImportSerializer(serializers.Serializer):
+class UserImportRequestSerializer(serializers.Serializer):
     file = serializers.FileField()
 
     #: Guards against a huge upload being parsed straight into memory.
@@ -187,7 +187,7 @@ class UserImportSerializer(serializers.Serializer):
         return value
 
 
-class LoginSerializer(serializers.Serializer):
+class UserLoginRequestSerializer(serializers.Serializer):
     phone = serializers.CharField(required=False)
     email = serializers.EmailField(required=False)
     password = serializers.CharField(write_only=True)
@@ -214,7 +214,7 @@ class LoginSerializer(serializers.Serializer):
         return attrs
 
 
-class ProfileUpdateSerializer(serializers.ModelSerializer):
+class ProfileUpdateRequestSerializer(serializers.ModelSerializer):
     image = MediaField(upload_to="users", required=False)
     password = serializers.CharField(write_only=True, required=False, allow_blank=True)
 

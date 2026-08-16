@@ -16,7 +16,7 @@ from django.urls import include, path
 api_url_patterns = (
     [
         path('', include('apps.core.api.urls')),
-        path('', include('apps.accounts.urls')),
+        path('', include('apps.accounts.api.urls')),
         path('', include('apps.team.urls')),
         path('', include('apps.courses.urls')),
         path('', include('apps.exams.urls')),
