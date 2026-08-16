@@ -76,7 +76,7 @@ def home(request):
     from apps.courses.serializers import CourseCategorySerializer
     from apps.courses.models import CourseCategory
     from apps.team.models import Teacher
-    from apps.team.serializers import TeacherSerializer
+    from apps.team.api.v1.serializers import TeacherSerializer
 
     courses = Course.objects.filter(active=True, featured=True)[:12]
     categories = CourseCategory.objects.filter(category__isnull=True)
