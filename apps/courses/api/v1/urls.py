@@ -4,8 +4,7 @@ from django.urls import include, path
 
 from apps.courses.api.v1.views import (
     AdminContentToggleAPIView,
-    AdminCourseMaterialListAPIView,
-    AdminContentViewSet,
+        AdminContentViewSet,
     AdminCourseCategoryViewSet,
     AdminCourseEnrolledUserListAPIView,
     AdminCoursePriceViewSet,
@@ -13,6 +12,7 @@ from apps.courses.api.v1.views import (
     AdminCourseViewSet,
     AdminEnrollmentAPIView,
     AdminCouponViewSet,
+    AdminCourseMaterialViewSet,
     AdminRoutineViewSet,
     AdminSectionViewSet,
     ContentDetailAPIView,
@@ -30,6 +30,7 @@ router.register('admin/course-categories', AdminCourseCategoryViewSet, basename=
 router.register('admin/prices', AdminCoursePriceViewSet, basename='admin-price')
 router.register('admin/coupons', AdminCouponViewSet, basename='admin-coupon')
 router.register('admin/routines', AdminRoutineViewSet, basename='admin-routine')
+router.register('admin/course-materials', AdminCourseMaterialViewSet, basename='admin-course-material')
 router.register('admin/sections', AdminSectionViewSet, basename='admin-section')
 router.register('admin/contents', AdminContentViewSet, basename='admin-content')
 router.register('admin/courses', AdminCourseViewSet, basename='admin-course')
@@ -43,7 +44,6 @@ urlpatterns = [
     path('contents/<slug:slug>/pdf/', ContentPdfAPIView.as_view(), name='content_pdf'),
     # Scoped to the caller, so it hangs off /me/ like the profile does.
     path('me/courses/', MyCourseListAPIView.as_view(), name='my_course_list'),
-    path('admin/course-materials/', AdminCourseMaterialListAPIView.as_view(), name='admin_course_materials'),
     # Admin. Explicit routes come before the routers so a literal segment is
     # never mistaken for a detail lookup.
     path(

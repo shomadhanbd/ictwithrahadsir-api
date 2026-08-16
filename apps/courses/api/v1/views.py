@@ -11,7 +11,7 @@ from rest_framework.views import APIView
 from apps.identity.models import User
 from apps.core.api.pagination import LaravelStylePageNumberPagination
 from apps.core.api.permissions import IsAdminRole
-from apps.core.api.viewsets import AdminModelViewSet
+from apps.core.api.viewsets import AdminModelViewSet, SlugOrPkLookupMixin
 from apps.courses.api.v1.serializers import (
     AdminContentSerializer,
     AdminCourseSerializer,
@@ -212,18 +212,24 @@ class PublicCourseCategoryListAPIView(ListAPIView):
 # ---------------------------------------------------------------------------
 
 
-class AdminCourseViewSet(AdminModelViewSet):
+class AdminCourseViewSet(SlugOrPkLookupMixin, AdminModelViewSet):
     # `categories` is a m2m on the serializer, so it is one query per course
     # on the list without this.
     queryset = Course.objects.prefetch_related('categories')
     serializer_class = AdminCourseSerializer
     lookup_field = 'slug'
+    # Without this the global SearchFilter has nothing to match on, so
+    # `?search=` was accepted and silently ignored -- the admin panel's
+    # search box returned the unfiltered list and looked broken.
+    search_fields = ['title', 'subtitle', 'slug']
 
 
-class AdminCourseCategoryViewSet(AdminModelViewSet):
+
+class AdminCourseCategoryViewSet(SlugOrPkLookupMixin, AdminModelViewSet):
     queryset = CourseCategory.objects.all()
     serializer_class = CourseCategorySerializer
     lookup_field = 'slug'
+    search_fields = ['title']
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -238,6 +244,7 @@ class AdminCourseCategoryViewSet(AdminModelViewSet):
 class AdminCoursePriceViewSet(AdminModelViewSet):
     queryset = CoursePrice.objects.all()
     serializer_class = CoursePriceSerializer
+    search_fields = ['title']
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -272,6 +279,7 @@ class AdminCouponViewSet(AdminModelViewSet):
 class AdminRoutineViewSet(AdminModelViewSet):
     queryset = Routine.objects.all()
     serializer_class = RoutineSerializer
+    search_fields = ['title']
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -281,10 +289,13 @@ class AdminRoutineViewSet(AdminModelViewSet):
         return qs
 
 
-class AdminSectionViewSet(AdminModelViewSet):
+class AdminSectionViewSet(SlugOrPkLookupMixin, AdminModelViewSet):
     queryset = Section.objects.all()
     serializer_class = AdminSectionSerializer
     lookup_field = 'slug'
+    # Same inert-SearchFilter problem as the other admin lists: the panel
+    # ships a search box against this endpoint, which did nothing without it.
+    search_fields = ['title']
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -343,9 +354,19 @@ class AdminCourseEnrolledUserListAPIView(ListAPIView):
     permission_classes = [IsAdminRole]
     serializer_class = EnrollmentSerializer
     pagination_class = LaravelStylePageNumberPagination
+    # The panel's student search box posts `?search=`; without these the
+    # global SearchFilter matches on nothing and silently returns everyone.
+    search_fields = ['user__name', 'user__phone', 'user__email']
 
     def get_queryset(self):
-        return Enrollment.objects.filter(course_id=self.kwargs['pk']).select_related('user')
+        # Explicitly ordered: an unordered queryset leaves the page boundaries
+        # up to the database, so a student could appear on two pages or on
+        # none. Newest enrolment first is also the useful default here.
+        return (
+            Enrollment.objects.filter(course_id=self.kwargs['pk'])
+            .select_related('user')
+            .order_by('-id')
+        )
 
 
 class BaseCourseEnrollmentAPIView(APIView):
@@ -499,11 +520,20 @@ class AdminEnrollmentImportAPIView(APIView):
         return Response({'attached': attached, 'missing': missing})
 
 
-class AdminCourseMaterialListAPIView(ListAPIView):
-    permission_classes = [IsAdminRole]
-    serializer_class = CourseMaterialSerializer
-    pagination_class = None
-    queryset = CourseMaterial.objects.all()
+class AdminCourseMaterialViewSet(AdminModelViewSet):
+    """Materials were list-only: the admin panel could see them and nothing
+    else. There was no way to add, rename or remove one from the panel at
+    all, so the screen was a dead end."""
 
-    def list(self, request, *args, **kwargs):
-        return Response({'data': self.get_serializer(self.get_queryset(), many=True).data})
+    # `course` is rendered on every row, so without this it is a query each.
+    queryset = CourseMaterial.objects.select_related('course')
+    serializer_class = CourseMaterialSerializer
+    search_fields = ['title', 'type', 'course__title']
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        course_id = self.request.query_params.get('course_id')
+        if course_id:
+            qs = qs.filter(course_id=course_id)
+        # Newest first, and explicitly ordered so pagination is stable.
+        return qs.order_by('-id')

@@ -12,6 +12,11 @@ class AdminTeamViewSet(AdminModelViewSet):
 
     queryset = Teacher.objects.all()
     serializer_class = TeacherSerializer
+    # Without this the global SearchFilter has nothing to match on, so
+    # `?search=` was accepted and silently ignored -- the admin panel's
+    # search box returned the unfiltered list and looked broken.
+    search_fields = ['name', 'designation']
+
 
 
 class AdminTeacherLookupAPIView(ListAPIView):
@@ -31,6 +36,7 @@ class AdminTeacherLookupAPIView(ListAPIView):
 class AdminInstructorViewSet(AdminModelViewSet):
     queryset = CourseInstructor.objects.select_related('teacher').all()
     serializer_class = InstructorSerializer
+    search_fields = ['name', 'designation', 'institute', 'email']
 
     def get_queryset(self):
         qs = super().get_queryset()

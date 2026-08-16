@@ -35,9 +35,23 @@ class AdminContactListAPIView(ListAPIView):
     permission_classes = [IsAdminRole]
     serializer_class = ContactMessageSerializer
     pagination_class = LaravelStylePageNumberPagination
-    # The serializer nests the sender, so the inbox is one query per message
-    # without this.
-    queryset = ContactMessage.objects.select_related('user')
+    # The panel's search box posts `?search=`; without these the global
+    # SearchFilter matched nothing and quietly returned the whole inbox.
+    search_fields = ['name', 'phone', 'subject', 'message']
+
+    def get_queryset(self):
+        # The serializer nests the sender, so the inbox is one query per
+        # message without the select_related. Newest first, and explicitly
+        # ordered so pagination cannot repeat or drop a message.
+        qs = ContactMessage.objects.select_related('user').order_by('-id')
+
+        # An inbox's first job is showing what has not been dealt with.
+        is_read = self.request.query_params.get('is_read')
+        if is_read in ('0', 'false', 'False'):
+            qs = qs.filter(is_read=False)
+        elif is_read in ('1', 'true', 'True'):
+            qs = qs.filter(is_read=True)
+        return qs
 
 
 class BaseAdminContactAPIView(APIView):

@@ -6,6 +6,8 @@ api/v1/^admin/coupons/$
 api/v1/^admin/coupons/(?P<pk>[^/.]+)/$
 api/v1/^admin/course-categories/$
 api/v1/^admin/course-categories/(?P<slug>[^/.]+)/$
+api/v1/^admin/course-materials/$
+api/v1/^admin/course-materials/(?P<pk>[^/.]+)/$
 api/v1/^admin/courses/$
 api/v1/^admin/courses/(?P<slug>[^/.]+)/$
 api/v1/^admin/ebooks/$
@@ -39,7 +41,6 @@ api/v1/admin/contact-messages/
 api/v1/admin/contact-messages/<int:pk>/
 api/v1/admin/contact-messages/<int:pk>/read/
 api/v1/admin/contents/<int:pk>/toggle/
-api/v1/admin/course-materials/
 api/v1/admin/courses/<int:pk>/enrollments/
 api/v1/admin/courses/<int:pk>/enrollments/import/
 api/v1/admin/dashboard/

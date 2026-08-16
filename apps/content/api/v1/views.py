@@ -25,7 +25,7 @@ from apps.content.models import (
 )
 from apps.core.api.pagination import LaravelStylePageNumberPagination
 from apps.core.api.permissions import IsAdminRole
-from apps.core.api.viewsets import AdminModelViewSet
+from apps.core.api.viewsets import AdminModelViewSet, SlugOrPkLookupMixin
 
 # ---------------------------------------------------------------------------
 # Public
@@ -140,12 +140,18 @@ class AdminNoticeViewSet(AdminModelViewSet):
     queryset = Notice.objects.prefetch_related('categories')
     serializer_class = NoticeSerializer
     lookup_field = 'slug'
+    # Without this the global SearchFilter has nothing to match on, so
+    # `?search=` was accepted and silently ignored -- the admin panel's
+    # search box returned the unfiltered list and looked broken.
+    search_fields = ['title', 'body']
 
 
-class AdminNoticeCategoryViewSet(AdminModelViewSet):
+
+class AdminNoticeCategoryViewSet(SlugOrPkLookupMixin, AdminModelViewSet):
     queryset = NoticeCategory.objects.all()
     serializer_class = NoticeCategorySerializer
     lookup_field = 'slug'
+    search_fields = ['title']
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -161,16 +167,19 @@ class AdminNoticeCategoryViewSet(AdminModelViewSet):
 class AdminTestimonialViewSet(AdminModelViewSet):
     queryset = Testimonial.objects.all()
     serializer_class = TestimonialSerializer
+    search_fields = ['name', 'designation', 'description']
 
 
 class AdminAdvertisementViewSet(AdminModelViewSet):
     queryset = Advertisement.objects.all()
     serializer_class = AdvertisementSerializer
+    search_fields = ['title', 'description', 'type']
 
 
 class AdminEBookViewSet(AdminModelViewSet):
     queryset = EBook.objects.all()
     serializer_class = EBookSerializer
+    search_fields = ['title', 'description']
 
 
 class AdminPageListAPIView(ListAPIView):

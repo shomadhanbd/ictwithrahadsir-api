@@ -177,7 +177,22 @@ class AdminPaymentListAPIView(ListAPIView):
     permission_classes = [IsAdminRole]
     serializer_class = AdminPaymentSerializer
     pagination_class = LaravelStylePageNumberPagination
-    queryset = Payment.objects.select_related('order', 'order__user')
+    # The panel searches by payer and by transaction reference; without these
+    # the global SearchFilter had nothing to match and `?search=` was ignored.
+    search_fields = ['transaction_id', 'order__user__name', 'order__user__phone']
+
+    def get_queryset(self):
+        # Newest first, and explicitly ordered: an unordered queryset lets the
+        # database pick page boundaries, so a payment could show on two pages
+        # or on none.
+        qs = Payment.objects.select_related('order', 'order__user').order_by('-id')
+
+        # The screen's main job is clearing pending payments, which is
+        # impossible on a mixed list once there are more than a page of them.
+        status_value = self.request.query_params.get('status')
+        if status_value and status_value != 'all':
+            qs = qs.filter(status=status_value)
+        return qs
 
 
 class AdminPaymentUpdateAPIView(APIView):

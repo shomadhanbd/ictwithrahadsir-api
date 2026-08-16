@@ -259,6 +259,9 @@ class ExamRankingAPIView(BaseExamAPIView):
 class AdminQuestionBankViewSet(AdminModelViewSet):
     queryset = QuestionBank.objects.all()
     serializer_class = QuestionBankSerializer
+    # The panel ships a search box against this; without it the global
+    # SearchFilter matches on nothing and quietly returns the whole folder.
+    search_fields = ['title']
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -274,6 +277,7 @@ class AdminQuestionBankViewSet(AdminModelViewSet):
 class AdminQuestionViewSet(AdminModelViewSet):
     queryset = Question.objects.all()
     serializer_class = QuestionSerializer
+    search_fields = ['question', 'a', 'b', 'c', 'd', 'e', 'explanation']
 
     def get_queryset(self):
         qs = super().get_queryset()
