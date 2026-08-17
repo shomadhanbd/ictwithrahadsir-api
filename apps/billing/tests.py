@@ -335,3 +335,78 @@ class FreeCoursePurchaseTests(ShopTestBase):
         )
         self.assertEqual(response.status_code, 422)
         self.assertFalse(Enrollment.objects.exists())
+
+
+class ProductOrderTests(APITestCase):
+    """`Order` has carried `product` and `quantity` from the start; only this
+    endpoint never used them, so the store had a cart and no way to check
+    out."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            phone='01710600001', name='Buyer', password='Str0ngPass!23',
+        )
+        self.auth = {
+            'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=self.user).key}'
+        }
+        self.product = Product.objects.create(
+            name='ICT Digest', price=Decimal('450'), stock=10, active=True,
+        )
+
+    def post(self, **body):
+        return self.client.post(ORDER_URL, body, format='json', **self.auth)
+
+    def test_a_product_order_is_created_at_the_list_price(self):
+        response = self.post(product_id=self.product.pk)
+        self.assertEqual(response.status_code, 201)
+        order = Order.objects.get()
+        self.assertEqual(order.product, self.product)
+        self.assertEqual(order.amount, Decimal('450'))
+        self.assertEqual(order.total, Decimal('450'))
+        self.assertEqual(order.item_title, 'ICT Digest')
+
+    def test_quantity_multiplies_the_total_but_not_the_unit(self):
+        response = self.post(product_id=self.product.pk, quantity=3)
+        order = Order.objects.get()
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(order.quantity, 3)
+        self.assertEqual(order.amount, Decimal('450'))
+        self.assertEqual(order.total, Decimal('1350'))
+
+    def test_a_live_discount_is_subtracted(self):
+        """`discount` is the amount off, the same as CoursePrice."""
+        self.product.discount = Decimal('70')
+        self.product.discount_till = timezone.now() + timezone.timedelta(days=1)
+        self.product.save()
+        self.post(product_id=self.product.pk)
+        self.assertEqual(Order.objects.get().total, Decimal('380'))
+
+    def test_an_expired_discount_is_ignored(self):
+        self.product.discount = Decimal('70')
+        self.product.discount_till = timezone.now() - timezone.timedelta(days=1)
+        self.product.save()
+        self.post(product_id=self.product.pk)
+        self.assertEqual(Order.objects.get().total, Decimal('450'))
+
+    def test_ordering_more_than_the_stock_is_rejected(self):
+        response = self.post(product_id=self.product.pk, quantity=11)
+        self.assertEqual(response.status_code, 422)
+        self.assertFalse(Order.objects.exists())
+
+    def test_an_inactive_product_is_rejected(self):
+        self.product.active = False
+        self.product.save()
+        self.assertEqual(self.post(product_id=self.product.pk).status_code, 422)
+
+    def test_a_zero_quantity_is_rejected(self):
+        self.assertEqual(
+            self.post(product_id=self.product.pk, quantity=0).status_code, 422
+        )
+
+    def test_an_anonymous_visitor_cannot_order(self):
+        self.assertEqual(
+            self.client.post(
+                ORDER_URL, {'product_id': self.product.pk}, format='json'
+            ).status_code,
+            401,
+        )

@@ -264,18 +264,21 @@ EBOOKS = [
     ("সি প্রোগ্রামিং হ্যান্ডনোট", "সিনট্যাক্স, লুপ ও ফাংশনের সহজ ব্যাখ্যা ও উদাহরণ।"),
 ]
 
+# `discount` is the amount OFF, the same as CoursePrice.discount and what
+# `product_price_after_discount` subtracts. These used to hold the sale price
+# instead — 450/380 — which is the opposite meaning for the same field name.
 PRODUCTS = [
-    ("আইসিটি ডাইজেস্ট (প্রিন্ট কপি)", "ict-digest-print", Decimal("450"), Decimal("380"), 120,
+    ("আইসিটি ডাইজেস্ট (প্রিন্ট কপি)", "ict-digest-print", Decimal("450"), Decimal("70"), 120,
      "এইচএসসি আইসিটির সম্পূর্ণ সিলেবাস কভার করা প্রিন্টেড ডাইজেস্ট বই।"),
-    ("সংখ্যা পদ্ধতি প্র্যাকটিস বুক", "number-system-practice-book", Decimal("250"), Decimal("199"), 85,
+    ("সংখ্যা পদ্ধতি প্র্যাকটিস বুক", "number-system-practice-book", Decimal("250"), Decimal("51"), 85,
      "৫০০+ অনুশীলন সমস্যা ও ধাপে ধাপে সমাধান।"),
     ("বোর্ড প্রশ্নব্যাংক সমাধান", "board-question-bank-solution", Decimal("380"), None, 60,
      "গত ৯ বছরের সকল বোর্ড প্রশ্নের সমাধান একসাথে।"),
-    ("সি প্রোগ্রামিং ওয়ার্কবুক", "c-programming-workbook", Decimal("320"), Decimal("270"), 45,
+    ("সি প্রোগ্রামিং ওয়ার্কবুক", "c-programming-workbook", Decimal("320"), Decimal("50"), 45,
      "হাতে-কলমে কোড লিখে শেখার ওয়ার্কবুক।"),
     ("লজিক গেট পোস্টার সেট", "logic-gate-poster-set", Decimal("180"), None, 200,
      "পড়ার টেবিলের জন্য লেমিনেটেড লজিক গেট ও ট্রুথ টেবিল পোস্টার।"),
-    ("এসএসসি আইসিটি গাইড", "ssc-ict-guide", Decimal("300"), Decimal("255"), 70,
+    ("এসএসসি আইসিটি গাইড", "ssc-ict-guide", Decimal("300"), Decimal("45"), 70,
      "এসএসসি সিলেবাস অনুযায়ী অধ্যায়ভিত্তিক গাইড বই।"),
 ]
 

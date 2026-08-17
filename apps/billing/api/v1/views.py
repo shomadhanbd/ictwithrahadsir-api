@@ -14,6 +14,7 @@ from rest_framework.views import APIView
 from apps.core.api.pagination import LaravelStylePageNumberPagination
 from apps.core.api.permissions import IsAdminRole
 from apps.core.api.viewsets import AdminModelViewSet
+from apps.store.models import Product
 from apps.courses.models import Course, CoursePrice, Enrollment
 from apps.courses.services import grant_course_access
 from apps.billing.api.v1.serializers import (
@@ -33,6 +34,24 @@ def price_after_discount(price: CoursePrice) -> Decimal:
     amount = price.amount
     if price.discount and (not price.discount_till or price.discount_till > timezone.now()):
         amount = max(Decimal('0'), amount - price.discount)
+    return amount
+
+
+def product_price_after_discount(product) -> Decimal:
+    """Same rule as a course price: `discount` is the amount OFF.
+
+    The store had no server-side total at all until orders learned about
+    products, so the meaning of `Product.discount` was decided only by the
+    seed — which wrote a sale price, the opposite of what `CoursePrice` means
+    by the same field name. One field name with two meanings in one API is a
+    trap for every consumer, so products follow the course rule and the seed
+    was corrected to match.
+    """
+    amount = product.price
+    if product.discount and (
+        not product.discount_till or product.discount_till > timezone.now()
+    ):
+        amount = max(Decimal('0'), amount - product.discount)
     return amount
 
 
@@ -80,6 +99,12 @@ class OrderAPIView(APIView):
         return Response({'data': OrderSerializer(orders, many=True).data})
 
     def post(self, request):
+        # A product order and a course order are the same resource with a
+        # different item; the model has carried `product` and `quantity` from
+        # the start and only this endpoint never used them.
+        if request.data.get('product_id'):
+            return self._create_product_order(request)
+
         course_id = request.data.get('course_id')
         course = Course.objects.filter(pk=course_id, active=True).first()
         price = (
@@ -103,6 +128,43 @@ class OrderAPIView(APIView):
             price_title=price.title,
             amount=amount,
             total=amount,
+            status=Order.Status.PENDING,
+        )
+        return Response(
+            {'id': order.id, 'order': OrderSerializer(order).data},
+            status=status.HTTP_201_CREATED,
+        )
+
+    def _create_product_order(self, request):
+        product = Product.objects.filter(
+            pk=request.data.get('product_id'), active=True
+        ).first()
+        if not product:
+            raise ValidationError({'product_id': ['Unknown product.']})
+
+        try:
+            quantity = int(request.data.get('quantity', 1))
+        except (TypeError, ValueError):
+            raise ValidationError({'quantity': ['Must be a whole number.']})
+        if quantity < 1:
+            raise ValidationError({'quantity': ['Must be at least 1.']})
+
+        # Stock is the whole point of holding it: an order that cannot be
+        # fulfilled should fail here rather than at the packing table.
+        if product.stock < quantity:
+            raise ValidationError(
+                {'quantity': [f'Only {product.stock} left in stock.']}
+            )
+
+        unit = product_price_after_discount(product)
+        total = unit * quantity
+        order = Order.objects.create(
+            user=request.user,
+            product=product,
+            quantity=quantity,
+            item_title=product.name,
+            amount=unit,
+            total=total,
             status=Order.Status.PENDING,
         )
         return Response(
