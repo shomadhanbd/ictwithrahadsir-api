@@ -47,6 +47,24 @@ class PublicNoticeListAPIView(ListAPIView):
         return qs.distinct()
 
 
+class PublicEBookListAPIView(ListAPIView):
+    """The e-book shelf.
+
+    The admin has managed these since the beginning (`admin/ebooks/`) and no
+    public route existed, so staff could create a cover, a preview and a
+    booking link that no student could ever reach. Read-only and open: an
+    e-book listing is marketing, and gating it would defeat the point.
+    """
+
+    permission_classes = [AllowAny]
+    serializer_class = EBookSerializer
+    pagination_class = None
+    queryset = EBook.objects.all()
+
+    def list(self, request, *args, **kwargs):
+        return Response({'data': self.get_serializer(self.get_queryset(), many=True).data})
+
+
 class PublicNoticeCategoryListAPIView(ListAPIView):
     permission_classes = [AllowAny]
     serializer_class = NoticeCategorySerializer

@@ -634,7 +634,12 @@ class Command(BaseCommand):
             priceable_id=course.id,
             title="ফুল কোর্স (আজীবন এক্সেস)",
             amount=base,
-            discount=(base - Decimal("300")) if index % 2 == 0 else None,
+            # `discount` is the amount OFF, which is what `price_after_discount`
+            # subtracts and what billing's own test asserts (1500 - 300 = 1200).
+            # This used to seed `base - 300`, i.e. 1200 against a 1500 course,
+            # so the API quoted — and would have charged — 300 for a 1500 taka
+            # course, and the storefront correctly displayed an 80% discount.
+            discount=Decimal("300") if index % 2 == 0 else None,
             discount_till=self.now + timedelta(days=30),
             type=CoursePrice.Type.FULL,
             validity_type=CoursePrice.ValidityType.RELATIVE,

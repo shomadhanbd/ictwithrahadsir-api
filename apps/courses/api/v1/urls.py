@@ -16,6 +16,7 @@ from apps.courses.api.v1.views import (
     AdminRoutineViewSet,
     AdminSectionViewSet,
     ContentDetailAPIView,
+    CourseMaterialListAPIView,
     ContentPdfAPIView,
     MyCourseListAPIView,
     PublicCourseCategoryListAPIView,
@@ -40,6 +41,11 @@ urlpatterns = [
     path('courses/', PublicCourseListAPIView.as_view(), name='course_list'),
     path('courses/<slug:slug>/', PublicCourseDetailAPIView.as_view(), name='course_detail'),
     path('course-categories/', PublicCourseCategoryListAPIView.as_view(), name='course_category_list'),
+    path(
+        'courses/<slug:slug>/materials/',
+        CourseMaterialListAPIView.as_view(),
+        name='course_material_list',
+    ),
     path('contents/<slug:slug>/', ContentDetailAPIView.as_view(), name='content_detail'),
     path('contents/<slug:slug>/pdf/', ContentPdfAPIView.as_view(), name='content_pdf'),
     # Scoped to the caller, so it hangs off /me/ like the profile does.

@@ -190,6 +190,42 @@ class MyCourseListAPIView(CourseListContextMixin, ListAPIView):
         return Response({'data': serializer.data})
 
 
+class CourseMaterialListAPIView(ListAPIView):
+    """Supplementary files for a course the caller is enrolled on.
+
+    The admin has managed these all along (`admin/course-materials/`) with no
+    public route, so a lecture sheet uploaded for a course reached nobody. It
+    is enrolment-gated rather than open: these are the same class of asset as a
+    paid Content, and the course player is the only place they make sense.
+
+    Gating reuses `Enrollment` with the expiry check `Content.is_accessible_by`
+    applies, so a lapsed subscription loses the materials at the same moment it
+    loses the lessons.
+    """
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = CourseMaterialSerializer
+    pagination_class = None
+
+    def get_queryset(self):
+        course = Course.objects.filter(slug=self.kwargs['slug'], active=True).first()
+        if not course:
+            raise NotFound('Course not found.')
+
+        enrollment = Enrollment.objects.filter(
+            course=course, user=self.request.user
+        ).first()
+        if not enrollment:
+            raise PermissionDenied('You are not enrolled on this course.')
+        if enrollment.valid_till and enrollment.valid_till < timezone.now():
+            raise PermissionDenied('Your access to this course has expired.')
+
+        return CourseMaterial.objects.filter(course=course).order_by('-created_at')
+
+    def list(self, request, *args, **kwargs):
+        return Response({'data': self.get_serializer(self.get_queryset(), many=True).data})
+
+
 class PublicCourseCategoryListAPIView(ListAPIView):
     permission_classes = [AllowAny]
     serializer_class = CourseCategorySerializer

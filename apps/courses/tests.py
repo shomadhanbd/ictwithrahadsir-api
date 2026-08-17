@@ -14,6 +14,7 @@ from apps.courses.models import (
     Content,
     Course,
     CourseCategory,
+    CourseMaterial,
     CoursePrice,
     Enrollment,
     Section,
@@ -368,3 +369,54 @@ class AdminContentToggleTests(APITestCase):
         self.assertEqual(response.status_code, 422)
         self.content.refresh_from_db()
         self.assertTrue(self.content.active)
+
+
+class CourseMaterialListTests(APITestCase):
+    """Supplementary files were admin-only, so a lecture sheet uploaded
+    against a course reached nobody. Gated on the same enrolment rule the
+    lessons use, expiry included."""
+
+    def setUp(self):
+        self.student = User.objects.create_user(
+            phone='01710400001', name='Student', password='Str0ngPass!23',
+        )
+        self.auth = {
+            'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=self.student).key}'
+        }
+        self.course = Course.objects.create(title='ICT', slug='ict-materials', active=True)
+        CourseMaterial.objects.create(
+            course=self.course, title='Lecture sheet', type='pdf',
+        )
+
+    def url(self, slug=None):
+        return reverse(
+            'api:courses:v1:course_material_list', args=[slug or self.course.slug]
+        )
+
+    def test_an_anonymous_visitor_is_rejected(self):
+        self.assertEqual(self.client.get(self.url()).status_code, 401)
+
+    def test_a_student_without_an_enrolment_is_rejected(self):
+        response = self.client.get(self.url(), **self.auth)
+        self.assertEqual(response.status_code, 403)
+
+    def test_an_enrolled_student_gets_the_materials(self):
+        Enrollment.objects.create(course=self.course, user=self.student)
+        response = self.client.get(self.url(), **self.auth)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data['data']), 1)
+        self.assertEqual(response.data['data'][0]['title'], 'Lecture sheet')
+
+    def test_an_expired_enrolment_loses_them(self):
+        Enrollment.objects.create(
+            course=self.course,
+            user=self.student,
+            valid_till=timezone.now() - timezone.timedelta(days=1),
+        )
+        response = self.client.get(self.url(), **self.auth)
+        self.assertEqual(response.status_code, 403)
+
+    def test_an_unknown_course_is_a_404(self):
+        Enrollment.objects.create(course=self.course, user=self.student)
+        response = self.client.get(self.url('no-such-course'), **self.auth)
+        self.assertEqual(response.status_code, 404)

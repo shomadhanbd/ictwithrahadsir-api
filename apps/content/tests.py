@@ -12,6 +12,7 @@ from rest_framework.test import APITestCase
 from apps.identity.models import User
 from apps.content.models import (
     Advertisement,
+    EBook,
     Notice,
     NoticeCategory,
     Page,
@@ -127,3 +128,28 @@ class AdminCmsTests(APITestCase):
         self.assertEqual(response.status_code, 200)
         self.page.refresh_from_db()
         self.assertEqual(self.page.value, 'new')
+
+
+class PublicEBookListTests(APITestCase):
+    """The e-book shelf was admin-only; staff could publish a cover, a preview
+    and a booking link that no student could reach."""
+
+    def setUp(self):
+        EBook.objects.create(
+            title='ICT Handnote',
+            description='Syntax and loops, explained.',
+            booking_link='https://example.test/order',
+            preview='https://example.test/preview.pdf',
+        )
+
+    def test_the_shelf_is_public(self):
+        response = self.client.get(reverse('api:content:v1:ebook_list'))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data['data']), 1)
+        self.assertEqual(response.data['data'][0]['title'], 'ICT Handnote')
+
+    def test_it_is_read_only(self):
+        response = self.client.post(
+            reverse('api:content:v1:ebook_list'), {'title': 'Nope'}, format='json'
+        )
+        self.assertEqual(response.status_code, 405)
