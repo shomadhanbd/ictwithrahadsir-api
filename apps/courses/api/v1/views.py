@@ -318,6 +318,10 @@ class AdminContentViewSet(AdminModelViewSet):
     queryset = Content.objects.select_related('exam')
     serializer_class = AdminContentSerializer
     lookup_field = 'slug'
+    # The last admin list whose search box posted `?search=` into an inert
+    # SearchFilter -- every sibling viewset got this during the redesign and
+    # this one was missed, so typing in the lessons search did nothing.
+    search_fields = ['title']
 
     def get_queryset(self):
         qs = super().get_queryset()
