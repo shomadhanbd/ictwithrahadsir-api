@@ -88,5 +88,7 @@ api/v1/notices/
 api/v1/orders/
 api/v1/pages/<slug:key>/
 api/v1/payments/
+api/v1/practice/questions/
+api/v1/practice/topics/
 api/v1/products/
 api/v1/uploads/signed-url/

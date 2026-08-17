@@ -396,3 +396,66 @@ class AdminQuestionBankTests(ExamTestBase):
         url = reverse('api:assessment:v1:admin-mcq-list')
         body = self.client.get(url, {'mcq_store_id': self.store.pk}, **self.admin_auth).json()
         self.assertEqual(body['meta']['total'], 1)
+
+
+class PracticeQuizTests(APITestCase):
+    """The MCQ bank was reachable only inside a scheduled exam, so the one
+    piece of content that would persuade a visitor to pay was invisible to
+    anyone who had not already paid."""
+
+    TOPICS_URL = reverse('api:assessment:v1:practice_topics')
+    QUESTIONS_URL = reverse('api:assessment:v1:practice_questions')
+
+    def setUp(self):
+        self.root = QuestionBank.objects.create(title='ICT bank')
+        self.chapter = QuestionBank.objects.create(title='Number systems', parent=self.root)
+        self.empty = QuestionBank.objects.create(title='Empty chapter')
+        for i in range(6):
+            Question.objects.create(
+                bank=self.chapter, question=f'Q{i}', a='1', b='2', c='3', d='4',
+                answer='b', explanation='Because.',
+            )
+
+    def test_topics_are_public(self):
+        response = self.client.get(self.TOPICS_URL)
+        self.assertEqual(response.status_code, 200)
+        titles = [b['title'] for b in response.data['data']]
+        self.assertIn('Number systems', titles)
+
+    def test_a_parent_topic_counts_its_descendants(self):
+        response = self.client.get(self.TOPICS_URL)
+        root = next(b for b in response.data['data'] if b['title'] == 'ICT bank')
+        self.assertEqual(root['question_count'], 6)
+
+    def test_an_empty_topic_is_not_offered(self):
+        response = self.client.get(self.TOPICS_URL)
+        self.assertNotIn('Empty chapter', [b['title'] for b in response.data['data']])
+
+    def test_questions_are_public_and_carry_the_answer(self):
+        response = self.client.get(self.QUESTIONS_URL)
+        self.assertEqual(response.status_code, 200)
+        question = response.data['data'][0]
+        self.assertIn('answer', question)
+        self.assertIn('explanation', question)
+
+    def test_the_sample_is_capped(self):
+        """The answers are included, so the cap is what stops the whole bank
+        being lifted in one request."""
+        response = self.client.get(self.QUESTIONS_URL, {'limit': 500})
+        self.assertLessEqual(len(response.data['data']), 20)
+
+    def test_a_topic_filters_the_sample(self):
+        other = QuestionBank.objects.create(title='Other')
+        Question.objects.create(
+            bank=other, question='Stranger', a='1', b='2', answer='a',
+        )
+        response = self.client.get(self.QUESTIONS_URL, {'bank_id': self.chapter.pk, 'limit': 20})
+        self.assertNotIn('Stranger', [q['question'] for q in response.data['data']])
+
+    def test_an_unknown_topic_is_a_404(self):
+        response = self.client.get(self.QUESTIONS_URL, {'bank_id': 999999})
+        self.assertEqual(response.status_code, 404)
+
+    def test_a_junk_limit_falls_back_to_the_default(self):
+        response = self.client.get(self.QUESTIONS_URL, {'limit': 'lots'})
+        self.assertLessEqual(len(response.data['data']), 10)

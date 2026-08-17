@@ -5,7 +5,7 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.generics import ListAPIView
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -16,6 +16,8 @@ from apps.courses.models import Content
 from apps.assessment.api.v1.serializers import (
     AdminExamAttemptSerializer,
     ExamMcqSerializer,
+    PracticeBankSerializer,
+    PracticeQuestionSerializer,
     QuestionSerializer,
     QuestionBankSerializer,
     RankEntrySerializer,
@@ -254,6 +256,73 @@ class ExamRankingAPIView(BaseExamAPIView):
 # ---------------------------------------------------------------------------
 # Admin panel
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Free practice
+# ---------------------------------------------------------------------------
+
+PRACTICE_SAMPLE_DEFAULT = 10
+PRACTICE_SAMPLE_MAX = 20
+
+
+class PracticeBankListAPIView(ListAPIView):
+    """The topics a visitor can practise, with question counts.
+
+    The MCQ bank has only ever been reachable inside a scheduled exam, which
+    means it is invisible to anyone who has not already paid — the one piece
+    of content that would persuade them to.
+
+    Only folders that actually hold questions, counted across descendants, so
+    an empty or purely structural folder never offers a quiz with nothing in
+    it.
+    """
+
+    permission_classes = [AllowAny]
+    serializer_class = PracticeBankSerializer
+    pagination_class = None
+
+    def list(self, request, *args, **kwargs):
+        banks = []
+        for bank in QuestionBank.objects.all():
+            count = bank.all_questions().count()
+            if count:
+                bank.question_count = count
+                banks.append(bank)
+        return Response({'data': self.get_serializer(banks, many=True).data})
+
+
+class PracticeQuestionListAPIView(ListAPIView):
+    """A random sample of questions to practise on.
+
+    Random and capped: the answers and explanations are included because
+    nothing is scored and a practice question that cannot say why you were
+    wrong is just a quiz, so the sample size is what keeps the bank from
+    being lifted in one request.
+    """
+
+    permission_classes = [AllowAny]
+    serializer_class = PracticeQuestionSerializer
+    pagination_class = None
+
+    def list(self, request, *args, **kwargs):
+        questions = Question.objects.all()
+
+        bank_id = request.query_params.get('bank_id')
+        if bank_id:
+            bank = QuestionBank.objects.filter(pk=bank_id).first()
+            if not bank:
+                raise NotFound('Topic not found.')
+            questions = bank.all_questions()
+
+        try:
+            limit = int(request.query_params.get('limit', PRACTICE_SAMPLE_DEFAULT))
+        except (TypeError, ValueError):
+            limit = PRACTICE_SAMPLE_DEFAULT
+        limit = max(1, min(limit, PRACTICE_SAMPLE_MAX))
+
+        sample = questions.order_by('?')[:limit]
+        return Response({'data': self.get_serializer(sample, many=True).data})
 
 
 class AdminQuestionBankViewSet(AdminModelViewSet):

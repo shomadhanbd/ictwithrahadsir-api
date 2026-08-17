@@ -9,6 +9,8 @@ from apps.assessment.api.v1.views import (
     ExamDetailAPIView,
     ExamRankingAPIView,
     ExamSubmissionAPIView,
+    PracticeBankListAPIView,
+    PracticeQuestionListAPIView,
 )
 
 app_name = 'v1'
@@ -20,6 +22,10 @@ router.register('admin/mcq-folders', AdminQuestionBankViewSet, basename='admin-m
 router.register('admin/mcq-questions', AdminQuestionViewSet, basename='admin-mcq')
 
 urlpatterns = [
+    # Free practice — the MCQ bank's only route that does not require an
+    # enrolment and a scheduled exam.
+    path('practice/topics/', PracticeBankListAPIView.as_view(), name='practice_topics'),
+    path('practice/questions/', PracticeQuestionListAPIView.as_view(), name='practice_questions'),
     path('exams/<int:pk>/', ExamDetailAPIView.as_view(), name='exam_detail'),
     # Sitting the exam creates a submission, so it is its own resource rather
     # than a POST to the paper.

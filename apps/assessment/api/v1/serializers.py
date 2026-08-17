@@ -49,6 +49,51 @@ class QuestionSerializer(serializers.ModelSerializer):
         read_only_fields = ["id"]
 
 
+class PracticeQuestionSerializer(serializers.ModelSerializer):
+    """A question in the free practice quiz.
+
+    Carries the answer and the explanation, unlike `ExamMcqSerializer`, which
+    strips them: nothing is being scored here and the explanation is the whole
+    point — a practice question that cannot tell you why you were wrong is
+    just a quiz. Scraping the bank wholesale is held off by the sample cap on
+    the view rather than by hiding the answer, which would make the feature
+    useless.
+    """
+
+    question_image = MediaField(upload_to="mcq", required=False)
+    answer_image = MediaField(upload_to="mcq", required=False)
+
+    class Meta:
+        model = Question
+        fields = [
+            "id",
+            "question",
+            "question_image",
+            "a",
+            "b",
+            "c",
+            "d",
+            "e",
+            "answer",
+            "answer_image",
+            "explanation",
+            "source_year",
+            "source_board",
+        ]
+        read_only_fields = fields
+
+
+class PracticeBankSerializer(serializers.ModelSerializer):
+    """A practice topic, with how many questions sit under it."""
+
+    question_count = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = QuestionBank
+        fields = ["id", "title", "question_count"]
+        read_only_fields = fields
+
+
 class ExamMcqSerializer(serializers.ModelSerializer):
     """Question shape returned to a student sitting the exam.
 
