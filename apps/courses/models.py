@@ -285,6 +285,49 @@ class Content(TimestampModel, OrderedModel):
         return True
 
 
+class ContentCompletion(TimestampModel):
+    """One row per lesson a student has finished.
+
+    There was no progress anywhere in the schema, so the course player could
+    not answer "how far am I?" without inventing a number — it fell back to
+    remembering the last lesson opened in the browser's own storage, which is
+    per-device and vanishes with a cache clear.
+
+    Completion rather than a percentage per lesson: a lesson is watched or it
+    is not, and a course's progress is then a count over its contents, which
+    stays correct when contents are added or removed. `course` is denormalised
+    off the content so the common query — this user's completions on this
+    course — is a single indexed lookup instead of a join through Content.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="content_completions",
+    )
+    content = models.ForeignKey(
+        Content, on_delete=models.CASCADE, related_name="completions"
+    )
+    course = models.ForeignKey(
+        Course, on_delete=models.CASCADE, related_name="content_completions"
+    )
+    completed_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        unique_together = ["user", "content"]
+        indexes = [models.Index(fields=["user", "course"])]
+
+    def __str__(self):
+        return f"{self.user} finished {self.content}"
+
+    def save(self, *args, **kwargs):
+        # The course is always the content's course; taking it from the caller
+        # would let the two drift apart.
+        if self.content_id and self.course_id != self.content.course_id:
+            self.course_id = self.content.course_id
+        super().save(*args, **kwargs)
+
+
 class Enrollment(TimestampModel):
     """Enrollment pivot -- who has access to which course, until when, and
     how they got it."""

@@ -420,3 +420,108 @@ class CourseMaterialListTests(APITestCase):
         Enrollment.objects.create(course=self.course, user=self.student)
         response = self.client.get(self.url('no-such-course'), **self.auth)
         self.assertEqual(response.status_code, 404)
+
+
+class CourseProgressTests(APITestCase):
+    """There was no progress model at all, so the player could only remember
+    the last lesson opened, per device, in the browser's own storage."""
+
+    def setUp(self):
+        self.student = User.objects.create_user(
+            phone='01710500001', name='Student', password='Str0ngPass!23',
+        )
+        self.auth = {
+            'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=self.student).key}'
+        }
+        self.course = Course.objects.create(title='ICT', slug='ict-progress', active=True)
+        section = Section.objects.create(
+            course=self.course, title='Ch1', slug='ict-progress-ch1'
+        )
+        self.lessons = [
+            Content.objects.create(
+                course=self.course, section=section, title=f'Lesson {i}',
+                slug=f'ict-progress-l{i}', type=Content.Type.VIDEO, active=True,
+            )
+            for i in range(4)
+        ]
+
+    def url(self, slug=None):
+        return reverse('api:courses:v1:course_progress', args=[slug or self.course.slug])
+
+    def enrol(self, **kwargs):
+        return Enrollment.objects.create(course=self.course, user=self.student, **kwargs)
+
+    def test_an_anonymous_visitor_is_rejected(self):
+        self.assertEqual(self.client.get(self.url()).status_code, 401)
+
+    def test_a_student_without_an_enrolment_is_rejected(self):
+        self.assertEqual(self.client.get(self.url(), **self.auth).status_code, 403)
+
+    def test_an_expired_enrolment_is_rejected(self):
+        self.enrol(valid_till=timezone.now() - timezone.timedelta(days=1))
+        self.assertEqual(self.client.get(self.url(), **self.auth).status_code, 403)
+
+    def test_a_fresh_enrolment_starts_at_zero(self):
+        self.enrol()
+        data = self.client.get(self.url(), **self.auth).data['data']
+        self.assertEqual((data['completed'], data['total'], data['percent']), (0, 4, 0))
+
+    def test_marking_a_lesson_advances_the_count(self):
+        self.enrol()
+        response = self.client.post(
+            self.url(), {'content_id': self.lessons[0].pk}, format='json', **self.auth
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data['data']['completed'], 1)
+        self.assertEqual(response.data['data']['percent'], 25)
+        self.assertIn(self.lessons[0].pk, response.data['data']['completed_content_ids'])
+
+    def test_marking_the_same_lesson_twice_counts_once(self):
+        self.enrol()
+        for _ in range(2):
+            response = self.client.post(
+                self.url(), {'content_id': self.lessons[0].pk}, format='json', **self.auth
+            )
+        self.assertEqual(response.data['data']['completed'], 1)
+
+    def test_a_lesson_can_be_un_marked(self):
+        self.enrol()
+        self.client.post(
+            self.url(), {'content_id': self.lessons[0].pk}, format='json', **self.auth
+        )
+        response = self.client.delete(
+            self.url(), {'content_id': self.lessons[0].pk}, format='json', **self.auth
+        )
+        self.assertEqual(response.data['data']['completed'], 0)
+
+    def test_a_lesson_from_another_course_is_rejected(self):
+        self.enrol()
+        other = Course.objects.create(title='Other', slug='other-progress')
+        other_section = Section.objects.create(
+            course=other, title='Ch1', slug='other-progress-ch1'
+        )
+        stranger = Content.objects.create(
+            course=other, section=other_section, title='Nope', slug='other-progress-l0',
+            type=Content.Type.VIDEO, active=True,
+        )
+        response = self.client.post(
+            self.url(), {'content_id': stranger.pk}, format='json', **self.auth
+        )
+        self.assertEqual(response.status_code, 422)
+
+    def test_adding_a_lesson_dilutes_the_percentage(self):
+        """A course that gains content should not leave everyone at 100%."""
+        self.enrol()
+        for lesson in self.lessons:
+            self.client.post(
+                self.url(), {'content_id': lesson.pk}, format='json', **self.auth
+            )
+        self.assertEqual(self.client.get(self.url(), **self.auth).data['data']['percent'], 100)
+
+        section = Section.objects.get(course=self.course)
+        Content.objects.create(
+            course=self.course, section=section, title='Lesson 5',
+            slug='ict-progress-l5', type=Content.Type.VIDEO, active=True,
+        )
+        data = self.client.get(self.url(), **self.auth).data['data']
+        self.assertEqual((data['completed'], data['total'], data['percent']), (4, 5, 80))

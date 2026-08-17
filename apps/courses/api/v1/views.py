@@ -30,6 +30,7 @@ from apps.courses.api.v1.serializers import (
 )
 from apps.courses.models import (
     Content,
+    ContentCompletion,
     CourseMaterial,
     Course,
     CourseCategory,
@@ -190,6 +191,86 @@ class MyCourseListAPIView(CourseListContextMixin, ListAPIView):
         return Response({'data': serializer.data})
 
 
+def _current_enrollment(user, course):
+    """The caller's live enrolment on a course, or None.
+
+    Same rule `Content.is_accessible_by` applies — an enrolment past its
+    `valid_till` is no enrolment at all — kept in one place so progress and
+    materials cannot disagree about who is enrolled.
+    """
+    enrollment = Enrollment.objects.filter(course=course, user=user).first()
+    if not enrollment:
+        return None
+    if enrollment.valid_till and enrollment.valid_till < timezone.now():
+        return None
+    return enrollment
+
+
+class CourseProgressAPIView(APIView):
+    """How far the caller has got on a course.
+
+    GET returns the completed content ids plus a count, so the client can both
+    tick individual lessons and draw a bar without a second request. POST marks
+    one lesson done, DELETE un-marks it — a student who ticked the wrong row
+    should be able to take it back.
+
+    The total counts every active content on the course, so a course that gains
+    a lesson correctly drops everyone's percentage rather than leaving people
+    permanently at 100%.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def _course(self, slug):
+        course = Course.objects.filter(slug=slug, active=True).first()
+        if not course:
+            raise NotFound('Course not found.')
+        if not _current_enrollment(self.request.user, course):
+            raise PermissionDenied('You are not enrolled on this course.')
+        return course
+
+    def _payload(self, course):
+        completed = list(
+            ContentCompletion.objects.filter(
+                user=self.request.user, course=course
+            ).values_list('content_id', flat=True)
+        )
+        total = Content.objects.filter(course=course, active=True).count()
+        return {
+            'data': {
+                'completed_content_ids': completed,
+                'completed': len(completed),
+                'total': total,
+                'percent': round(len(completed) / total * 100) if total else 0,
+            }
+        }
+
+    def get(self, request, slug):
+        return Response(self._payload(self._course(slug)))
+
+    def post(self, request, slug):
+        course = self._course(slug)
+        content = Content.objects.filter(
+            pk=request.data.get('content_id'), course=course, active=True
+        ).first()
+        if not content:
+            raise ValidationError({'content_id': ['Unknown content for this course.']})
+
+        ContentCompletion.objects.get_or_create(
+            user=request.user, content=content, defaults={'course': course}
+        )
+        return Response(self._payload(course), status=status.HTTP_201_CREATED)
+
+    def delete(self, request, slug):
+        course = self._course(slug)
+        ContentCompletion.objects.filter(
+            user=request.user,
+            course=course,
+            content_id=request.data.get('content_id'),
+        ).delete()
+        return Response(self._payload(course))
+
+
 class CourseMaterialListAPIView(ListAPIView):
     """Supplementary files for a course the caller is enrolled on.
 
@@ -212,13 +293,8 @@ class CourseMaterialListAPIView(ListAPIView):
         if not course:
             raise NotFound('Course not found.')
 
-        enrollment = Enrollment.objects.filter(
-            course=course, user=self.request.user
-        ).first()
-        if not enrollment:
+        if not _current_enrollment(self.request.user, course):
             raise PermissionDenied('You are not enrolled on this course.')
-        if enrollment.valid_till and enrollment.valid_till < timezone.now():
-            raise PermissionDenied('Your access to this course has expired.')
 
         return CourseMaterial.objects.filter(course=course).order_by('-created_at')
 

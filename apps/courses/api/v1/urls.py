@@ -17,6 +17,7 @@ from apps.courses.api.v1.views import (
     AdminSectionViewSet,
     ContentDetailAPIView,
     CourseMaterialListAPIView,
+    CourseProgressAPIView,
     ContentPdfAPIView,
     MyCourseListAPIView,
     PublicCourseCategoryListAPIView,
@@ -41,6 +42,11 @@ urlpatterns = [
     path('courses/', PublicCourseListAPIView.as_view(), name='course_list'),
     path('courses/<slug:slug>/', PublicCourseDetailAPIView.as_view(), name='course_detail'),
     path('course-categories/', PublicCourseCategoryListAPIView.as_view(), name='course_category_list'),
+    path(
+        'courses/<slug:slug>/progress/',
+        CourseProgressAPIView.as_view(),
+        name='course_progress',
+    ),
     path(
         'courses/<slug:slug>/materials/',
         CourseMaterialListAPIView.as_view(),
