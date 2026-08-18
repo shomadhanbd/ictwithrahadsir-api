@@ -1,15 +1,14 @@
-from rest_framework import status
-from rest_framework.exceptions import NotFound, ValidationError
+from drf_spectacular.utils import OpenApiResponse, extend_schema
+from rest_framework.exceptions import NotFound
 from rest_framework.generics import ListAPIView
-from rest_framework.permissions import AllowAny, IsAuthenticatedOrReadOnly
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.content.api.v1.serializers import (
     AdvertisementSerializer,
     EBookSerializer,
-    HomeBannerSerializer,
-    HomeCounterSerializer,
+    HomeSerializer,
     NoticeCategorySerializer,
     NoticeSerializer,
     PageSerializer,
@@ -25,7 +24,11 @@ from apps.content.models import (
 )
 from apps.core.api.pagination import LaravelStylePageNumberPagination
 from apps.core.api.permissions import IsAdminRole
-from apps.core.api.viewsets import AdminModelViewSet, SlugOrPkLookupMixin
+from apps.core.api.viewsets import (
+    AdminModelViewSet,
+    SlugOrPkLookupMixin,
+    UnpaginatedDataListMixin,
+)
 
 # ---------------------------------------------------------------------------
 # Public
@@ -47,7 +50,7 @@ class PublicNoticeListAPIView(ListAPIView):
         return qs.distinct()
 
 
-class PublicEBookListAPIView(ListAPIView):
+class PublicEBookListAPIView(UnpaginatedDataListMixin, ListAPIView):
     """The e-book shelf.
 
     The admin has managed these since the beginning (`admin/ebooks/`) and no
@@ -58,26 +61,22 @@ class PublicEBookListAPIView(ListAPIView):
 
     permission_classes = [AllowAny]
     serializer_class = EBookSerializer
-    pagination_class = None
     queryset = EBook.objects.all()
 
-    def list(self, request, *args, **kwargs):
-        return Response({'data': self.get_serializer(self.get_queryset(), many=True).data})
 
-
-class PublicNoticeCategoryListAPIView(ListAPIView):
+class PublicNoticeCategoryListAPIView(UnpaginatedDataListMixin, ListAPIView):
     permission_classes = [AllowAny]
     serializer_class = NoticeCategorySerializer
-    pagination_class = None
     queryset = NoticeCategory.objects.filter(notice_category__isnull=True)
-
-    def list(self, request, *args, **kwargs):
-        return Response({'data': self.get_serializer(self.get_queryset(), many=True).data})
 
 
 class PublicPageDetailAPIView(APIView):
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        summary='A static CMS page by key',
+        responses={200: OpenApiResponse(PageSerializer, description='`{data: {...}}`')},
+    )
     def get(self, request, key):
         page = Page.objects.filter(key=key).first()
         if not page:
@@ -90,68 +89,16 @@ class HomeAPIView(APIView):
 
     permission_classes = [AllowAny]
 
+    @extend_schema(summary='Everything the landing page needs', responses={200: HomeSerializer})
     def get(self, request):
-        # Imported lazily: courses and team both reach back into cms, so
-        # importing at module scope would create a cycle.
-        from apps.courses.api.v1.serializers import (
-            CourseCategorySerializer,
-            CourseListSerializer,
-            build_category_children,
-            build_course_stats,
-        )
-        from apps.courses.models import Course, CourseCategory
-        from apps.faculty.api.v1.serializers import TeacherSerializer
-        from apps.faculty.models import Teacher
-
-        courses = list(
-            Course.objects.filter(active=True, featured=True)
-            .prefetch_related('categories', 'instructors__teacher', 'routines')[:12]
-        )
-        categories = list(CourseCategory.objects.filter(category__isnull=True))
-
-        # Homepage counters and banner are managed as `Page` rows through the
-        # admin panel's Pages screen (value_type="counter"/"image"), not the
-        # separate `Counter` model, which nothing in either frontend edits.
-        # Listed once and reused: `counters` is iterated for both the counter
-        # payload and the success-story lookup.
-        counters = list(Page.objects.filter(value_type=Page.ValueType.COUNTER))
-        banner = Page.objects.filter(key='homeBannerImage').first()
-        success_story = next(
-            (c.value for c in counters if c.key == 'homeInstructorCounter'), 0
-        )
+        # Imported here rather than at module scope: `courses` and `faculty`
+        # both import `content`, so a top-level import back into them would
+        # close the cycle.
+        from apps.content.selectors import homepage_content
 
         return Response(
-            {
-                'courses': CourseListSerializer(
-                    courses,
-                    many=True,
-                    context={
-                        'request': request,
-                        'course_stats': build_course_stats(courses, request),
-                    },
-                ).data,
-                'courseCategories': CourseCategorySerializer(
-                    categories,
-                    many=True,
-                    context={'category_children': build_category_children(categories)},
-                ).data,
-                'advertisement': AdvertisementSerializer(
-                    Advertisement.objects.all(), many=True
-                ).data,
-                'testimonials': TestimonialSerializer(
-                    Testimonial.objects.all(), many=True
-                ).data,
-                'counters': HomeCounterSerializer(counters, many=True).data,
-                'suceesstorycounter': success_story,
-                'instructors': TeacherSerializer(Teacher.objects.all(), many=True).data,
-                'bannerImage': HomeBannerSerializer(banner).data if banner else None,
-            }
+            HomeSerializer(homepage_content(), context={'request': request}).data
         )
-
-
-# ---------------------------------------------------------------------------
-# Admin panel
-# ---------------------------------------------------------------------------
 
 
 class AdminNoticeViewSet(AdminModelViewSet):
@@ -200,14 +147,10 @@ class AdminEBookViewSet(AdminModelViewSet):
     search_fields = ['title', 'description']
 
 
-class AdminPageListAPIView(ListAPIView):
+class AdminPageListAPIView(UnpaginatedDataListMixin, ListAPIView):
     permission_classes = [IsAdminRole]
     serializer_class = PageSerializer
-    pagination_class = None
     queryset = Page.objects.all()
-
-    def list(self, request, *args, **kwargs):
-        return Response({'data': self.get_serializer(self.get_queryset(), many=True).data})
 
 
 class AdminPageUpdateAPIView(APIView):
@@ -215,6 +158,7 @@ class AdminPageUpdateAPIView(APIView):
 
     permission_classes = [IsAdminRole]
 
+    @extend_schema(summary='Edit a static page', request=PageSerializer, responses={200: PageSerializer})
     def patch(self, request, slug):
         page = Page.objects.filter(slug=slug).first()
         if not page:

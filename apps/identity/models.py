@@ -2,40 +2,13 @@ import random
 import string
 
 from django.conf import settings
-from django.contrib.auth.base_user import AbstractBaseUser, BaseUserManager
+from django.contrib.auth.base_user import AbstractBaseUser
 from django.contrib.auth.models import PermissionsMixin
 from django.db import models
 from django.utils import timezone
 from django.utils.crypto import constant_time_compare
 
-from apps.core.services.factory import get_sms_backend
-
-
-class UserManager(BaseUserManager):
-    def create_user(self, phone=None, email=None, password=None, **extra_fields):
-        if not phone and not email:
-            raise ValueError("A user requires a phone number or an email address.")
-        email = self.normalize_email(email) if email else None
-        user = self.model(phone=phone, email=email, **extra_fields)
-        if password:
-            user.set_password(password)
-        else:
-            user.set_unusable_password()
-        user.save(using=self._db)
-        return user
-
-    def create_superuser(self, phone=None, email=None, password=None, **extra_fields):
-        extra_fields.setdefault("role", User.Role.ADMIN)
-        extra_fields.setdefault("is_staff", True)
-        extra_fields.setdefault("is_superuser", True)
-        extra_fields.setdefault("name", extra_fields.get("name") or "Admin")
-        if not phone:
-            phone = f"admin-{''.join(random.choices(string.digits, k=8))}"
-        if extra_fields.get("is_staff") is not True:
-            raise ValueError("Superuser must have is_staff=True.")
-        if extra_fields.get("is_superuser") is not True:
-            raise ValueError("Superuser must have is_superuser=True.")
-        return self.create_user(phone=phone, email=email, password=password, **extra_fields)
+from apps.identity.managers import UserManager
 
 
 class User(AbstractBaseUser, PermissionsMixin):
@@ -138,10 +111,15 @@ class OTP(models.Model):
 
     @classmethod
     def issue(cls, phone: str) -> "OTP":
+        """Create a code for `phone`. Does not send it.
+
+        Delivery lives in `apps.identity.services.send_otp`, so creating a
+        row is not by itself a call out to an SMS gateway -- a model save
+        that reaches the network cannot be used from a fixture, a migration
+        or a test without stubbing the gateway out.
+        """
         code = "".join(random.choices(string.digits, k=settings.OTP_LENGTH))
-        otp = cls.objects.create(phone=phone, code=code)
-        get_sms_backend().send(phone, f"Your ICT with Rahad Sir verification code is {code}")
-        return otp
+        return cls.objects.create(phone=phone, code=code)
 
     @classmethod
     def verify(cls, phone: str, code: str) -> bool:

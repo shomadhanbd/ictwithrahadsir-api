@@ -84,12 +84,11 @@ class RetiredPathTests(TestCase):
 
     def test_every_retired_path_is_gone(self):
         for legacy, canonical in self.ALIASES:
-            with self.subTest(path=legacy):
-                with self.assertRaises(
-                    Resolver404,
-                    msg=f'{legacy} still routes; it was replaced by {canonical}',
-                ):
-                    resolve(legacy)
+            with self.subTest(path=legacy), self.assertRaises(
+                Resolver404,
+                msg=f'{legacy} still routes; it was replaced by {canonical}',
+            ):
+                resolve(legacy)
 
     def test_every_replacement_resolves(self):
         for legacy, canonical in self.ALIASES:

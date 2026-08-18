@@ -1,15 +1,24 @@
 from django.db.models import Count
 
-from apps.courses import selectors as course_selectors
 from rest_framework import serializers
 
-from apps.identity.models import User
-from apps.core.api.fields import MediaField
 from apps.assessment import content_exam
-from apps.faculty.api.v1.serializers import PublicInstructorSerializer
 from apps.assessment.models import Exam, QuestionBank
-
-from apps.courses.models import Content, Course, CourseCategory, CourseMaterial, CoursePrice, Enrollment, Coupon, Routine, Section
+from apps.core.api.fields import MediaField
+from apps.core.spreadsheets import SpreadsheetField
+from apps.courses import selectors as course_selectors
+from apps.courses.models import (
+    Content,
+    Coupon,
+    Course,
+    CourseCategory,
+    CourseMaterial,
+    CoursePrice,
+    Enrollment,
+    Routine,
+    Section,
+)
+from apps.faculty.api.v1.serializers import PublicInstructorSerializer
 
 
 class CoursePriceSerializer(serializers.ModelSerializer):
@@ -89,7 +98,7 @@ class CourseCategorySerializer(serializers.ModelSerializer):
         fields = ["id", "title", "slug", "image", "course_category_id", "order", "children"]
         read_only_fields = ["id", "slug"]
 
-    def get_children(self, obj):
+    def get_children(self, obj) -> list:
         batched = self.context.get("category_children")
         # Without the batch this falls back to the per-node query, which is
         # what a single-object admin response wants anyway.
@@ -212,7 +221,7 @@ class ContentDetailSerializer(serializers.ModelSerializer):
             "link",
         ]
 
-    def get_video(self, obj):
+    def get_video(self, obj) -> dict | None:
         if obj.type != Content.Type.VIDEO:
             return None
         return {
@@ -225,12 +234,12 @@ class ContentDetailSerializer(serializers.ModelSerializer):
             "cipher": obj.video_cipher,
         }
 
-    def get_pdf(self, obj):
+    def get_pdf(self, obj) -> dict | None:
         if obj.type != Content.Type.PDF:
             return None
         return {"id": obj.id, "title": obj.title, "link": obj.pdf_file}
 
-    def get_exam(self, obj):
+    def get_exam(self, obj) -> dict | None:
         if obj.type != Content.Type.EXAM:
             return None
         request = self.context.get("request")
@@ -256,7 +265,7 @@ class ContentDetailSerializer(serializers.ModelSerializer):
             "submitted": bool(result),
         }
 
-    def get_link(self, obj):
+    def get_link(self, obj) -> dict | None:
         if obj.type not in (Content.Type.LINK, Content.Type.LIVE, Content.Type.NOTE):
             return None
         if obj.type == Content.Type.LINK:
@@ -488,13 +497,13 @@ class CourseListSerializer(serializers.ModelSerializer):
             "users_count",
         ]
 
-    def get_audio_count(self, obj):
+    def get_audio_count(self, obj) -> int:
         return 0
 
-    def get_online_count(self, obj):
+    def get_online_count(self, obj) -> int:
         return 0
 
-    def get_offline_count(self, obj):
+    def get_offline_count(self, obj) -> int:
         return 0
 
     def _stats(self, key, obj, default=None):
@@ -510,28 +519,28 @@ class CourseListSerializer(serializers.ModelSerializer):
             return counts.get(content_type, 0)
         return obj.contents.filter(type=content_type).count()
 
-    def get_video_count(self, obj):
+    def get_video_count(self, obj) -> int:
         return self._content_count(obj, Content.Type.VIDEO)
 
-    def get_exam_count(self, obj):
+    def get_exam_count(self, obj) -> int:
         return self._content_count(obj, Content.Type.EXAM)
 
-    def get_note_count(self, obj):
+    def get_note_count(self, obj) -> int:
         return self._content_count(obj, Content.Type.NOTE)
 
-    def get_link_count(self, obj):
+    def get_link_count(self, obj) -> int:
         return self._content_count(obj, Content.Type.LINK)
 
-    def get_live_count(self, obj):
+    def get_live_count(self, obj) -> int:
         return self._content_count(obj, Content.Type.LIVE)
 
-    def get_class_count(self, obj):
+    def get_class_count(self, obj) -> int:
         counts = self._stats("content_counts", obj, {})
         if counts is not None:
             return sum(counts.values())
         return obj.contents.count()
 
-    def get_price(self, obj):
+    def get_price(self, obj) -> dict | None:
         batched = self._stats("prices", obj, [])
         if batched is not None:
             price = batched[0] if batched else None
@@ -539,7 +548,7 @@ class CourseListSerializer(serializers.ModelSerializer):
             price = obj.prices.order_by("amount").first()
         return CoursePriceSerializer(price).data if price else None
 
-    def get_instructors(self, obj):
+    def get_instructors(self, obj) -> list:
         return PublicInstructorSerializer(obj.instructors.all(), many=True).data
 
     def _enrollment(self, obj):
@@ -552,22 +561,18 @@ class CourseListSerializer(serializers.ModelSerializer):
             return stats["enrollments"].get(obj.pk)
         return obj.enrollments.filter(user=request.user).first()
 
-    def get_subscription_status(self, obj):
-        from django.utils import timezone
-
+    def get_subscription_status(self, obj) -> dict | None:
         enrollment = self._enrollment(obj)
         if not enrollment:
             return None
-        status = "active"
-        if enrollment.valid_till and enrollment.valid_till < timezone.now():
-            status = "expired"
+        status = "active" if enrollment.is_current else "expired"
         return {
             "status": status,
             "valid_till": enrollment.valid_till,
             "payment_type": enrollment.payment_type,
         }
 
-    def get_has_order(self, obj):
+    def get_has_order(self, obj) -> bool:
         request = self.context.get("request")
         if not request or not request.user.is_authenticated:
             return False
@@ -578,7 +583,7 @@ class CourseListSerializer(serializers.ModelSerializer):
 
         return obj.pk in course_selectors.ordered_course_ids(request.user, [obj.pk])
 
-    def get_users_count(self, obj):
+    def get_users_count(self, obj) -> int:
         batched = self._stats("enrollment_counts", obj, 0)
         if batched is not None:
             return batched
@@ -590,7 +595,7 @@ class CourseDetailSerializer(CourseListSerializer):
     prices = serializers.SerializerMethodField()
     sections = serializers.SerializerMethodField()
 
-    def get_prices(self, obj):
+    def get_prices(self, obj) -> list:
         # `build_course_stats` already fetched this course's prices, ordered
         # by amount, to pick the headline one for `price`.
         batched = self._stats("prices", obj, [])
@@ -604,7 +609,7 @@ class CourseDetailSerializer(CourseListSerializer):
             "sections",
         ]
 
-    def get_course_details(self, obj):
+    def get_course_details(self, obj) -> dict | None:
         return {
             "description": obj.description,
             "features": obj.features,
@@ -612,7 +617,7 @@ class CourseDetailSerializer(CourseListSerializer):
             "pdf_link": obj.pdf_link,
         }
 
-    def get_sections(self, obj):
+    def get_sections(self, obj) -> list:
         children, contents = build_section_tree(obj)
         context = {**self.context, "section_children": children, "section_contents": contents}
         # `children[None]` is the top level: sections with no parent.
@@ -677,7 +682,7 @@ class EnrollmentSerializer(serializers.ModelSerializer):
         model = Enrollment
         fields = ["id", "name", "email", "phone", "role", "pivot"]
 
-    def get_pivot(self, obj):
+    def get_pivot(self, obj) -> dict | None:
         return {
             "course_id": obj.course_id,
             "user_id": obj.user_id,
@@ -698,3 +703,52 @@ class CourseMaterialSerializer(serializers.ModelSerializer):
         model = CourseMaterial
         fields = ["id", "title", "type", "course_id", "file", "created_at"]
         read_only_fields = ["id", "created_at"]
+
+
+class EnrollmentImportRequestSerializer(serializers.Serializer):
+    """The spreadsheet behind `POST /admin/courses/<pk>/enrollments/import`.
+
+    Uses the shared field so this upload gets the same extension and size
+    checks the student importer has always had -- this endpoint previously
+    took `request.FILES` raw and parsed whatever arrived straight into memory.
+    """
+
+    file = SpreadsheetField(error_messages={'required': 'An Excel file is required.'})
+
+
+class CourseProgressSerializer(serializers.Serializer):
+    """A student's progress through a course.
+
+    Key order is contract: the client destructures this payload.
+    """
+
+    completed_content_ids = serializers.ListField(child=serializers.IntegerField())
+    completed = serializers.IntegerField()
+    total = serializers.IntegerField()
+    percent = serializers.IntegerField()
+
+
+class ContentCompletionRequestSerializer(serializers.Serializer):
+    content_id = serializers.IntegerField()
+
+
+class AdminEnrollmentRequestSerializer(serializers.Serializer):
+    """Documents the body the enrolment endpoints accept.
+
+    Used for the OpenAPI schema only, not for validation. The handlers keep
+    their own checks because their error messages are contract -- the admin
+    panel renders them verbatim -- and because a course may be addressed by
+    either `slugOrId` or `course_id`, which is awkward to express as a
+    validated field pair without changing those messages.
+    """
+
+    #: The course, addressed by numeric id or by slug.
+    slugOrId = serializers.CharField(required=False)
+    #: Accepted as an alias for `slugOrId`.
+    course_id = serializers.CharField(required=False)
+    user_id = serializers.IntegerField(required=False)
+    #: Attach only. The validity period and payment type are derived from it.
+    price_id = serializers.IntegerField(required=False)
+    #: Amend only.
+    valid_till = serializers.DateTimeField(required=False, allow_null=True)
+    payment_type = serializers.CharField(required=False)

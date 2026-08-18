@@ -47,6 +47,7 @@ class QueryBudgetTests(APITestCase):
     CATEGORY_CHILDREN = 3
     NOTICES = 20
     QUESTIONS = 30
+    PRACTICE_BANKS = 6
 
     @classmethod
     def setUpTestData(cls):
@@ -118,6 +119,15 @@ class QueryBudgetTests(APITestCase):
             type=Content.Type.EXAM,
         )
         cls.exam = Exam.objects.create(content=exam_content, question_bank=bank)
+
+        # A nested folder tree for the practice topic list. Each folder is a
+        # child of the one before it, so the tree gets *deeper* as the fixture
+        # grows -- which is what an implementation that walks the tree per
+        # folder is worst at.
+        parent = None
+        for i in range(cls.PRACTICE_BANKS):
+            parent = QuestionBank.objects.create(title=f"Practice {i}", parent=parent)
+            Question.objects.create(bank=parent, question=f"PQ{i}", answer="a")
 
         notice_category = NoticeCategory.objects.create(title="Notice cat")
         for i in range(cls.NOTICES):
@@ -203,13 +213,25 @@ class QueryBudgetTests(APITestCase):
                 {
                     "answers": [
                         {"mcq_id": q.id, "user_answer": "a"}
-                        for q in Question.objects.all()
+                        # This exam's own bank, not every question in the
+                        # database -- which is what a real submission sends,
+                        # and keeps the expected mark tied to the fixture.
+                        for q in Question.objects.filter(
+                            bank=self.exam.question_bank
+                        )
                     ]
                 }
             ],
             "duration": 60,
         }
-        with self.assertNumQueries(6):
+        # 8, not 6: the two added statements are a SAVEPOINT/RELEASE pair, not
+        # data queries. The INSERT runs inside its own atomic block so that a
+        # duplicate submission arriving at the same moment raises a catchable
+        # IntegrityError instead of a 500 (see apps.assessment.services).
+        # What this test exists to pin is unchanged -- the answer keys are
+        # still fetched in ONE query for the whole paper, not one per answer,
+        # which is what ScaledQueryBudgetTests re-proves at twice the size.
+        with self.assertNumQueries(8):
             response = self.client.post(
                 f"/api/v1/exams/{self.exam.pk}/submission/", payload, format="json"
             )
@@ -252,6 +274,21 @@ class QueryBudgetTests(APITestCase):
         self.assertEqual(len(response.data["data"]), 50)
 
 
+    def test_practice_topics_do_not_scale_with_folder_count(self):
+        """Was: one tree walk plus one COUNT per folder in the bank.
+
+        `all_questions()` costs a query per level of nesting, so listing the
+        topics cost more the deeper and wider the bank grew -- the one thing
+        a topic list is guaranteed to do over time.
+        """
+        with self.assertNumQueries(2):
+            response = self.client.get("/api/v1/practice/topics/")
+        self.assertEqual(response.status_code, 200)
+        # Every seeded practice folder holds a question, and each also
+        # inherits its descendants', so all of them are playable.
+        self.assertEqual(len(response.data["data"]), self.PRACTICE_BANKS + 1)
+
+
 class ScaledQueryBudgetTests(QueryBudgetTests):
     """The same assertions against twice the data.
 
@@ -267,3 +304,4 @@ class ScaledQueryBudgetTests(QueryBudgetTests):
     CATEGORY_CHILDREN = 6
     NOTICES = 40
     QUESTIONS = 60
+    PRACTICE_BANKS = 12

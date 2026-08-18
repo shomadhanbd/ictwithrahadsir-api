@@ -15,6 +15,13 @@ django-environ==0.14.0
 django-filter==25.1
 django-storages==1.14.6
 djangorestframework==3.17.1
+# OpenAPI schema + Swagger UI. In base rather than local because the
+# docs endpoints are served in every environment.
+drf-spectacular==0.30.0
+inflection==0.5.1
+jsonschema==4.26.0
+PyYAML==6.0.3
+uritemplate==4.2.0
 et_xmlfile==2.0.0
 idna==3.18
 jmespath==1.1.0

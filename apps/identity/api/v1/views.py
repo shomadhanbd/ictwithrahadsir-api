@@ -1,6 +1,8 @@
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
+
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import filters, status
 from rest_framework.authtoken.models import Token
 from rest_framework.exceptions import Throttled, ValidationError
@@ -10,40 +12,32 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.core.api.permissions import IsAdminRole
+from apps.core.api.responses import MessageResponseSerializer, OkResponseSerializer
 from apps.core.api.throttling import (
     AuthBurstThrottle,
     AuthSustainedThrottle,
     LoginBurstThrottle,
     LoginSustainedThrottle,
 )
-from apps.core.api.viewsets import AdminModelViewSet
-
-from apps.identity.models import OTP, User
+from apps.core.api.viewsets import AdminModelViewSet, UnpaginatedDataListMixin
+from apps.core.spreadsheets import read_records
 from apps.identity.api.v1.serializers import (
     AdminUserSerializer,
-    UserLoginRequestSerializer,
+    AuthTokenResponseSerializer,
+    OtpRequestResponseSerializer,
+    OtpVerifyRequestSerializer,
     PasswordResetRequestSerializer,
+    PasswordResetResponseSerializer,
+    PhoneCheckResponseSerializer,
     PhoneRequestSerializer,
     ProfileUpdateRequestSerializer,
-    UserRegisterRequestSerializer,
     UserImportRequestSerializer,
+    UserLoginRequestSerializer,
+    UserRegisterRequestSerializer,
     UserSerializer,
-    OtpVerifyRequestSerializer,
 )
-
-
-def issue_token(user: User, *, rotate: bool = False) -> str:
-    """Return the user's API token, optionally replacing any existing one.
-
-    Rotation matters after a credential change: DRF tokens never expire, so
-    without it a token stolen before a password reset stays valid forever
-    afterwards -- the reset would not actually lock the attacker out.
-    """
-    if rotate:
-        Token.objects.filter(user=user).delete()
-        return Token.objects.create(user=user).key
-    token, _ = Token.objects.get_or_create(user=user)
-    return token.key
+from apps.identity.models import OTP, User
+from apps.identity.services import import_users, issue_token, send_otp
 
 
 class OtpIssueMixin:
@@ -59,7 +53,7 @@ class OtpIssueMixin:
         wait = OTP.seconds_until_resend(phone)
         if wait:
             raise Throttled(wait=wait)
-        OTP.issue(phone)
+        send_otp(phone)
 
     def issue_otp_if_due(self, phone: str) -> int:
         """For endpoints on a critical path: never fail, just skip the send.
@@ -68,7 +62,7 @@ class OtpIssueMixin:
         """
         wait = OTP.seconds_until_resend(phone)
         if not wait:
-            OTP.issue(phone)
+            send_otp(phone)
         return wait
 
 
@@ -82,9 +76,18 @@ class PhoneCheckAPIView(APIView):
 
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        summary='Does an account exist for this number?',
+        parameters=[PhoneRequestSerializer],
+        responses={200: PhoneCheckResponseSerializer},
+    )
     def get(self, request):
         phone = request.query_params.get("phone", "")
-        return Response({"exists": User.objects.filter(phone=phone).exists()})
+        return Response(
+            PhoneCheckResponseSerializer(
+                {"exists": User.objects.filter(phone=phone).exists()}
+            ).data
+        )
 
 
 class OtpRequestAPIView(OtpIssueMixin, APIView):
@@ -102,6 +105,11 @@ class OtpRequestAPIView(OtpIssueMixin, APIView):
     permission_classes = [AllowAny]
     throttle_classes = [AuthBurstThrottle, AuthSustainedThrottle]
 
+    @extend_schema(
+        summary='Send a verification code',
+        parameters=[PhoneRequestSerializer],
+        responses={200: OtpRequestResponseSerializer},
+    )
     def get(self, request):
         serializer = PhoneRequestSerializer(data=request.query_params)
         serializer.is_valid(raise_exception=True)
@@ -111,16 +119,18 @@ class OtpRequestAPIView(OtpIssueMixin, APIView):
         wait = self.issue_otp_if_due(phone)
 
         return Response(
-            {
-                "user_exist": bool(user),
-                "password_exist": bool(user and user.has_usable_password()),
-                "message": (
-                    "OTP sent."
-                    if not wait
-                    else "A code was sent recently. Please wait before requesting another."
-                ),
-                "resend_in": wait,
-            }
+            OtpRequestResponseSerializer(
+                {
+                    "user_exist": bool(user),
+                    "password_exist": bool(user and user.has_usable_password()),
+                    "message": (
+                        "OTP sent."
+                        if not wait
+                        else "A code was sent recently. Please wait before requesting another."
+                    ),
+                    "resend_in": wait,
+                }
+            ).data
         )
 
 
@@ -134,6 +144,11 @@ class OtpVerifyAPIView(APIView):
     permission_classes = [AllowAny]
     throttle_classes = [AuthBurstThrottle, AuthSustainedThrottle]
 
+    @extend_schema(
+        summary='Consume a code and get a token',
+        request=OtpVerifyRequestSerializer,
+        responses={200: AuthTokenResponseSerializer},
+    )
     def post(self, request):
         serializer = OtpVerifyRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -148,10 +163,9 @@ class OtpVerifyAPIView(APIView):
         user.save(update_fields=["phone_verified_at"])
 
         return Response(
-            {
-                "token": issue_token(user),
-                "user": None if is_new else UserSerializer(user).data,
-            }
+            AuthTokenResponseSerializer(
+                {"token": issue_token(user), "user": None if is_new else user}
+            ).data
         )
 
 
@@ -161,6 +175,11 @@ class UserRegisterAPIView(APIView):
     permission_classes = [AllowAny]
     throttle_classes = [AuthBurstThrottle, AuthSustainedThrottle]
 
+    @extend_schema(
+        summary='Complete a profile after OTP verification',
+        request=UserRegisterRequestSerializer,
+        responses={201: AuthTokenResponseSerializer},
+    )
     def post(self, request):
         serializer = UserRegisterRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -184,7 +203,7 @@ class UserRegisterAPIView(APIView):
             user.save()
 
         return Response(
-            {"token": issue_token(user), "user": UserSerializer(user).data},
+            AuthTokenResponseSerializer({"token": issue_token(user), "user": user}).data,
             status=status.HTTP_201_CREATED,
         )
 
@@ -195,11 +214,18 @@ class UserLoginAPIView(APIView):
     permission_classes = [AllowAny]
     throttle_classes = [LoginBurstThrottle, LoginSustainedThrottle]
 
+    @extend_schema(
+        summary='Sign in',
+        request=UserLoginRequestSerializer,
+        responses={200: AuthTokenResponseSerializer},
+    )
     def post(self, request):
         serializer = UserLoginRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = serializer.validated_data["user"]
-        return Response({"token": issue_token(user), "user": UserSerializer(user).data})
+        return Response(
+            AuthTokenResponseSerializer({"token": issue_token(user), "user": user}).data
+        )
 
 
 class PasswordForgotAPIView(OtpIssueMixin, APIView):
@@ -208,6 +234,11 @@ class PasswordForgotAPIView(OtpIssueMixin, APIView):
     permission_classes = [AllowAny]
     throttle_classes = [AuthBurstThrottle, AuthSustainedThrottle]
 
+    @extend_schema(
+        summary='Start a password reset',
+        request=PhoneRequestSerializer,
+        responses={200: MessageResponseSerializer},
+    )
     def post(self, request):
         serializer = PhoneRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -219,7 +250,7 @@ class PasswordForgotAPIView(OtpIssueMixin, APIView):
         # An explicit "send me a reset code" button, so refusing while the
         # cooldown runs is honest and does not strand the user mid-flow.
         self.issue_otp_or_throttle(phone)
-        return Response({"message": "OTP sent."})
+        return Response(MessageResponseSerializer({"message": "OTP sent."}).data)
 
 
 class PasswordResetAPIView(APIView):
@@ -228,6 +259,11 @@ class PasswordResetAPIView(APIView):
     permission_classes = [AllowAny]
     throttle_classes = [AuthBurstThrottle, AuthSustainedThrottle]
 
+    @extend_schema(
+        summary='Finish a password reset',
+        request=PasswordResetRequestSerializer,
+        responses={200: PasswordResetResponseSerializer},
+    )
     def post(self, request):
         serializer = PasswordResetRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -241,19 +277,22 @@ class PasswordResetAPIView(APIView):
         user.save(update_fields=["password"])
 
         return Response(
-            {
-                "token": issue_token(user, rotate=True),
-                "message": "Password has been reset.",
-            }
+            PasswordResetResponseSerializer(
+                {
+                    "token": issue_token(user, rotate=True),
+                    "message": "Password has been reset.",
+                }
+            ).data
         )
 
 
 class UserLogoutAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(summary='Sign out', request=None, responses={200: OkResponseSerializer})
     def post(self, request):
         Token.objects.filter(user=request.user).delete()
-        return Response({"ok": True})
+        return Response(OkResponseSerializer({"ok": True}).data)
 
 
 class CurrentUserAPIView(APIView):
@@ -262,9 +301,18 @@ class CurrentUserAPIView(APIView):
 
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        summary='The signed-in user',
+        responses={200: OpenApiResponse(UserSerializer, description='`{data: {...}}`')},
+    )
     def get(self, request):
         return Response({"data": UserSerializer(request.user).data})
 
+    @extend_schema(
+        summary='Update the signed-in profile',
+        request=ProfileUpdateRequestSerializer,
+        responses={200: OpenApiResponse(UserSerializer, description='`{data: {...}}`')},
+    )
     def post(self, request):
         serializer = ProfileUpdateRequestSerializer(
             request.user, data=request.data, partial=True, context={"request": request}
@@ -303,17 +351,16 @@ class AdminUserViewSet(AdminModelViewSet):
         return qs
 
 
-class AdminUserSearchAPIView(ListAPIView):
+class AdminUserSearchAPIView(UnpaginatedDataListMixin, ListAPIView):
     """Typeahead for the course-enrolment screens: students only, capped,
     unpaginated because the admin panel renders it straight into a dropdown."""
 
     permission_classes = [IsAdminRole]
     serializer_class = UserSerializer
-    pagination_class = None
     RESULT_LIMIT = 25
 
     def get_queryset(self):
-        qs = User.objects.filter(role=User.Role.STUDENT)
+        qs = User.objects.students()
         search = self.request.query_params.get("search", "")
         if search:
             qs = qs.filter(
@@ -323,9 +370,11 @@ class AdminUserSearchAPIView(ListAPIView):
             )
         return qs[: self.RESULT_LIMIT]
 
-    def list(self, request, *args, **kwargs):
-        serializer = self.get_serializer(self.get_queryset(), many=True)
-        return Response({"data": serializer.data})
+    def get_list_payload(self, request, *args, **kwargs):
+        # Deliberately not `filter_queryset`: the queryset is already sliced
+        # to RESULT_LIMIT, and a filter backend that tried to order or filter
+        # it would raise "Cannot filter a query once a slice has been taken".
+        return self.get_serializer(self.get_queryset(), many=True).data
 
 
 class AdminUserImportAPIView(APIView):
@@ -336,48 +385,14 @@ class AdminUserImportAPIView(APIView):
 
     permission_classes = [IsAdminRole]
 
+    @extend_schema(
+        summary='Bulk-create students from a spreadsheet',
+        request=UserImportRequestSerializer,
+        responses={200: OpenApiResponse(description='`{created, skipped}`')},
+    )
     def put(self, request):
         serializer = UserImportRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        import openpyxl
-
-        workbook = openpyxl.load_workbook(
-            serializer.validated_data["file"], read_only=True, data_only=True
-        )
-        rows = list(workbook.active.iter_rows(values_only=True))
-        if not rows:
-            raise ValidationError({"file": ["The file is empty."]})
-
-        header = [str(c).strip().lower() if c else "" for c in rows[0]]
-
-        # Pull the existing keys up front: the previous implementation ran a
-        # uniqueness query per row, and let a duplicate email reach the
-        # database as an unhandled IntegrityError (a 500 mid-import).
-        taken_phones = set(User.objects.exclude(phone=None).values_list("phone", flat=True))
-        taken_emails = set(User.objects.exclude(email=None).values_list("email", flat=True))
-
-        created, skipped = 0, 0
-        with transaction.atomic():
-            for row in rows[1:]:
-                record = dict(zip(header, row))
-                phone = str(record.get("phone") or "").strip()
-                email = str(record.get("email") or "").strip() or None
-
-                if not phone or phone in taken_phones or (email and email in taken_emails):
-                    skipped += 1
-                    continue
-
-                User.objects.create_user(
-                    phone=phone,
-                    name=str(record.get("name") or "").strip(),
-                    email=email,
-                    institution=str(record.get("institution") or "").strip() or None,
-                    role=User.Role.STUDENT,
-                )
-                taken_phones.add(phone)
-                if email:
-                    taken_emails.add(email)
-                created += 1
-
-        return Response({"created": created, "skipped": skipped})
+        records = read_records(serializer.validated_data["file"])
+        return Response(import_users(records))

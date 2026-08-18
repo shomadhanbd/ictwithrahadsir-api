@@ -1,6 +1,7 @@
 import hashlib
 
 from django.core.files.uploadedfile import UploadedFile
+
 from rest_framework import serializers
 
 
@@ -28,6 +29,24 @@ class MediaField(serializers.Field):
         kwargs.setdefault("required", False)
         kwargs.setdefault("allow_null", True)
         super().__init__(**kwargs)
+        # Describe the two shapes to the OpenAPI generator. Without this it
+        # falls back to "string", which is exactly the mistake that already
+        # bit the admin panel once: an interface typed these as `string`, so
+        # dropping one into an `src` type-checked and then rendered the text
+        # "[object Object]".
+        self._spectacular_annotation = {
+            "field": {"type": "string", "format": "uri", "nullable": True}
+            if self.bare
+            else {
+                "type": "object",
+                "nullable": True,
+                "properties": {
+                    "id": {"type": "integer"},
+                    "link": {"type": "string", "format": "uri"},
+                },
+                "required": ["id", "link"],
+            }
+        }
 
     def to_representation(self, value):
         if not value:

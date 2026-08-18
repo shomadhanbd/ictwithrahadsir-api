@@ -1,41 +1,33 @@
-from decimal import Decimal
 
 from django.db.models import Q
 from django.utils import timezone
+
+from drf_spectacular.utils import extend_schema
 from rest_framework import status
-from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.generics import ListAPIView
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.core.api.pagination import LaravelStylePageNumberPagination
-from apps.core.api.permissions import IsAdminRole
-from apps.core.api.viewsets import AdminModelViewSet
-from apps.courses.models import Content
 from apps.assessment.api.v1.serializers import (
     AdminExamAttemptSerializer,
-    ExamMcqSerializer,
+    ExamPaperSerializer,
+    ExamRankingSerializer,
+    ExamResultSerializer,
+    ExamSubmissionRequestSerializer,
     PracticeBankSerializer,
     PracticeQuestionSerializer,
-    QuestionSerializer,
     QuestionBankSerializer,
-    RankEntrySerializer,
+    QuestionSerializer,
 )
 from apps.assessment.models import Exam, ExamAttempt, Question, QuestionBank
-
-
-def result_payload(result):
-    if not result:
-        return None
-    return {
-        'marks': result.marks,
-        'positive_marks': result.positive_marks,
-        'negative_marks': result.negative_marks,
-        'duration': result.duration,
-        'submitted': result.submitted,
-        'answers': result.answers,
-    }
+from apps.assessment.selectors import practice_banks_with_counts
+from apps.assessment.services import submit_exam
+from apps.core.api.pagination import LaravelStylePageNumberPagination
+from apps.core.api.permissions import IsAdminRole
+from apps.core.api.viewsets import AdminModelViewSet, UnpaginatedDataListMixin
+from apps.courses.models import Content
 
 
 class BaseExamAPIView(APIView):
@@ -63,6 +55,7 @@ class BaseExamAPIView(APIView):
 class ExamDetailAPIView(BaseExamAPIView):
     """GET /exams/<id>/ -- the paper, plus this user's own attempt."""
 
+    @extend_schema(summary='The exam paper plus the caller\'s attempt', responses={200: ExamPaperSerializer})
     def get(self, request, pk):
         exam = self.get_exam(pk)
         content = exam.content
@@ -83,127 +76,42 @@ class ExamDetailAPIView(BaseExamAPIView):
         )
         result = ExamAttempt.objects.filter(exam=exam, user=request.user).first()
 
-        # The answer key is part of the review paper, not the exam paper: it
-        # goes out only once this user has an attempt on record, and not
-        # before the configured publish time. The client re-fetches after
-        # submitting to pick it up.
         published = exam.results_published
-        question_context = {'reveal_answers': result is not None and published}
 
         return Response(
-            {
-                'id': content.id,
-                'title': content.title,
-                'duration': exam.duration_minutes,
-                'total_marks': exam.total_marks,
-                'pass_marks': exam.pass_marks,
-                'positive_marks': exam.positive_marks,
-                'negative_marks': exam.negative_marks,
-                'start_time': exam.start_time,
-                'end_time': exam.end_time,
-                'result_publish_time': exam.result_publish_time,
-                # Additive: lets the client say "results not published yet"
-                # instead of silently showing an unmarked review paper.
-                'result_published': published,
-                'question': {
-                    'id': content.id,
-                    'exam_id': content.id,
-                    'body': {
-                        'sections': [
-                            {
-                                'title': (
-                                    exam.question_bank.title
-                                    if exam.question_bank
-                                    else content.title
-                                ),
-                                'required': True,
-                                'questions': ExamMcqSerializer(
-                                    questions, many=True, context=question_context
-                                ).data,
-                            }
-                        ],
-                        'max_sections': 1,
-                    },
+            ExamPaperSerializer(
+                exam,
+                context={
+                    'questions': questions,
+                    'attempt': result,
+                    # The answer key is part of the review paper, not the exam
+                    # paper: it goes out only once this user has an attempt on
+                    # record, and not before the configured publish time. The
+                    # client re-fetches after submitting to pick it up.
+                    'reveal_answers': result is not None and published,
                 },
-                'result': result_payload(result),
-            }
+            ).data
         )
+
 
 class ExamSubmissionAPIView(BaseExamAPIView):
     """POST /exams/<id>/submission/ -- sit the exam once and get the marks."""
 
+    @extend_schema(
+        summary='Hand in the paper and get the marks',
+        request=ExamSubmissionRequestSerializer,
+        responses={201: ExamResultSerializer},
+    )
     def post(self, request, pk):
         exam = self.get_exam(pk)
-        content = exam.content
-        if not content.is_accessible_by(request.user):
+        if not exam.content.is_accessible_by(request.user):
             raise PermissionDenied('Not subscribed')
-        if ExamAttempt.objects.filter(exam=exam, user=request.user).exists():
-            raise ValidationError({'exam': ['You have already submitted this exam.']})
 
-        sections = request.data.get('sections', [])
-        if not isinstance(sections, list):
-            raise ValidationError({'sections': ['Must be a list.']})
+        serializer = ExamSubmissionRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
 
-        positive = exam.positive_marks or Decimal('1')
-        negative = exam.negative_marks or Decimal('0')
-        marks = self._score(sections, positive, negative)
-
-        result = ExamAttempt.objects.create(
-            exam=exam,
-            user=request.user,
-            marks=marks,
-            positive_marks=positive,
-            negative_marks=negative,
-            duration=int(request.data.get('duration') or 0),
-            submitted=True,
-            answers=sections,
-        )
-        return Response(result_payload(result), status=status.HTTP_201_CREATED)
-
-    def _score(self, sections, positive, negative):
-        """Mark the paper.
-
-        The answer keys are fetched in one query rather than one per
-        question: a 100-question paper used to issue 100 SELECTs on submit,
-        at the exact moment a whole class hits the endpoint together.
-        """
-        def question_id(answer):
-            """The referenced question id, or None if it isn't one.
-
-            The client sends whatever it likes here; a non-numeric id used to
-            reach the ORM and raise ValueError, i.e. a 500 that lost the whole
-            submission. It is now simply an answer that matches no question.
-            """
-            try:
-                return int(answer.get('mcq_id'))
-            except (TypeError, ValueError):
-                return None
-
-        submitted = [
-            (question_id(answer), (answer.get('user_answer') or '').strip().lower())
-            for section in sections
-            if isinstance(section, dict)
-            for answer in section.get('answers', [])
-            if isinstance(answer, dict)
-        ]
-        keys = dict(
-            Question.objects.filter(
-                pk__in={qid for qid, _ in submitted if qid is not None}
-            ).values_list('id', 'answer')
-        )
-
-        total = Decimal('0')
-        for qid, user_answer in submitted:
-            correct = keys.get(qid)
-            if correct is None or not user_answer:
-                continue
-            total += positive if user_answer == correct else -negative
-        return total
-
-
-class ExamAPIView(ExamDetailAPIView, ExamSubmissionAPIView):
-    """The legacy flat API served both the paper and its submission from one
-    path. Kept so `/api/exams/<id>` keeps accepting GET and POST."""
+        result = submit_exam(exam=exam, user=request.user, **serializer.validated_data)
+        return Response(ExamResultSerializer(result).data, status=status.HTTP_201_CREATED)
 
 
 class ExamRankingAPIView(BaseExamAPIView):
@@ -211,6 +119,10 @@ class ExamRankingAPIView(BaseExamAPIView):
 
     RANKING_LIMIT = 100
 
+    @extend_schema(
+        summary='Leaderboard for one exam',
+        responses={200: ExamRankingSerializer},
+    )
     def get(self, request, pk):
         exam = self.get_exam(pk)
         results = (
@@ -238,18 +150,16 @@ class ExamRankingAPIView(BaseExamAPIView):
         published = exam.results_published
 
         return Response(
-            {
-                'exam_title': exam.content.title,
-                'user_rank': user_rank if published else None,
-                'user_result': RankEntrySerializer(user_result).data if user_result else None,
-                'rankings': (
-                    RankEntrySerializer(results[: self.RANKING_LIMIT], many=True).data
-                    if published
-                    else []
-                ),
-                'result_published': published,
-                'result_publish_time': exam.result_publish_time,
-            }
+            ExamRankingSerializer(
+                {
+                    'exam_title': exam.content.title,
+                    'user_rank': user_rank if published else None,
+                    'user_result': user_result,
+                    'rankings': results[: self.RANKING_LIMIT] if published else [],
+                    'result_published': published,
+                    'result_publish_time': exam.result_publish_time,
+                }
+            ).data
         )
 
 
@@ -266,7 +176,7 @@ PRACTICE_SAMPLE_DEFAULT = 10
 PRACTICE_SAMPLE_MAX = 20
 
 
-class PracticeBankListAPIView(ListAPIView):
+class PracticeBankListAPIView(UnpaginatedDataListMixin, ListAPIView):
     """The topics a visitor can practise, with question counts.
 
     The MCQ bank has only ever been reachable inside a scheduled exam, which
@@ -280,19 +190,13 @@ class PracticeBankListAPIView(ListAPIView):
 
     permission_classes = [AllowAny]
     serializer_class = PracticeBankSerializer
-    pagination_class = None
+    queryset = QuestionBank.objects.none()
 
-    def list(self, request, *args, **kwargs):
-        banks = []
-        for bank in QuestionBank.objects.all():
-            count = bank.all_questions().count()
-            if count:
-                bank.question_count = count
-                banks.append(bank)
-        return Response({'data': self.get_serializer(banks, many=True).data})
+    def get_list_payload(self, request, *args, **kwargs):
+        return self.get_serializer(practice_banks_with_counts(), many=True).data
 
 
-class PracticeQuestionListAPIView(ListAPIView):
+class PracticeQuestionListAPIView(UnpaginatedDataListMixin, ListAPIView):
     """A random sample of questions to practise on.
 
     Random and capped: the answers and explanations are included because
@@ -303,9 +207,9 @@ class PracticeQuestionListAPIView(ListAPIView):
 
     permission_classes = [AllowAny]
     serializer_class = PracticeQuestionSerializer
-    pagination_class = None
+    queryset = Question.objects.none()
 
-    def list(self, request, *args, **kwargs):
+    def get_list_payload(self, request, *args, **kwargs):
         questions = Question.objects.all()
 
         bank_id = request.query_params.get('bank_id')
@@ -322,7 +226,7 @@ class PracticeQuestionListAPIView(ListAPIView):
         limit = max(1, min(limit, PRACTICE_SAMPLE_MAX))
 
         sample = questions.order_by('?')[:limit]
-        return Response({'data': self.get_serializer(sample, many=True).data})
+        return self.get_serializer(sample, many=True).data
 
 
 class AdminQuestionBankViewSet(AdminModelViewSet):
@@ -362,7 +266,13 @@ class AdminExamAttemptListAPIView(ListAPIView):
     pagination_class = LaravelStylePageNumberPagination
 
     def get_queryset(self):
-        qs = ExamAttempt.objects.select_related('user', 'exam__content')
+        # `Meta.ordering` sorts by marks then duration, which ties whenever
+        # two students score the same in the same time -- and a tie is an
+        # undefined page boundary, so a row can appear twice or not at all
+        # while paging. `-id` breaks the tie without changing the ranking.
+        qs = ExamAttempt.objects.select_related('user', 'exam__content').order_by(
+            '-marks', 'duration', '-id'
+        )
         exam_id = self.request.query_params.get('exam_id')
         if exam_id:
             # Exam.pk is the Content pk, so the admin panel's existing

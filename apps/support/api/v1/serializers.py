@@ -30,7 +30,11 @@ class ContactMessageSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "user", "reply", "is_read", "created_at"]
 
-    def get_user(self, obj):
+    def get_user(self, obj) -> dict | None:
         if not obj.user:
             return None
         return {"id": obj.user.id, "name": obj.user.name, "phone": obj.user.phone}
+
+
+class ContactReplyRequestSerializer(serializers.Serializer):
+    reply_message = serializers.CharField()

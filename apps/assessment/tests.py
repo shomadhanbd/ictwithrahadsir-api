@@ -8,12 +8,13 @@ from decimal import Decimal
 
 from django.urls import reverse
 from django.utils import timezone
+
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APITestCase
 
-from apps.identity.models import User
-from apps.courses.models import Content, Course, Enrollment, Section
 from apps.assessment.models import Exam, ExamAttempt, Question, QuestionBank
+from apps.courses.models import Content, Course, Enrollment, Section
+from apps.identity.models import User
 
 
 def exam_url(pk):

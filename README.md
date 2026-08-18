@@ -13,8 +13,10 @@ backend (just set `BACKEND_URL` / `NEXT_PUBLIC_BACKEND_URL` to this API's
 - Django 5 + Django REST Framework
 - PostgreSQL in production (via `DATABASE_URL`), SQLite fallback for
   zero-config local dev
-- Token authentication (`Authorization: Token <key>`) — one token per user,
-  issued on login/registration
+- Token authentication (`Authorization: Bearer <key>`) — one token per user,
+  issued on login/registration. The `Bearer` keyword (not DRF's default
+  `Token`) is what both frontends send; see
+  `apps.core.api.authentication.BearerTokenAuthentication`
 - Storage: local disk by default; flip `USE_S3=True` + AWS/DigitalOcean
   Spaces credentials to switch to S3-compatible object storage with no code
   changes (`django-storages`)
@@ -52,55 +54,48 @@ or `instructor` user (`apps.core.api.permissions.IsAdminRole`). Everything else
 is public read / authenticated write per-resource, matching how the existing
 frontends already call the API.
 
-## Where this deviates from PROJECT_STRUCTURE.md
+## Architecture
 
-`PROJECT_STRUCTURE.md` is a reusable blueprint from another project. This
-codebase follows it -- split settings, split requirements, per-app
-`api/v1/` packages, three-tier routing with `api:<app>:v1:<name>` reverse
-names, rotating file logging -- with these deliberate exceptions:
+See **[ARCHITECTURE.md](ARCHITECTURE.md)** for the internal layering — which
+layer owns what, the dependency rules between apps, naming conventions, the
+query-cost rules, and the three test guards that pin the API contract.
 
-| Blueprint | Here | Why |
-|---|---|---|
-| project package named after the project | `apps/` | project decision |
-| `/api/<app>/v1/…` URLs | `/api/v1/…`, resource-oriented | the API should not advertise which Django app owns what, so models can move between apps without breaking a client -- which is exactly what the re-decomposition then did |
-| `created_at` / `modified_at` | `created_at` / `updated_at` | exposed in serializers and read by both frontends |
-| `verbose_name=_()` on every field | omitted | ~260 fields, migrations in every app, no functional gain |
-| all endpoints as `APIView` | ~20 `ModelViewSet`s retained | router-generated CRUD; converting loses it for nothing |
-| `{'detail': …}` errors | `{message, errors}` | both frontends parse the Laravel-style envelope |
+Read it before adding an endpoint.
 
-Three guards exist because of the above and should not be worked around:
+## API documentation
 
-- `apps/core/url_contract.txt` snapshots every served path.
-  `manage.py dump_url_contract` regenerates it, and should only be run when
-  a path change is intended.
-- `apps/core/test_response_shapes.py` pins response *bodies*, which the URL
-  contract does not cover. It lives in `core` because several of its
-  assertions span apps.
-- `apps/core/test_query_budget.py` pins the *cost* of the read-heavy
-  endpoints, which neither of the above covers — a response is correct
-  whether it took 4 queries or 400. Each endpoint asserts a query ceiling,
-  and `ScaledQueryBudgetTests` repeats every assertion against twice the
-  data: identical counts at both sizes is what proves an endpoint is flat
-  rather than merely small today. If one fails, something became per-row;
-  raise the number only deliberately, with a reason.
+The OpenAPI schema is generated from the serializers, so it cannot drift from
+the code the way a hand-written document would.
 
-### Query-cost conventions
+| URL | What |
+|---|---|
+| `/api/docs/` | Swagger UI — browse and try every endpoint |
+| `/api/redoc/` | ReDoc — the same schema, read-optimised |
+| `/api/schema/` | The raw OpenAPI 3 document |
 
-Serializers that need per-row aggregates take them from a batch in
-`context` and fall back to a per-object query when it is absent, so the
-same serializer is cheap in a list and still correct for a single object.
-`build_course_stats`, `build_section_tree` and `build_category_children`
-(all in `apps/courses/api/v1/serializers.py`) are the three of these; a
-view that serializes many rows should pass the matching one. Anything that
-recurses — the section tree, the category tree — must be grouped in Python
-from a whole-tree query rather than asking per node.
+`manage.py spectacular --file schema.yaml` writes it out. It currently
+generates with **zero errors and zero warnings**; keep it that way. A new
+`APIView` that neither declares `serializer_class` nor carries
+`@extend_schema` will emit an error and be omitted from the docs entirely.
+
+## Code style
+
+`ruff` is the linter and formatter; its configuration is in `pyproject.toml`
+at the repo root. It is pinned in `requirements/local.txt`, never in
+`base.txt`, so production images stay free of it.
+
+```bash
+ruff check .          # lint
+ruff check . --fix    # lint, applying the safe autofixes
+ruff format .         # format
+```
 
 ## Getting started (local dev, no external services)
 
 ```bash
 python3 -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements/local.txt   # or requirements/production.txt
 cp .env.example .env
 python manage.py migrate
 python manage.py createsuperuser   # prompts for phone, email, name, password
@@ -158,5 +153,7 @@ them before running to override the defaults baked into `docker-compose.yml`.
 - Multipart admin updates that can't use a real HTTP verb send
   `POST .../{id}?_method=PUT` (or `PATCH`) — handled transparently by
   `apps.core.middleware.MethodOverrideMiddleware`.
-- Routes have no trailing slash (`APPEND_SLASH=False`), matching both
-  frontends' hardcoded paths.
+- Routes carry a trailing slash, and `APPEND_SLASH=False` is set. Those two
+  together mean a request to a slash-less path **404s rather than being
+  redirected**, so clients must call the paths exactly as
+  `apps/core/url_contract.txt` lists them.

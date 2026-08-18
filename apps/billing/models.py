@@ -1,7 +1,8 @@
 from django.conf import settings
 from django.db import models
 
-from apps.core.models import OrderedModel, TimestampModel
+from apps.billing.managers import OrderQuerySet, PaymentQuerySet
+from apps.core.models import TimestampModel
 from apps.courses.models import Course, CoursePrice
 
 
@@ -28,6 +29,8 @@ class Order(TimestampModel):
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     total = models.DecimalField(max_digits=10, decimal_places=2)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+
+    objects = OrderQuerySet.as_manager()
 
     class Meta:
         ordering = ["-created_at"]
@@ -61,6 +64,8 @@ class Payment(TimestampModel):
     sent_from = models.CharField(max_length=20, blank=True)
     sent_to = models.CharField(max_length=20, blank=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+
+    objects = PaymentQuerySet.as_manager()
 
     class Meta:
         ordering = ["-created_at"]

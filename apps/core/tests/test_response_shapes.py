@@ -19,13 +19,14 @@ from decimal import Decimal
 
 from django.test import TestCase
 from django.urls import reverse
+
 from rest_framework.authtoken.models import Token
 
-from apps.identity.models import User
+from apps.assessment.models import Exam, QuestionBank
 from apps.content.models import Advertisement, Page, Testimonial
 from apps.courses.models import Content, Course, CourseCategory, Section
-from apps.assessment.models import Exam, QuestionBank
 from apps.faculty.models import CourseInstructor, Teacher
+from apps.identity.models import User
 
 #: Exactly what `/api/v1/home/` returns, in order.
 HOME_KEYS = [
@@ -561,11 +562,11 @@ class AdminPaymentListTests(TestCase):
         self.auth = {'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=admin).key}'}
         course = Course.objects.create(title='Paid Course')
 
-        for i, (name, phone, txn, status) in enumerate([
+        for name, phone, txn, status in [
             ('Nusrat Jahan', '01810500001', 'TRX-AAA-111', Payment.Status.PENDING),
             ('Imran Hossain', '01810500002', 'TRX-BBB-222', Payment.Status.SUCCESSFUL),
             ('Rahim Uddin', '01810500003', 'TRX-CCC-333', Payment.Status.FAILED),
-        ]):
+        ]:
             user = User.objects.create_user(phone=phone, name=name, role=User.Role.STUDENT)
             order = Order.objects.create(user=user, course=course, amount=500, total=500)
             Payment.objects.create(

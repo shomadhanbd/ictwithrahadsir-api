@@ -53,6 +53,7 @@ THIRD_PARTY_APPS = [
     "rest_framework.authtoken",
     "corsheaders",
     "django_filters",
+    "drf_spectacular",
 ]
 
 LOCAL_APPS = [
@@ -221,6 +222,30 @@ REST_FRAMEWORK = {
         "rest_framework.parsers.FormParser",
     ],
     "TEST_REQUEST_DEFAULT_FORMAT": "json",
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+}
+
+# ---------------------------------------------------------------------------
+# API schema
+#
+# The generated schema is only as honest as the serializers behind it, so
+# endpoints declare a request serializer rather than reading request.data
+# directly. Where a payload is assembled by hand the schema will show it as
+# untyped -- that is a signal, not a defect to paper over with a decorator.
+# ---------------------------------------------------------------------------
+SPECTACULAR_SETTINGS = {
+    "TITLE": "Shomadhan Coaching API",
+    "DESCRIPTION": (
+        "Backend for the Shomadhan Coaching platform: the public site and the "
+        "admin panel. Every /admin/* endpoint requires a staff, admin or "
+        "instructor token."
+    ),
+    "VERSION": "1.0.0",
+    # The schema endpoints are documentation, not part of the API surface.
+    "SERVE_INCLUDE_SCHEMA": False,
+    "SCHEMA_PATH_PREFIX": "/api/v1",
+    "COMPONENT_SPLIT_REQUEST": True,
+    "SORT_OPERATIONS": False,
 }
 
 # ---------------------------------------------------------------------------

@@ -6,10 +6,10 @@ move -- and it did during this restructure, without any test noticing.
 """
 
 from django.urls import reverse
+
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APITestCase
 
-from apps.identity.models import User
 from apps.content.models import (
     Advertisement,
     EBook,
@@ -20,6 +20,7 @@ from apps.content.models import (
 )
 from apps.courses.models import Course, CourseCategory
 from apps.faculty.models import Teacher
+from apps.identity.models import User
 
 HOME_URL = reverse('api:content:v1:home')
 NOTICES_URL = reverse('api:content:v1:notice_list')

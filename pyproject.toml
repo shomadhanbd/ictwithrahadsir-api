@@ -1,0 +1,64 @@
+# Tooling config. This project uses `manage.py` + `requirements/*.txt` for
+# packaging, so this file exists only to configure Ruff.
+
+[tool.ruff]
+# 120 matches the convention the project already documented and already
+# follows -- the existing code is clean at this width. Narrower settings were
+# tried and only manufactured ~22 new violations in code that reads fine.
+line-length = 120
+target-version = "py312"
+# Markdown is excluded because Ruff would otherwise reformat the Python
+# snippets inside the docs, which are illustrative and hand-aligned.
+extend-exclude = ["venv", "*/migrations/*", "staticfiles", "*.md"]
+
+[tool.ruff.lint]
+select = [
+    "F",    # pyflakes -- unused imports/variables, undefined names
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "I",    # isort -- enforces the documented import grouping
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear -- mutable defaults, etc.
+    "DJ",   # flake8-django
+    "C4",   # flake8-comprehensions
+    "SIM",  # flake8-simplify
+]
+ignore = [
+    # The codebase deliberately raises DRF exceptions without `from exc`
+    # inside narrow coercion guards; the original is never useful there.
+    "B904",
+    # Django's `null=True` on CharField is flagged, but several fields are
+    # nullable by design to match the legacy Laravel schema.
+    "DJ001",
+    # The three "collapse this into a denser expression" rules. This codebase
+    # deliberately uses sequential guard clauses with a comment per branch
+    # (see `Content.is_accessible_by`, where each `return False` is a distinct
+    # reason a student is locked out). Merging them into one boolean or a
+    # ternary shortens the code and makes it harder to read and to comment.
+    "SIM102",  # nested if -> single if
+    "SIM103",  # return the negated condition directly
+    "SIM108",  # if/else block -> ternary
+]
+
+[tool.ruff.lint.isort]
+# Matches the grouping the project already follows:
+# stdlib -> Django -> third-party (DRF, requests) -> apps.*
+known-first-party = ["apps", "config"]
+section-order = ["future", "standard-library", "django", "third-party", "first-party", "local-folder"]
+
+[tool.ruff.lint.isort.sections]
+django = ["django"]
+
+[tool.ruff.lint.per-file-ignores]
+# Settings modules star-import from base by design, and define long literals.
+"config/settings/*.py" = ["F403", "F405", "E501"]
+# Tests assert against long literal payloads; wrapping them hurts readability.
+"apps/**/test*.py" = ["E501"]
+
+[tool.ruff.format]
+# Deliberately NOT normalising quotes. The codebase is split almost evenly
+# (~3,000 single-quoted literals vs ~3,300 double-quoted), so enforcing either
+# style would rewrite thousands of lines for no readability gain and bury real
+# changes in review. Ruff still normalises indentation, spacing, and line
+# breaks; quote style is left to the author.
+quote-style = "preserve"

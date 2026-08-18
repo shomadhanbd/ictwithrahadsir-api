@@ -104,7 +104,7 @@ def ascii_slug(text, fallback="item"):
     return slug[:200] or fallback
 
 
-def unique_slug(instance, base_text, slug_field="slug"):
+def unique_slug(instance, base_text, slug_field="slug", fallback="item"):
     """A slug for `instance` that no other row of its model holds.
 
     `courses` and `content` each had their own copy of this, with different
@@ -114,8 +114,12 @@ def unique_slug(instance, base_text, slug_field="slug"):
     contents cost 1 + 2 + ... + 30 queries.
 
     This reads the taken suffixes once and picks the first free number.
+
+    `fallback` is the slug used when `base_text` transliterates to nothing --
+    a product named only in punctuation, say. It exists because `store` kept
+    its own copy of this function purely to pass "product" instead of "item".
     """
-    base = ascii_slug(base_text)
+    base = ascii_slug(base_text, fallback=fallback)
     model = instance.__class__
 
     taken = set(

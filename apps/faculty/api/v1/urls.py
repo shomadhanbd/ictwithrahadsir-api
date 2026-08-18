@@ -1,6 +1,6 @@
-from rest_framework.routers import SimpleRouter
-
 from django.urls import path
+
+from rest_framework.routers import SimpleRouter
 
 from apps.faculty.api.v1.views import (
     AdminInstructorViewSet,

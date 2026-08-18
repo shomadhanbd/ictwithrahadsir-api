@@ -1,9 +1,10 @@
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
+
 from rest_framework import serializers
 
 from apps.core.api.fields import MediaField
-
+from apps.core.spreadsheets import SpreadsheetField
 from apps.identity.models import OTP, User
 
 
@@ -174,17 +175,7 @@ class PasswordResetRequestSerializer(serializers.Serializer):
 
 
 class UserImportRequestSerializer(serializers.Serializer):
-    file = serializers.FileField()
-
-    #: Guards against a huge upload being parsed straight into memory.
-    MAX_BYTES = 5 * 1024 * 1024
-
-    def validate_file(self, value):
-        if not value.name.lower().endswith((".xlsx", ".xlsm")):
-            raise serializers.ValidationError("Upload an .xlsx or .xlsm workbook.")
-        if value.size > self.MAX_BYTES:
-            raise serializers.ValidationError("The file may not be larger than 5 MB.")
-        return value
+    file = SpreadsheetField()
 
 
 class UserLoginRequestSerializer(serializers.Serializer):
@@ -235,3 +226,49 @@ class ProfileUpdateRequestSerializer(serializers.ModelSerializer):
             instance.set_password(password)
         instance.save()
         return instance
+
+
+# ---------------------------------------------------------------------------
+# Response serializers
+#
+# The auth endpoints answer with small ad-hoc payloads rather than a resource.
+# Declaring them keeps the key names -- and their order, which both frontends
+# destructure -- in one readable place instead of inside the handlers.
+# ---------------------------------------------------------------------------
+
+
+class PhoneCheckResponseSerializer(serializers.Serializer):
+    exists = serializers.BooleanField()
+
+
+class OtpRequestResponseSerializer(serializers.Serializer):
+    """What `/auth/otp` reports back.
+
+    The client calls this on *every* login attempt, so it must not start
+    failing once a code has been sent: within the cooldown it still answers
+    200 with the account state and simply does not send a second SMS.
+    `resend_in` is the seconds remaining before another code may be asked
+    for, and is 0 when one was just sent.
+    """
+
+    user_exist = serializers.BooleanField()
+    password_exist = serializers.BooleanField()
+    message = serializers.CharField()
+    resend_in = serializers.IntegerField()
+
+
+class AuthTokenResponseSerializer(serializers.Serializer):
+    """`{token, user}` -- what login, register and OTP-verify all return.
+
+    `user` is null on the OTP-verify step for a number with no account yet:
+    the row exists so the token has an owner, but there is no profile to
+    show until `/auth/register` fills one in.
+    """
+
+    token = serializers.CharField()
+    user = UserSerializer(allow_null=True)
+
+
+class PasswordResetResponseSerializer(serializers.Serializer):
+    token = serializers.CharField()
+    message = serializers.CharField()

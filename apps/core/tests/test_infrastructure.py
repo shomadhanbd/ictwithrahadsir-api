@@ -6,6 +6,7 @@ both cases "still correct" is the property that had to survive.
 """
 
 from django.test import TestCase
+
 from rest_framework.test import APITestCase
 
 from apps.content.models import Notice

@@ -4,6 +4,12 @@ from django.utils import timezone
 
 from apps.core.models import OrderedModel, TimestampModel
 from apps.core.slugs import unique_slug
+from apps.courses.managers import (
+    ContentQuerySet,
+    CourseQuerySet,
+    EnrollmentQuerySet,
+    SectionQuerySet,
+)
 
 
 class CourseCategory(TimestampModel, OrderedModel):
@@ -42,6 +48,8 @@ class Course(TimestampModel):
     video = models.URLField(null=True, blank=True)
     pdf_link = models.URLField(null=True, blank=True)
     image = models.URLField(null=True, blank=True)
+
+    objects = CourseQuerySet.as_manager()
 
     categories = models.ManyToManyField(CourseCategory, related_name="courses", blank=True)
 
@@ -182,6 +190,8 @@ class Section(TimestampModel, OrderedModel):
     )
     title = models.CharField(max_length=255)
     slug = models.SlugField(max_length=280, unique=True, blank=True)
+    objects = SectionQuerySet.as_manager()
+
     active = models.BooleanField(default=True)
 
     class Meta:
@@ -244,6 +254,8 @@ class Content(TimestampModel, OrderedModel):
 
     # -- live --
     live_url = models.URLField(null=True, blank=True)
+    objects = ContentQuerySet.as_manager()
+
     live_scheduled_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
@@ -277,12 +289,9 @@ class Content(TimestampModel, OrderedModel):
         if not user or not user.is_authenticated:
             return False
 
-        enrollment = Enrollment.objects.filter(course_id=self.course_id, user=user).first()
-        if not enrollment:
-            return False
-        if enrollment.valid_till and enrollment.valid_till < timezone.now():
-            return False
-        return True
+        return Enrollment.objects.filter(
+            course_id=self.course_id, user=user
+        ).current().exists()
 
 
 class ContentCompletion(TimestampModel):
@@ -346,11 +355,23 @@ class Enrollment(TimestampModel):
         max_length=20, choices=PaymentType.choices, default=PaymentType.FREE
     )
 
+    objects = EnrollmentQuerySet.as_manager()
+
     class Meta:
         unique_together = ["course", "user"]
 
     def __str__(self):
         return f"{self.user} -> {self.course}"
+
+    @property
+    def is_current(self) -> bool:
+        """Whether this enrolment still grants access.
+
+        The in-memory twin of `EnrollmentQuerySet.current()`, for rows that
+        have already been fetched (a batched serializer context, say). Both
+        state the same rule; change them together.
+        """
+        return self.valid_till is None or self.valid_till >= timezone.now()
 
 
 class CourseMaterial(TimestampModel):

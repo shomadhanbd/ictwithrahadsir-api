@@ -1,15 +1,17 @@
 """Contract tests for the cart, ordering and manual-payment flow."""
 
 from decimal import Decimal
+from unittest.mock import patch
 
 from django.urls import reverse
 from django.utils import timezone
+
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APITestCase
 
-from apps.identity.models import User
-from apps.courses.models import Course, CoursePrice, Enrollment
 from apps.billing.models import Order, Payment
+from apps.courses.models import Course, CoursePrice, Enrollment
+from apps.identity.models import User
 from apps.store.models import Product
 
 ORDER_URL = reverse('api:billing:v1:orders')
@@ -410,3 +412,104 @@ class ProductOrderTests(APITestCase):
             ).status_code,
             401,
         )
+
+
+class PaymentConfirmationAtomicityTests(ShopTestBase):
+    """Confirming a payment writes three rows across two apps.
+
+    It must be all-or-nothing: a half-applied confirmation either takes a
+    student's money without enrolling them, or enrols them against an order
+    that still reads as unpaid.
+    """
+
+    def setUp(self):
+        super().setUp()
+        admin = User.objects.create_user(
+            phone='01710400009', name='Admin', password='Str0ngPass!23',
+            role=User.Role.ADMIN, is_staff=True,
+        )
+        self.admin_auth = {
+            'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=admin).key}'
+        }
+        self.course = Course.objects.create(title='Atomic', slug='atomic', active=True)
+        self.order = Order.objects.create(
+            user=self.student, course=self.course,
+            amount=Decimal('1500'), total=Decimal('1500'),
+        )
+        self.payment = Payment.objects.create(
+            order=self.order, amount=Decimal('1500'), transaction_id='TRX-ATOMIC'
+        )
+
+    def test_a_failure_granting_access_rolls_back_the_payment_and_order(self):
+        url = reverse('api:billing:v1:admin_payment_update', args=[self.payment.pk])
+
+        failing_grant = patch(
+            'apps.billing.services.grant_course_access',
+            side_effect=RuntimeError('enrolment backend down'),
+        )
+        with failing_grant, self.assertRaises(RuntimeError):
+            self.client.patch(
+                url, {'status': 'successful'}, format='json', **self.admin_auth
+            )
+
+        self.payment.refresh_from_db()
+        self.order.refresh_from_db()
+        self.assertEqual(self.payment.status, Payment.Status.PENDING)
+        self.assertEqual(self.order.status, Order.Status.PENDING)
+        self.assertFalse(Enrollment.objects.filter(course=self.course).exists())
+
+
+class ProductStockReservationTests(APITestCase):
+    """Stock is reserved when the order is placed, not when it is paid.
+
+    Checking stock without reserving it does not stop overselling: two
+    requests arriving together read the same figure and both pass.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            phone='01710600009', name='Buyer', password='Str0ngPass!23',
+        )
+        self.auth = {
+            'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=self.user).key}'
+        }
+        self.product = Product.objects.create(
+            name='Limited', price=Decimal('100'), stock=2, active=True,
+        )
+
+    def order(self, **body):
+        return self.client.post(ORDER_URL, body, format='json', **self.auth)
+
+    def test_placing_an_order_reserves_the_stock(self):
+        self.order(product_id=self.product.pk, quantity=2)
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.stock, 0)
+
+    def test_stock_cannot_be_sold_twice(self):
+        self.assertEqual(self.order(product_id=self.product.pk, quantity=2).status_code, 201)
+        # The second buyer sees the reserved figure, not the original one.
+        self.assertEqual(self.order(product_id=self.product.pk, quantity=2).status_code, 422)
+        self.assertEqual(Order.objects.count(), 1)
+
+    def test_failing_the_payment_gives_the_stock_back(self):
+        self.order(product_id=self.product.pk, quantity=2)
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.stock, 0)
+
+        order = Order.objects.get()
+        payment = Payment.objects.create(
+            order=order, amount=order.total, transaction_id='TRX-STOCK'
+        )
+        admin = User.objects.create_user(
+            phone='01710600010', name='Admin', password='Str0ngPass!23',
+            role=User.Role.ADMIN, is_staff=True,
+        )
+        self.client.patch(
+            reverse('api:billing:v1:admin_payment_update', args=[payment.pk]),
+            {'status': 'failed'},
+            format='json',
+            HTTP_AUTHORIZATION=f'Bearer {Token.objects.create(user=admin).key}',
+        )
+
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.stock, 2)

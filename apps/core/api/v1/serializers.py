@@ -17,3 +17,19 @@ class UploadUrlRequestSerializer(serializers.Serializer):
         if '..' in name.split('/'):
             raise serializers.ValidationError('`name` may not traverse directories.')
         return name
+
+
+class SmsBalanceResponseSerializer(serializers.Serializer):
+    balance = serializers.IntegerField()
+    currency = serializers.CharField()
+
+
+class UploadUrlResponseSerializer(serializers.Serializer):
+    """Where to PUT the bytes, and the key to submit afterwards.
+
+    Identical whether the storage backend is S3 or the local stand-in, so a
+    caller never needs to know which is active.
+    """
+
+    url = serializers.CharField()
+    key = serializers.CharField()

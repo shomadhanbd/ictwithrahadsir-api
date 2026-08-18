@@ -23,6 +23,8 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone
 
+from apps.assessment.models import Exam, ExamAttempt, Question, QuestionBank
+from apps.billing.models import Order, Payment
 from apps.content.models import (
     Advertisement,
     EBook,
@@ -31,22 +33,20 @@ from apps.content.models import (
     Page,
     Testimonial,
 )
-from apps.support.models import ContactMessage
 from apps.courses.models import (
     Content,
-    CourseMaterial,
     Coupon,
     Course,
     CourseCategory,
+    CourseMaterial,
     CoursePrice,
     Enrollment,
     Routine,
     Section,
 )
-from apps.assessment.models import Exam, ExamAttempt, Question, QuestionBank
-from apps.billing.models import Order, Payment
-from apps.store.models import CartItem, Product
 from apps.faculty.models import CourseInstructor, Teacher
+from apps.store.models import CartItem, Product
+from apps.support.models import ContactMessage
 
 User = get_user_model()
 
@@ -680,7 +680,7 @@ class Command(BaseCommand):
             phone=f"0171000{index + 1:04d}",
             order=0,
         )
-        for routine_index, label in enumerate(["সাপ্তাহিক ক্লাস রুটিন", "পরীক্ষার সময়সূচি"]):
+        for label in ["সাপ্তাহিক ক্লাস রুটিন", "পরীক্ষার সময়সূচি"]:
             Routine.objects.create(
                 course=course,
                 title=label,

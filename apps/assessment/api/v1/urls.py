@@ -1,11 +1,11 @@
-from rest_framework.routers import SimpleRouter
-
 from django.urls import path
+
+from rest_framework.routers import SimpleRouter
 
 from apps.assessment.api.v1.views import (
     AdminExamAttemptListAPIView,
-    AdminQuestionViewSet,
     AdminQuestionBankViewSet,
+    AdminQuestionViewSet,
     ExamDetailAPIView,
     ExamRankingAPIView,
     ExamSubmissionAPIView,

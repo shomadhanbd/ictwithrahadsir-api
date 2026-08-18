@@ -18,6 +18,12 @@ from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path, re_path
 
+from drf_spectacular.views import (
+    SpectacularAPIView,
+    SpectacularRedocView,
+    SpectacularSwaggerView,
+)
+
 from apps.core.api.v1.views import LocalMediaUploadView
 
 # Each app's api/urls.py carries its own namespace and includes its
@@ -50,6 +56,20 @@ urlpatterns = [
         name='local-media-upload',
     ),
     path('api/v1/', include(api_v1_patterns)),
+    # Generated from the serializers, so it cannot drift from the code the
+    # way a hand-written document would. Deliberately outside the `api`
+    # namespace above: these are documentation, not endpoints a client calls.
+    path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
+    path(
+        'api/docs/',
+        SpectacularSwaggerView.as_view(url_name='schema'),
+        name='swagger-ui',
+    ),
+    path(
+        'api/redoc/',
+        SpectacularRedocView.as_view(url_name='schema'),
+        name='redoc',
+    ),
 ]
 
 if settings.DEBUG:

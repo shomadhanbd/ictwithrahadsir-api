@@ -9,9 +9,10 @@ class-based move is provably behaviour-preserving.
 from django.conf import settings
 from django.urls import reverse
 from django.utils import timezone
-from rest_framework.authtoken.models import Token
-from apps.core.testing import ThrottledAPITestCase
 
+from rest_framework.authtoken.models import Token
+
+from apps.core.tests.base import ThrottledAPITestCase
 from apps.identity.models import OTP, User
 
 CHECK_PHONE_URL = reverse('api:identity:v1:phone_check')

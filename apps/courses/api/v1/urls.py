@@ -1,24 +1,24 @@
-from rest_framework.routers import SimpleRouter
+from django.urls import path
 
-from django.urls import include, path
+from rest_framework.routers import SimpleRouter
 
 from apps.courses.api.v1.views import (
     AdminContentToggleAPIView,
-        AdminContentViewSet,
+    AdminContentViewSet,
+    AdminCouponViewSet,
     AdminCourseCategoryViewSet,
     AdminCourseEnrolledUserListAPIView,
+    AdminCourseMaterialViewSet,
     AdminCoursePriceViewSet,
-    AdminEnrollmentImportAPIView,
     AdminCourseViewSet,
     AdminEnrollmentAPIView,
-    AdminCouponViewSet,
-    AdminCourseMaterialViewSet,
+    AdminEnrollmentImportAPIView,
     AdminRoutineViewSet,
     AdminSectionViewSet,
     ContentDetailAPIView,
+    ContentPdfAPIView,
     CourseMaterialListAPIView,
     CourseProgressAPIView,
-    ContentPdfAPIView,
     MyCourseListAPIView,
     PublicCourseCategoryListAPIView,
     PublicCourseDetailAPIView,

@@ -24,16 +24,21 @@ from django.http import (
     HttpResponseNotAllowed,
     HttpResponseNotFound,
 )
-from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
+
+from drf_spectacular.utils import extend_schema
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.core.api.permissions import IsAdminRole
-from apps.core.api.v1.serializers import UploadUrlRequestSerializer
+from apps.core.api.v1.serializers import (
+    SmsBalanceResponseSerializer,
+    UploadUrlRequestSerializer,
+    UploadUrlResponseSerializer,
+)
 
 SIGNING_SALT = 'core.media-upload'
 SIGNING_MAX_AGE = 15 * 60  # 15 minutes to complete the PUT
@@ -45,8 +50,14 @@ class SmsBalanceAPIView(APIView):
 
     permission_classes = [IsAdminRole]
 
+    @extend_schema(
+        summary='SMS gateway balance',
+        responses={200: SmsBalanceResponseSerializer},
+    )
     def get(self, request):
-        return Response({'balance': 0, 'currency': 'BDT'})
+        return Response(
+            SmsBalanceResponseSerializer({'balance': 0, 'currency': 'BDT'}).data
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -60,17 +71,23 @@ class UploadUrlRequestAPIView(APIView):
     permission_classes = [IsAuthenticated]
     serializer_class = UploadUrlRequestSerializer
 
+    @extend_schema(
+        summary='Get a presigned upload URL',
+        request=UploadUrlRequestSerializer,
+        responses={200: UploadUrlResponseSerializer},
+    )
     def post(self, request):
         serializer = self.serializer_class(data=request.data)
         serializer.is_valid(raise_exception=True)
         name = serializer.validated_data['name']
 
         if settings.USE_S3:
-            return Response({'url': self._presigned_s3_url(name), 'key': name})
+            url = self._presigned_s3_url(name)
+        else:
+            token = signing.dumps(name, salt=SIGNING_SALT)
+            url = request.build_absolute_uri(f'/api/media-upload/{name}?token={token}')
 
-        token = signing.dumps(name, salt=SIGNING_SALT)
-        url = request.build_absolute_uri(f'/api/media-upload/{name}?token={token}')
-        return Response({'url': url, 'key': name})
+        return Response(UploadUrlResponseSerializer({'url': url, 'key': name}).data)
 
     def _presigned_s3_url(self, name):
         import boto3

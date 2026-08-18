@@ -1,9 +1,33 @@
+import json
+
 from rest_framework import serializers
 
-from apps.core.api.fields import MediaField
-from apps.courses.models import CourseCategory
-
 from apps.billing.models import Order, Payment
+from apps.courses.models import Course, CoursePrice
+from apps.store.models import Product
+
+
+class DetailsJsonStringField(serializers.Field):
+    """Serialises `Payment.details` as a JSON *string*, not an object.
+
+    Both payment payloads have always sent it this way and the frontends
+    parse it as a string, so it is contract. Defined once here because the
+    same three lines were previously repeated on two serializers.
+
+    `source="*"` because it reads the whole `Payment`, not one attribute.
+    """
+
+    def __init__(self, **kwargs):
+        kwargs['read_only'] = True
+        kwargs.setdefault('source', '*')
+        super().__init__(**kwargs)
+
+    #: A JSON document, sent as a string. Declared so the generated schema
+    #: says so rather than defaulting to an untyped "string".
+    _spectacular_annotation = {'field': {'type': 'string', 'format': 'json'}}
+
+    def to_representation(self, payment):
+        return json.dumps(payment.details)
 
 
 class OrderSerializer(serializers.ModelSerializer):
@@ -33,24 +57,19 @@ class OrderSerializer(serializers.ModelSerializer):
 
 class PaymentSerializer(serializers.ModelSerializer):
     order_id = serializers.PrimaryKeyRelatedField(source="order", read_only=True)
-    details = serializers.SerializerMethodField()
+    details = DetailsJsonStringField()
 
     class Meta:
         model = Payment
         fields = ["id", "order_id", "amount", "transaction_id", "details", "status", "created_at"]
         read_only_fields = ["id", "created_at"]
 
-    def get_details(self, obj):
-        import json
-
-        return json.dumps(obj.details)
-
 
 class AdminPaymentSerializer(serializers.ModelSerializer):
     order_id = serializers.PrimaryKeyRelatedField(source="order", read_only=True)
     order = OrderSerializer(read_only=True)
     user = serializers.SerializerMethodField()
-    details = serializers.SerializerMethodField()
+    details = DetailsJsonStringField()
 
     class Meta:
         model = Payment
@@ -66,11 +85,167 @@ class AdminPaymentSerializer(serializers.ModelSerializer):
             "created_at",
         ]
 
-    def get_user(self, obj):
+    def get_user(self, obj) -> dict | None:
         user = obj.order.user
         return {"id": user.id, "name": user.name, "phone": user.phone}
 
-    def get_details(self, obj):
-        import json
 
-        return json.dumps(obj.details)
+# ---------------------------------------------------------------------------
+# Request serializers
+#
+# These exist so the views stop reaching into `request.data` directly. Each
+# one resolves the raw ids it is given into real objects, so a handler
+# receives model instances and never has to ask whether they exist.
+# ---------------------------------------------------------------------------
+
+
+class OrderCreateRequestSerializer(serializers.Serializer):
+    """One endpoint places both course orders and product orders.
+
+    A `product_id` in the body selects the product branch; otherwise the
+    course/price pair is required. They are the same resource with a
+    different item, which is why `Order` has carried `product` and `quantity`
+    from the start.
+    """
+
+    course_id = serializers.IntegerField(required=False)
+    price_id = serializers.IntegerField(required=False)
+    product_id = serializers.IntegerField(required=False)
+    quantity = serializers.IntegerField(required=False, default=1)
+
+    def validate_quantity(self, value):
+        # `IntegerField` already rejects non-numeric input with its own
+        # message; this only covers the in-range rule.
+        if value < 1:
+            raise serializers.ValidationError('Must be at least 1.')
+        return value
+
+    def validate(self, attrs):
+        if attrs.get('product_id'):
+            return self._validate_product(attrs)
+        return self._validate_course(attrs)
+
+    def _validate_product(self, attrs):
+        product = Product.objects.active().filter(pk=attrs['product_id']).first()
+        if not product:
+            raise serializers.ValidationError({'product_id': ['Unknown product.']})
+        return {'product': product, 'quantity': attrs.get('quantity', 1)}
+
+    def _validate_course(self, attrs):
+        course_id = attrs.get('course_id')
+        course = Course.objects.filter(pk=course_id, active=True).first()
+        price = (
+            CoursePrice.objects.filter(
+                pk=attrs.get('price_id'),
+                priceable_type=CoursePrice.PRICEABLE_COURSE,
+                priceable_id=course_id,
+            ).first()
+            if course
+            else None
+        )
+        if not course or not price:
+            raise serializers.ValidationError(
+                {'price_id': ['Invalid course/price selection.']}
+            )
+        return {'course': course, 'price': price}
+
+
+class PaymentSubmitRequestSerializer(serializers.Serializer):
+    order_id = serializers.IntegerField()
+    transaction_id = serializers.CharField(
+        required=False, allow_blank=True, trim_whitespace=True, default=''
+    )
+    details = serializers.JSONField(required=False, default=dict)
+
+    def validate_details(self, value):
+        # The client posts this as a JSON string in multipart submissions and
+        # as a real object in JSON ones.
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except (TypeError, ValueError):
+                raise serializers.ValidationError('Must be valid JSON.')
+        return value or {}
+
+
+class FreeEnrollmentRequestSerializer(serializers.Serializer):
+    course_id = serializers.IntegerField()
+
+
+class PaymentStatusUpdateRequestSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(
+        choices=Payment.Status.choices, error_messages={'invalid_choice': 'Invalid status.'}
+    )
+    confirm_amount_mismatch = serializers.BooleanField(required=False, default=False)
+
+
+# ---------------------------------------------------------------------------
+# Dashboard response serializers
+#
+# The admin dashboard payloads are camelCase and nested, and were previously
+# built as dict literals inside the view. Declaring them keeps the key names
+# and their order in one readable place -- and key order is contract, since
+# `apps/core/test_response_shapes.py` pins it and both frontends destructure
+# these payloads.
+# ---------------------------------------------------------------------------
+
+
+class _PeriodSerializer(serializers.Serializer):
+    thisMonth = serializers.IntegerField()
+    thisYear = serializers.IntegerField()
+
+
+class _IncomeSerializer(serializers.Serializer):
+    # FloatField, not DecimalField. Money is a string elsewhere in this API
+    # (`Order.amount` serialises as "800.00"), but these three have always
+    # gone out as JSON *numbers* -- DRF's encoder renders a raw `Sum()` result
+    # that way, and the dashboard reads them as numbers. `DecimalField` would
+    # quietly turn them into strings and break the panel.
+    thisMonth = serializers.FloatField()
+    thisYear = serializers.FloatField()
+    lifeTime = serializers.FloatField()
+
+
+class _OrderCountsSerializer(serializers.Serializer):
+    completed = _PeriodSerializer()
+    incomplete = _PeriodSerializer()
+
+
+class _TotalCountsSerializer(serializers.Serializer):
+    courses = serializers.IntegerField()
+    students = serializers.IntegerField()
+
+
+class DashboardSerializer(serializers.Serializer):
+    income = _IncomeSerializer()
+    orders = _OrderCountsSerializer()
+    totalCounts = _TotalCountsSerializer()
+    studentsRegistered = _PeriodSerializer()
+
+
+class SalesOverviewSerializer(serializers.Serializer):
+    months = serializers.ListField(child=serializers.CharField())
+    courseSales = serializers.ListField(child=serializers.IntegerField())
+
+
+class PaymentChartSerializer(serializers.Serializer):
+    allDays = serializers.ListField(child=serializers.CharField())
+    income = serializers.ListField(child=serializers.FloatField())
+
+
+class FreeEnrollmentResponseSerializer(serializers.Serializer):
+    """Confirms the claim and echoes back which course it was for."""
+
+    ok = serializers.BooleanField()
+    course_id = serializers.IntegerField()
+
+
+class OrderCreateResponseSerializer(serializers.Serializer):
+    """`{id, order}` -- the new order's id alongside the order itself.
+
+    The redundant top-level `id` is what the checkout flow reads to build its
+    redirect, so it stays.
+    """
+
+    id = serializers.IntegerField()
+    order = OrderSerializer()

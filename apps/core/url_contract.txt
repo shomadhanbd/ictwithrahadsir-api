@@ -1,3 +1,6 @@
+api/docs/
+api/redoc/
+api/schema/
 api/v1/^admin/advertisements/$
 api/v1/^admin/advertisements/(?P<pk>[^/.]+)/$
 api/v1/^admin/contents/$

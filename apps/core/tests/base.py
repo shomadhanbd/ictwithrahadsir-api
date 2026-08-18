@@ -1,6 +1,7 @@
 """Shared test helpers."""
 
 from django.core.cache import cache
+
 from rest_framework.test import APITestCase
 
 

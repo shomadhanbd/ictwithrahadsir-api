@@ -45,3 +45,19 @@ class CartItemSerializer(serializers.ModelSerializer):
         model = CartItem
         fields = ["id", "product", "quantity"]
         read_only_fields = ["id"]
+
+
+class CartAddRequestSerializer(serializers.Serializer):
+    product_id = serializers.IntegerField(
+        error_messages={'required': 'Product not found.', 'invalid': 'Product not found.'}
+    )
+
+
+class CartQuantityRequestSerializer(serializers.Serializer):
+    action = serializers.ChoiceField(
+        choices=['increment', 'decrement'],
+        error_messages={
+            'invalid_choice': 'Must be `increment` or `decrement`.',
+            'required': 'Must be `increment` or `decrement`.',
+        },
+    )

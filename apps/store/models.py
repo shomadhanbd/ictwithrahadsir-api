@@ -9,18 +9,9 @@ from django.conf import settings
 from django.db import models
 
 from apps.core.models import OrderedModel, TimestampModel
-from apps.core.slugs import ascii_slug
+from apps.core.slugs import unique_slug
 from apps.courses.models import CourseCategory
-
-
-def unique_product_slug(instance, base_text):
-    base_slug = ascii_slug(base_text, fallback="product")
-    slug = base_slug
-    i = 1
-    while Product.objects.filter(slug=slug).exclude(pk=instance.pk).exists():
-        i += 1
-        slug = f"{base_slug}-{i}"
-    return slug
+from apps.store.managers import CartItemQuerySet, ProductQuerySet
 
 
 class Product(TimestampModel, OrderedModel):
@@ -54,6 +45,8 @@ class Product(TimestampModel, OrderedModel):
     image = models.URLField(null=True, blank=True)
     categories = models.ManyToManyField(CourseCategory, related_name="products", blank=True)
 
+    objects = ProductQuerySet.as_manager()
+
     class Meta:
         ordering = ["order", "-created_at"]
 
@@ -62,7 +55,7 @@ class Product(TimestampModel, OrderedModel):
 
     def save(self, *args, **kwargs):
         if not self.slug:
-            self.slug = unique_product_slug(self, self.name)
+            self.slug = unique_slug(self, self.name, fallback="product")
         super().save(*args, **kwargs)
 
 
@@ -70,6 +63,8 @@ class CartItem(TimestampModel):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="cart_items")
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="cart_items")
     quantity = models.PositiveIntegerField(default=1)
+
+    objects = CartItemQuerySet.as_manager()
 
     class Meta:
         unique_together = ["user", "product"]

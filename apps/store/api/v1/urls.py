@@ -1,6 +1,6 @@
-from rest_framework.routers import SimpleRouter
-
 from django.urls import path
+
+from rest_framework.routers import SimpleRouter
 
 from apps.store.api.v1.views import (
     AdminProductViewSet,

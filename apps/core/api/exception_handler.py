@@ -1,5 +1,4 @@
 from rest_framework import exceptions, status
-from rest_framework.response import Response
 from rest_framework.views import exception_handler as drf_exception_handler
 
 
@@ -27,9 +26,7 @@ def laravel_style_exception_handler(exc, context):
             response.data = {"message": " ".join(str(m) for m in messages)}
         return response
 
-    if isinstance(exc, exceptions.NotAuthenticated) or isinstance(
-        exc, exceptions.AuthenticationFailed
-    ):
+    if isinstance(exc, (exceptions.NotAuthenticated, exceptions.AuthenticationFailed)):
         response.data = {"message": "Unauthenticated."}
         return response
 

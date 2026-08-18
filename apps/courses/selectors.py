@@ -21,3 +21,31 @@ def ordered_course_ids(user, course_ids):
     if user is None or not user.is_authenticated:
         return set()
     return ordered_course_ids_provider(user, course_ids)
+
+
+# ---------------------------------------------------------------------------
+# Course progress
+# ---------------------------------------------------------------------------
+
+
+def course_progress(*, user, course) -> dict:
+    """How far `user` has got through `course`.
+
+    `total` counts every active content on the course rather than a figure
+    stored at enrolment time, so a course that gains a lesson correctly drops
+    everyone's percentage instead of leaving people permanently at 100%.
+    """
+    from apps.courses.models import Content, ContentCompletion
+
+    completed = list(
+        ContentCompletion.objects.filter(user=user, course=course).values_list(
+            'content_id', flat=True
+        )
+    )
+    total = Content.objects.filter(course=course).active().count()
+    return {
+        'completed_content_ids': completed,
+        'completed': len(completed),
+        'total': total,
+        'percent': round(len(completed) / total * 100) if total else 0,
+    }

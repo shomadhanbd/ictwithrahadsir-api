@@ -1,4 +1,10 @@
 -r base.txt
 
-# No dev-only tooling yet. Add linters/test helpers here (never to
-# base.txt) so production images stay free of them.
+# Lint + format. Config lives in pyproject.toml at the repo root.
+#   ruff check .          # lint
+#   ruff check . --fix    # lint, applying the safe autofixes
+#   ruff format .         # format
+#
+# Keep dev-only tooling here, never in base.txt, so production images stay
+# free of it.
+ruff==0.16.3

@@ -6,12 +6,13 @@ from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
+
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APITestCase
 
-from apps.identity.models import User
 from apps.courses.models import (
     Content,
+    ContentCompletion,
     Course,
     CourseCategory,
     CourseMaterial,
@@ -19,6 +20,7 @@ from apps.courses.models import (
     Enrollment,
     Section,
 )
+from apps.identity.models import User
 
 COURSE_LIST_URL = reverse('api:courses:v1:course_list')
 CATEGORY_LIST_URL = reverse('api:courses:v1:course_category_list')
@@ -525,3 +527,70 @@ class CourseProgressTests(APITestCase):
         )
         data = self.client.get(self.url(), **self.auth).data['data']
         self.assertEqual((data['completed'], data['total'], data['percent']), (4, 5, 80))
+
+
+class ContentCompletionRealignmentTests(APITestCase):
+    """A lesson that changes course must take its completions with it.
+
+    `ContentCompletion` stores `course` next to `content` so progress can be
+    counted without walking the section tree, and `save()` keeps the two in
+    step. That guard only runs when the completion is saved, so before
+    `apps/courses/signals.py` existed, moving a lesson silently left every
+    completion crediting the course it had left.
+    """
+
+    def setUp(self):
+        self.student = User.objects.create_user(phone='01810910001', name='Student')
+        self.origin = Course.objects.create(title='Origin', slug='origin', active=True)
+        self.destination = Course.objects.create(
+            title='Destination', slug='destination', active=True
+        )
+        self.content = Content.objects.create(
+            course=self.origin,
+            section=Section.objects.create(course=self.origin, title='S1'),
+            title='Lesson',
+            active=True,
+        )
+        self.completion = ContentCompletion.objects.create(
+            user=self.student, content=self.content, course=self.origin
+        )
+
+    def move_content(self):
+        self.content.course = self.destination
+        self.content.section = Section.objects.create(course=self.destination, title='S2')
+        self.content.save()
+
+    def test_moving_a_lesson_repoints_its_completions(self):
+        self.move_content()
+        self.completion.refresh_from_db()
+        self.assertEqual(self.completion.course_id, self.destination.pk)
+
+    def test_progress_follows_the_lesson_to_its_new_course(self):
+        """The reason this matters: progress is counted by course."""
+        from apps.courses.selectors import course_progress
+
+        self.move_content()
+        self.assertEqual(
+            course_progress(user=self.student, course=self.destination)['completed'], 1
+        )
+        self.assertEqual(
+            course_progress(user=self.student, course=self.origin)['completed'], 0
+        )
+
+    def test_saving_a_lesson_that_did_not_move_changes_nothing(self):
+        self.content.title = 'Renamed'
+        self.content.save()
+        self.completion.refresh_from_db()
+        self.assertEqual(self.completion.course_id, self.origin.pk)
+
+    def test_other_lessons_completions_are_untouched(self):
+        other = Content.objects.create(
+            course=self.origin, section=self.content.section_id and self.content.section,
+            title='Another', active=True,
+        )
+        other_completion = ContentCompletion.objects.create(
+            user=self.student, content=other, course=self.origin
+        )
+        self.move_content()
+        other_completion.refresh_from_db()
+        self.assertEqual(other_completion.course_id, self.origin.pk)
