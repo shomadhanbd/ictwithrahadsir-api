@@ -9,7 +9,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.core.api.pagination import LaravelStylePageNumberPagination
-from apps.core.api.permissions import IsAdminRole
+from apps.core.api.permissions import IsContentStaff
 from apps.support.api.v1.serializers import (
     ContactMessageSerializer,
     ContactReplyRequestSerializer,
@@ -52,7 +52,7 @@ class ContactUsAPIView(APIView):
 
 
 class AdminContactListAPIView(ListAPIView):
-    permission_classes = [IsAdminRole]
+    permission_classes = [IsContentStaff]
     serializer_class = ContactMessageSerializer
     pagination_class = LaravelStylePageNumberPagination
     # The panel's search box posts `?search=`; without these the global
@@ -75,7 +75,7 @@ class AdminContactListAPIView(ListAPIView):
 
 
 class BaseAdminContactAPIView(APIView):
-    permission_classes = [IsAdminRole]
+    permission_classes = [IsContentStaff]
 
     def get_message(self, pk):
         message = ContactMessage.objects.filter(pk=pk).first()

@@ -2,10 +2,12 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 
 from rest_framework import serializers
+from rest_framework.validators import UniqueValidator
 
 from apps.core.api.fields import MediaField
 from apps.core.spreadsheets import SpreadsheetField
-from apps.identity.models import OTP, User
+from apps.identity.models import User
+from apps.identity.phones import normalize_phone
 
 
 def check_password_strength(password, field="password"):
@@ -18,12 +20,101 @@ def check_password_strength(password, field="password"):
         raise serializers.ValidationError({field: list(exc.messages)})
 
 
-def _is_full_admin(user) -> bool:
-    return bool(
-        user
-        and user.is_authenticated
-        and (user.is_staff or user.role == User.Role.ADMIN)
-    )
+class PhoneField(serializers.CharField):
+    """A phone number, stored the one way -- see `apps.identity.phones`.
+
+    Normalising in `to_internal_value` rather than in a `validate_phone`
+    method is load-bearing: DRF runs `to_internal_value` *before* a field's
+    validators, so `UniqueValidator` compares the canonical form. The other
+    way round, `+8801810001111` would sail past a uniqueness check against a
+    stored `01810001111` and only fail at the database, as a 500.
+    """
+
+    def to_internal_value(self, data):
+        value = normalize_phone(super().to_internal_value(data))
+        if not value:
+            # Everything was punctuation. Blank is the honest answer, and it
+            # is the message the client already knows how to show.
+            self.fail("blank")
+        return value
+
+
+class NewPasswordSerializer(serializers.Serializer):
+    """A new password, typed twice.
+
+    Registration and password reset both ask for one, and both used to carry
+    their own copy of these two fields and this check. Copies drift: one of
+    them popped `password_confirmation` out of the validated data and the
+    other left it in, and the reset path went years without running the
+    strength validators at all, so any rule could be sidestepped by
+    "forgetting" the password instead of choosing one.
+
+    It is a base class rather than a mixin because DRF's serializer metaclass
+    only collects declared fields from bases that are serializers themselves.
+    """
+
+    password = serializers.CharField(write_only=True)
+    password_confirmation = serializers.CharField(write_only=True)
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        # Confirmation first, so a typo is reported before anything more
+        # expensive -- or more costly to the user, like spending an OTP.
+        if attrs["password"] != attrs.pop("password_confirmation"):
+            raise serializers.ValidationError(
+                {"password_confirmation": ["Passwords do not match."]}
+            )
+        check_password_strength(attrs["password"])
+        return attrs
+
+
+class PasswordWriteMixin:
+    """Accepting an optional plaintext `password` on a `ModelSerializer`.
+
+    Shared by the two screens that can set somebody's password while editing
+    other fields -- the admin panel's user form and the student's own profile
+    page. Both need the same two things: run the configured validators when a
+    password was supplied, and hash it instead of assigning it to the column.
+
+    Assumes the concrete class declares:
+
+        password = serializers.CharField(
+            write_only=True, required=False, allow_blank=True
+        )
+
+    which stays there rather than moving here, because a plain mixin's fields
+    are invisible to the serializer metaclass.
+    """
+
+    def validate_password(self, value):
+        if value:
+            validate_password(value)
+        return value
+
+    def update(self, instance, validated_data):
+        password = validated_data.pop("password", None)
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        if password:
+            # Never straight onto the column: that stores the plaintext and
+            # locks the account out, since nothing would ever match it.
+            instance.set_password(password)
+        instance.save()
+        return instance
+
+
+# ---------------------------------------------------------------------------
+# The user, rendered three ways
+#
+# One model, three audiences, three field lists -- deliberately not one
+# serializer with conditional fields. `UserSerializer` is what a student sees
+# of themselves, `AdminUserSerializer` is the admin panel's editable form
+# (role and password are writable, which is exactly why it is separate), and
+# `ProfileUpdateRequestSerializer` is the narrow subset a student may write
+# to themselves. Collapsing them means one `fields` list guarded by
+# `if request.user...`, which is how a student ends up able to PATCH their own
+# role.
+# ---------------------------------------------------------------------------
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -50,17 +141,28 @@ class UserSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "role", "email_verified_at", "phone_verified_at", "date_joined"]
 
 
-class AdminUserSerializer(serializers.ModelSerializer):
-    """Used by /admin/user CRUD -- exposes `role` as writable and accepts a
-    plaintext `password` on create/update (write-only, hashed on save)."""
+class AdminUserSerializer(PasswordWriteMixin, serializers.ModelSerializer):
+    """Used by /admin/users CRUD -- exposes `role` as writable and accepts a
+    plaintext `password` on create/update (write-only, hashed on save).
 
-    #: Roles that may not be handed out by a non-admin. `IsAdminRole` lets
-    #: instructors reach this endpoint, so without this check an instructor
-    #: could POST/PATCH `role: "admin"` and promote themselves.
-    PRIVILEGED_ROLES = {User.Role.ADMIN, User.Role.INSTRUCTOR}
+    Who is *allowed* to assign a given role, or to edit a given account, is
+    not decided here: that is
+    `apps.identity.api.v1.permissions.CanManageUsers`. It used to be decided
+    here, and the hole that left is documented in that module.
+    """
 
     image = MediaField(upload_to="users", required=False)
     password = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    # Declared rather than generated, so the number is canonical before
+    # `UniqueValidator` runs. The validator has to be restated because
+    # declaring the field opts out of the one ModelSerializer would have
+    # built from `phone`'s `unique=True`.
+    phone = PhoneField(
+        max_length=20,
+        required=False,
+        allow_null=True,
+        validators=[UniqueValidator(queryset=User.objects.all())],
+    )
 
     class Meta:
         model = User
@@ -75,103 +177,68 @@ class AdminUserSerializer(serializers.ModelSerializer):
             "role",
             "image",
             "password",
+            "is_active",
             "date_joined",
         ]
         read_only_fields = ["id", "date_joined"]
 
-    def validate_password(self, value):
-        if value:
-            validate_password(value)
-        return value
-
-    def validate_role(self, value):
-        request = self.context.get("request")
-        actor = getattr(request, "user", None)
-        if value in self.PRIVILEGED_ROLES and not _is_full_admin(actor):
-            raise serializers.ValidationError(
-                "Only an admin may assign the admin or instructor role."
-            )
-        return value
-
-    def validate(self, attrs):
-        # Editing somebody who already holds a privileged role is itself a
-        # privileged action -- otherwise an instructor could reset an admin's
-        # password and take the account over.
-        if self.instance and self.instance.role in self.PRIVILEGED_ROLES:
-            if not _is_full_admin(self.context.get("request").user):
-                raise serializers.ValidationError(
-                    {"role": ["Only an admin may modify an admin or instructor account."]}
-                )
-        return attrs
-
     def create(self, validated_data):
         password = validated_data.pop("password", None)
-        # Go through the manager so email normalisation and the
-        # unusable-password default stay in one place.
+        # Go through the manager so phone/email normalisation, the
+        # `registered_at` stamp and the unusable-password default stay in one
+        # place. (`update` comes from PasswordWriteMixin.)
         return User.objects.create_user(password=password or None, **validated_data)
 
-    def update(self, instance, validated_data):
-        password = validated_data.pop("password", None)
-        for attr, value in validated_data.items():
-            setattr(instance, attr, value)
-        if password:
-            instance.set_password(password)
-        instance.save()
-        return instance
 
-
-class UserRegisterRequestSerializer(serializers.Serializer):
-    name = serializers.CharField(max_length=150)
-    phone = serializers.CharField(max_length=20)
-    institute = serializers.CharField(source="institution", max_length=255, required=False, allow_blank=True)
-    educational_session = serializers.CharField(max_length=100, required=False, allow_blank=True)
-    password = serializers.CharField(write_only=True)
-    password_confirmation = serializers.CharField(write_only=True)
-
-    def validate(self, attrs):
-        if attrs["password"] != attrs.pop("password_confirmation"):
-            raise serializers.ValidationError(
-                {"password_confirmation": ["Passwords do not match."]}
-            )
-        check_password_strength(attrs["password"])
-        return attrs
+# ---------------------------------------------------------------------------
+# What each endpoint accepts
+#
+# One per endpoint, on purpose: the OpenAPI schema is generated from these, so
+# a declared shape is the only thing that keeps the published docs from
+# drifting away from what the handler really reads. They are small because the
+# work they used to do -- deciding who may act, spending an OTP -- has moved
+# to the permission and service layers.
+# ---------------------------------------------------------------------------
 
 
 class PhoneRequestSerializer(serializers.Serializer):
-    """Shared shape for the endpoints keyed purely on a phone number."""
+    """Endpoints keyed purely on a phone number: phone-check, get-OTP,
+    forgot-password."""
 
-    phone = serializers.CharField(max_length=20)
+    phone = PhoneField(max_length=20)
 
 
-class OtpVerifyRequestSerializer(serializers.Serializer):
-    phone = serializers.CharField(max_length=20)
+class OtpVerifyRequestSerializer(PhoneRequestSerializer):
+    """Shape only. Spending the code is a write, so it belongs to
+    `apps.identity.services.consume_otp`, which the view calls."""
+
     otp = serializers.CharField(max_length=10)
 
-    def validate(self, attrs):
-        if not OTP.verify(attrs["phone"], attrs["otp"]):
-            raise serializers.ValidationError({"otp": ["Invalid or expired OTP."]})
-        return attrs
+
+class PasswordResetRequestSerializer(OtpVerifyRequestSerializer, NewPasswordSerializer):
+    """A phone, the code texted to it, and the new password twice.
+
+    Exactly the sum of its two bases, which is why it declares no fields of
+    its own. What matters here is what it does *not* do: the code is not
+    spent during validation. A typo in the confirmation must not cost the
+    user the code they were just texted, so the view checks the account and
+    calls `consume_otp` last.
+    """
 
 
-class PasswordResetRequestSerializer(serializers.Serializer):
-    phone = serializers.CharField(max_length=20)
-    otp = serializers.CharField(max_length=10)
-    password = serializers.CharField(write_only=True)
-    password_confirmation = serializers.CharField(write_only=True)
+class UserRegisterRequestSerializer(NewPasswordSerializer):
+    """Completing a profile after the phone has been OTP-verified."""
 
-    def validate(self, attrs):
-        # Confirmation first, so a typo is reported before the OTP is burned.
-        if attrs["password"] != attrs["password_confirmation"]:
-            raise serializers.ValidationError(
-                {"password_confirmation": ["Passwords do not match."]}
-            )
-        # The registration path has always run the configured password
-        # validators; the reset path did not, so any password strength rule
-        # could be sidestepped by "forgetting" the password.
-        check_password_strength(attrs["password"])
-        if not OTP.verify(attrs["phone"], attrs["otp"]):
-            raise serializers.ValidationError({"otp": ["Invalid or expired OTP."]})
-        return attrs
+    name = serializers.CharField(max_length=150)
+    phone = PhoneField(max_length=20)
+    #: `institute` on the wire, `institution` on the model. The existing web
+    #: form sends the former and is not being changed for this.
+    institute = serializers.CharField(
+        source="institution", max_length=255, required=False, allow_blank=True
+    )
+    educational_session = serializers.CharField(
+        max_length=100, required=False, allow_blank=True
+    )
 
 
 class UserImportRequestSerializer(serializers.Serializer):
@@ -179,7 +246,7 @@ class UserImportRequestSerializer(serializers.Serializer):
 
 
 class UserLoginRequestSerializer(serializers.Serializer):
-    phone = serializers.CharField(required=False)
+    phone = PhoneField(required=False)
     email = serializers.EmailField(required=False)
     password = serializers.CharField(write_only=True)
 
@@ -205,27 +272,26 @@ class UserLoginRequestSerializer(serializers.Serializer):
         return attrs
 
 
-class ProfileUpdateRequestSerializer(serializers.ModelSerializer):
+class ProfileUpdateRequestSerializer(PasswordWriteMixin, serializers.ModelSerializer):
+    """What a student may change about themselves from `/me/`.
+
+    The field list is the security boundary: `role`, `is_active` and `phone`
+    are absent, so no amount of extra keys in the request body can reach them.
+    """
+
     image = MediaField(upload_to="users", required=False)
     password = serializers.CharField(write_only=True, required=False, allow_blank=True)
 
     class Meta:
         model = User
-        fields = ["name", "guardian_phone", "institution", "educational_session", "image", "password"]
-
-    def validate_password(self, value):
-        if value:
-            validate_password(value)
-        return value
-
-    def update(self, instance, validated_data):
-        password = validated_data.pop("password", None)
-        for attr, value in validated_data.items():
-            setattr(instance, attr, value)
-        if password:
-            instance.set_password(password)
-        instance.save()
-        return instance
+        fields = [
+            "name",
+            "guardian_phone",
+            "institution",
+            "educational_session",
+            "image",
+            "password",
+        ]
 
 
 # ---------------------------------------------------------------------------

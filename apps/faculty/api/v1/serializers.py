@@ -7,11 +7,41 @@ from apps.identity.models import User
 
 
 class TeacherSerializer(serializers.ModelSerializer):
+    """The public roster entry, as shown on the homepage and course pages.
+
+    This exact key list is frozen by `test_response_shapes.PUBLIC_INSTRUCTOR_KEYS`
+    -- both frontends read it and the course-detail payload has to stay
+    byte-identical to it. `user` is deliberately absent: which login belongs
+    to which teacher is nobody's business but the admin panel's.
+    """
+
     image = MediaField(upload_to='team', required=False)
 
     class Meta:
         model = Teacher
         fields = ['id', 'name', 'designation', 'description', 'type', 'order', 'image']
+
+
+class AdminTeacherSerializer(TeacherSerializer):
+    """The roster entry as the admin panel edits it: same fields, plus the
+    login this teacher signs in with.
+
+    Separate from `TeacherSerializer` rather than a flag on it, because that
+    one's key list is a frozen contract -- adding a key to it breaks the
+    homepage assertion whether or not anybody reads the new key.
+    """
+
+    user_id = serializers.PrimaryKeyRelatedField(
+        source='user',
+        queryset=User.objects.all(),
+        required=False,
+        allow_null=True,
+        help_text='The account this teacher signs in with. Linking one lets '
+                  'them reach the courses they are assigned to.',
+    )
+
+    class Meta(TeacherSerializer.Meta):
+        fields = TeacherSerializer.Meta.fields + ['user_id']
 
 
 class InstructorSerializer(serializers.ModelSerializer):

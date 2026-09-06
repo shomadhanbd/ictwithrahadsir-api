@@ -23,7 +23,7 @@ from apps.content.models import (
     Testimonial,
 )
 from apps.core.api.pagination import LaravelStylePageNumberPagination
-from apps.core.api.permissions import IsAdminRole
+from apps.core.api.permissions import IsContentStaff
 from apps.core.api.viewsets import (
     AdminModelViewSet,
     SlugOrPkLookupMixin,
@@ -102,6 +102,7 @@ class HomeAPIView(APIView):
 
 
 class AdminNoticeViewSet(AdminModelViewSet):
+    permission_classes = [IsContentStaff]
     queryset = Notice.objects.prefetch_related('categories')
     serializer_class = NoticeSerializer
     lookup_field = 'slug'
@@ -113,6 +114,7 @@ class AdminNoticeViewSet(AdminModelViewSet):
 
 
 class AdminNoticeCategoryViewSet(SlugOrPkLookupMixin, AdminModelViewSet):
+    permission_classes = [IsContentStaff]
     queryset = NoticeCategory.objects.all()
     serializer_class = NoticeCategorySerializer
     lookup_field = 'slug'
@@ -130,25 +132,28 @@ class AdminNoticeCategoryViewSet(SlugOrPkLookupMixin, AdminModelViewSet):
 
 
 class AdminTestimonialViewSet(AdminModelViewSet):
+    permission_classes = [IsContentStaff]
     queryset = Testimonial.objects.all()
     serializer_class = TestimonialSerializer
     search_fields = ['name', 'designation', 'description']
 
 
 class AdminAdvertisementViewSet(AdminModelViewSet):
+    permission_classes = [IsContentStaff]
     queryset = Advertisement.objects.all()
     serializer_class = AdvertisementSerializer
     search_fields = ['title', 'description', 'type']
 
 
 class AdminEBookViewSet(AdminModelViewSet):
+    permission_classes = [IsContentStaff]
     queryset = EBook.objects.all()
     serializer_class = EBookSerializer
     search_fields = ['title', 'description']
 
 
 class AdminPageListAPIView(UnpaginatedDataListMixin, ListAPIView):
-    permission_classes = [IsAdminRole]
+    permission_classes = [IsContentStaff]
     serializer_class = PageSerializer
     queryset = Page.objects.all()
 
@@ -156,7 +161,7 @@ class AdminPageListAPIView(UnpaginatedDataListMixin, ListAPIView):
 class AdminPageUpdateAPIView(APIView):
     """Pages are seeded and only ever edited, never created or deleted."""
 
-    permission_classes = [IsAdminRole]
+    permission_classes = [IsContentStaff]
 
     @extend_schema(summary='Edit a static page', request=PageSerializer, responses={200: PageSerializer})
     def patch(self, request, slug):

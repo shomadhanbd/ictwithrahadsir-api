@@ -11,24 +11,32 @@ reaches the same choices through `self.model`, which is what a manager is
 given for.
 """
 
-import random
-import string
-
 from django.contrib.auth.base_user import BaseUserManager
 from django.db import models
+from django.utils import timezone
+
+from apps.identity.phones import normalize_phone
 
 
 class UserQuerySet(models.QuerySet):
-    """The role filters the admin screens and dashboard ask for repeatedly."""
+    """The filters the admin screens and dashboard ask for repeatedly."""
+
+    def registered(self):
+        """Accounts whose owner actually finished signing up.
+
+        Excludes the placeholder rows `/auth/otp/verify/` has to create -- see
+        `User.registered_at` for why they exist.
+        """
+        return self.filter(registered_at__isnull=False)
 
     def students(self):
-        return self.filter(role=self.model.Role.STUDENT)
+        """Real students: role `student`, sign-up finished.
 
-    def instructors(self):
-        return self.filter(role=self.model.Role.INSTRUCTOR)
-
-    def admins(self):
-        return self.filter(role=self.model.Role.ADMIN)
+        The `registered()` half is folded in here rather than left to each
+        caller because forgetting it is silent -- the count is simply wrong,
+        by however many people abandoned registration that month.
+        """
+        return self.filter(role=self.model.Role.STUDENT).registered()
 
     def joined_since(self, when):
         return self.filter(date_joined__gte=when)
@@ -43,8 +51,19 @@ class UserManager(BaseUserManager.from_queryset(UserQuerySet)):
     """
 
     def create_user(self, phone=None, email=None, password=None, **extra_fields):
+        """Create a real account -- somebody deliberately put this person here.
+
+        `registered_at` is stamped by default for exactly that reason. The one
+        caller that must *not* stamp it is `create_unverified` below.
+        """
         if not phone and not email:
             raise ValueError("A user requires a phone number or an email address.")
+        extra_fields.setdefault("registered_at", timezone.now())
+        # Both identifiers are normalised in one place, for the same reason:
+        # the seed command, the shell and a spreadsheet import do not go
+        # through a serializer, and a second spelling of a number is a second
+        # account.
+        phone = normalize_phone(phone)
         email = self.normalize_email(email) if email else None
         user = self.model(phone=phone, email=email, **extra_fields)
         if password:
@@ -62,12 +81,21 @@ class UserManager(BaseUserManager.from_queryset(UserQuerySet)):
         extra_fields.setdefault("is_staff", True)
         extra_fields.setdefault("is_superuser", True)
         extra_fields.setdefault("name", extra_fields.get("name") or "Admin")
-        if not phone:
-            # `phone` is the USERNAME_FIELD and is unique, so a superuser
-            # created with only an email still needs one.
-            phone = f"admin-{''.join(random.choices(string.digits, k=8))}"
         if extra_fields.get("is_staff") is not True:
             raise ValueError("Superuser must have is_staff=True.")
         if extra_fields.get("is_superuser") is not True:
             raise ValueError("Superuser must have is_superuser=True.")
         return self.create_user(phone=phone, email=email, password=password, **extra_fields)
+
+    def create_unverified(self, phone):
+        """A placeholder for a phone that has passed OTP but has no profile.
+
+        `/auth/otp/verify/` returns a token, and the web client stores it as
+        the session cookie before the user has filled anything in -- so a row
+        has to exist to own that token. Leaving `registered_at` null is what
+        keeps the half-finished ones out of the roster and the student count
+        until `/auth/register/` completes them.
+        """
+        return self.create_user(
+            phone=phone, role=self.model.Role.STUDENT, registered_at=None
+        )

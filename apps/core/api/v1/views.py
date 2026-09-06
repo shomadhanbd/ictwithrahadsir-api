@@ -33,7 +33,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.core.api.permissions import IsAdminRole
+from apps.core.api.permissions import IsFullAdmin
 from apps.core.api.v1.serializers import (
     SmsBalanceResponseSerializer,
     UploadUrlRequestSerializer,
@@ -48,7 +48,7 @@ class SmsBalanceAPIView(APIView):
     """Real SMS balance requires a live gateway account; stubbed until one
     is configured (see settings.SMS_BACKEND)."""
 
-    permission_classes = [IsAdminRole]
+    permission_classes = [IsFullAdmin]
 
     @extend_schema(
         summary='SMS gateway balance',

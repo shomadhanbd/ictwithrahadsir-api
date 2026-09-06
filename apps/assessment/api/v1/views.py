@@ -25,7 +25,7 @@ from apps.assessment.models import Exam, ExamAttempt, Question, QuestionBank
 from apps.assessment.selectors import practice_banks_with_counts
 from apps.assessment.services import submit_exam
 from apps.core.api.pagination import LaravelStylePageNumberPagination
-from apps.core.api.permissions import IsAdminRole
+from apps.core.api.permissions import IsTeachingStaff
 from apps.core.api.viewsets import AdminModelViewSet, UnpaginatedDataListMixin
 from apps.courses.models import Content
 
@@ -230,6 +230,7 @@ class PracticeQuestionListAPIView(UnpaginatedDataListMixin, ListAPIView):
 
 
 class AdminQuestionBankViewSet(AdminModelViewSet):
+    permission_classes = [IsTeachingStaff]
     queryset = QuestionBank.objects.all()
     serializer_class = QuestionBankSerializer
     # The panel ships a search box against this; without it the global
@@ -248,6 +249,7 @@ class AdminQuestionBankViewSet(AdminModelViewSet):
 
 
 class AdminQuestionViewSet(AdminModelViewSet):
+    permission_classes = [IsTeachingStaff]
     queryset = Question.objects.all()
     serializer_class = QuestionSerializer
     search_fields = ['question', 'a', 'b', 'c', 'd', 'e', 'explanation']
@@ -261,7 +263,7 @@ class AdminQuestionViewSet(AdminModelViewSet):
 
 
 class AdminExamAttemptListAPIView(ListAPIView):
-    permission_classes = [IsAdminRole]
+    permission_classes = [IsTeachingStaff]
     serializer_class = AdminExamAttemptSerializer
     pagination_class = LaravelStylePageNumberPagination
 

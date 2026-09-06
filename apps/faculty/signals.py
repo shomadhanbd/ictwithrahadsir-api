@@ -64,3 +64,21 @@ def sync_teacher_to_assignments(sender, instance, created, **kwargs):
         # than `save()` so `CourseInstructor.save()`'s blank-filling does not
         # run again over values we are setting explicitly.
         instance.assignments.filter(**{field: old}).update(**{field: new})
+
+
+@receiver(post_save, sender=Teacher, dispatch_uid='faculty.sync_teacher_login')
+def sync_teacher_login(sender, instance, created, **kwargs):
+    """Push a newly linked login down onto the teacher's existing assignments.
+
+    `CourseInstructor.save()` inherits `user` from its teacher, but only when
+    the *assignment* is saved. A teacher is usually put on their courses first
+    and given a login later, so without this the assignments made before the
+    link keep a null `user` -- and those are exactly the courses the teacher
+    then cannot open.
+
+    Only fills blanks. An assignment pointing at a different account was set
+    that way deliberately.
+    """
+    if instance.user_id is None:
+        return
+    instance.assignments.filter(user__isnull=True).update(user_id=instance.user_id)

@@ -54,6 +54,13 @@ or `instructor` user (`apps.core.api.permissions.IsAdminRole`). Everything else
 is public read / authenticated write per-resource, matching how the existing
 frontends already call the API.
 
+Endpoints that instructors must *not* reach layer something stricter on top:
+`IsFullAdmin` for admin-only resources, or a resource-specific permission
+such as `apps.identity.api.v1.permissions.CanManageUsers`, which lets an
+instructor manage students but not admins and not deletions. Those rules
+belong in a permission class and nowhere else -- a serializer only runs on
+create and update, so guards written there do not cover `DELETE`.
+
 ## Architecture
 
 See **[ARCHITECTURE.md](ARCHITECTURE.md)** for the internal layering — which
@@ -74,9 +81,16 @@ the code the way a hand-written document would.
 | `/api/schema/` | The raw OpenAPI 3 document |
 
 `manage.py spectacular --file schema.yaml` writes it out. It currently
-generates with **zero errors and zero warnings**; keep it that way. A new
-`APIView` that neither declares `serializer_class` nor carries
-`@extend_schema` will emit an error and be omitted from the docs entirely.
+generates with **zero errors**; keep it that way. A new `APIView` that
+neither declares `serializer_class` nor carries `@extend_schema` will emit an
+error and be omitted from the docs entirely.
+
+There are four standing warnings, all of them enum-naming collisions between
+same-named choice fields on unrelated models (`type` on `Content`/`Teacher`,
+`status`, `Coupon.discount_type`). They are cosmetic -- the schema is correct
+-- and clearing them means adding `ENUM_NAME_OVERRIDES` to
+`SPECTACULAR_SETTINGS`. Treat the count as the baseline: a fifth warning is a
+new problem.
 
 ## Code style
 

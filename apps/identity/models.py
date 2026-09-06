@@ -13,8 +13,26 @@ from apps.identity.managers import UserManager
 
 class User(AbstractBaseUser, PermissionsMixin):
     class Role(models.TextChoices):
+        """What this person does at the coaching centre.
+
+        `INSTRUCTOR` is the teacher role. The stored value stays
+        `"instructor"` because it is already in the database, in both
+        frontends' role dropdowns, and in the OpenAPI schema -- renaming the
+        value would be a migration and a frontend change to gain a synonym.
+
+        `MODERATOR` is the tier that was missing. Somebody has to post
+        notices, publish the homepage banners and answer the contact inbox,
+        and that person is not a teacher. Without a role for them they were
+        made an `instructor`, which handed a content-desk job a teaching
+        token -- and, before the permission split, the payments screen too.
+
+        The tiers these map to live in `apps.core.api.permissions`. Roles say
+        who somebody is; permissions say what that lets them touch.
+        """
+
         STUDENT = "student", "Student"
         INSTRUCTOR = "instructor", "Instructor"
+        MODERATOR = "moderator", "Moderator"
         ADMIN = "admin", "Admin"
 
     name = models.CharField(max_length=150, blank=True)
@@ -31,6 +49,14 @@ class User(AbstractBaseUser, PermissionsMixin):
     email_verified_at = models.DateTimeField(null=True, blank=True)
     phone_verified_at = models.DateTimeField(null=True, blank=True)
 
+    #: When sign-up was completed. Null means this row is a placeholder:
+    #: `/auth/otp/verify/` has to create a user before `/auth/register/` runs,
+    #: because the client stores the token it hands back as its session. Every
+    #: abandoned registration therefore left a permanent nameless "student" in
+    #: the roster and in the dashboard's student count. `UserQuerySet.students`
+    #: filters on this; see `UserManager.create_unverified`.
+    registered_at = models.DateTimeField(null=True, blank=True)
+
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     date_joined = models.DateTimeField(default=timezone.now)
@@ -46,10 +72,6 @@ class User(AbstractBaseUser, PermissionsMixin):
     def __str__(self):
         return self.name or self.phone or self.email or f"user-{self.pk}"
 
-    @property
-    def is_admin_panel_user(self):
-        return self.is_staff or self.role in (self.Role.ADMIN, self.Role.INSTRUCTOR)
-
 
 class OTP(models.Model):
     """One-time codes for phone verification (registration) and password
@@ -61,7 +83,7 @@ class OTP(models.Model):
     #: (since a verified OTP mints a full auth token) is account takeover.
     MAX_ATTEMPTS = 5
 
-    phone = models.CharField(max_length=20, db_index=True)
+    phone = models.CharField(max_length=20)
     code = models.CharField(max_length=10)
     created_at = models.DateTimeField(auto_now_add=True)
     consumed_at = models.DateTimeField(null=True, blank=True)
@@ -69,6 +91,8 @@ class OTP(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+        # Serves the `phone=` lookups too -- `phone` is the leading column --
+        # so the field carries no `db_index` of its own.
         indexes = [models.Index(fields=["phone", "-created_at"])]
 
     def __str__(self):

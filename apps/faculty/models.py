@@ -18,6 +18,27 @@ class Teacher(TimestampModel, OrderedModel):
     type = models.CharField(max_length=20, choices=Type.choices, default=Type.INSTRUCTOR)
     image = models.URLField(null=True, blank=True)
 
+    #: The login this teacher signs in with, if they have one.
+    #:
+    #: Until this existed the roster and the account system were two unrelated
+    #: lists of people: a `Teacher` was a photo and a name on the public site,
+    #: and there was no way to say that the person holding a given login *was*
+    #: that teacher. So "a teacher signs in and sees the courses they teach"
+    #: could not be expressed at all.
+    #:
+    #: Nullable because most of the roster is exactly what it always was --
+    #: a founder or a guest lecturer who never signs in. Linking one is what
+    #: turns a roster entry into a working account: `CourseInstructor` copies
+    #: it down onto every course assignment, and
+    #: `apps.core.api.permissions.IsCourseInstructor` reads it from there.
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="teacher_profile",
+    )
+
     class Meta:
         ordering = ["order", "-created_at"]
 
@@ -89,4 +110,11 @@ class CourseInstructor(TimestampModel, OrderedModel):
             for field in ("name", "designation", "description", "image"):
                 if not getattr(self, field):
                     setattr(self, field, getattr(self.teacher, field))
+            # `user` is not a display override like the fields above -- it is
+            # who this person is. Inheriting it means an admin links a login
+            # to the roster entry once, and every course that teacher is put
+            # on is reachable by them from then on, with nobody having to
+            # remember to set it per assignment.
+            if self.user_id is None:
+                self.user_id = self.teacher.user_id
         super().save(*args, **kwargs)

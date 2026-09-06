@@ -31,7 +31,7 @@ from apps.billing.api.v1.serializers import (
 )
 from apps.billing.models import Order, Payment
 from apps.core.api.pagination import LaravelStylePageNumberPagination
-from apps.core.api.permissions import IsAdminRole
+from apps.core.api.permissions import IsFullAdmin
 from apps.courses.models import Course
 
 # ---------------------------------------------------------------------------
@@ -141,7 +141,7 @@ class PaymentSubmitAPIView(APIView):
 
 
 class AdminPaymentListAPIView(ListAPIView):
-    permission_classes = [IsAdminRole]
+    permission_classes = [IsFullAdmin]
     serializer_class = AdminPaymentSerializer
     pagination_class = LaravelStylePageNumberPagination
     # The panel searches by payer and by transaction reference; without these
@@ -165,7 +165,7 @@ class AdminPaymentListAPIView(ListAPIView):
 class AdminPaymentUpdateAPIView(APIView):
     """Confirming a payment is what actually grants course access."""
 
-    permission_classes = [IsAdminRole]
+    permission_classes = [IsFullAdmin]
 
     @extend_schema(
         summary='Confirm or fail a payment',
@@ -197,7 +197,7 @@ class AdminPaymentUpdateAPIView(APIView):
 class AdminDashboardAPIView(APIView):
     """Headline counters for the admin panel's landing page."""
 
-    permission_classes = [IsAdminRole]
+    permission_classes = [IsFullAdmin]
 
     @extend_schema(summary='Dashboard headline counters', responses={200: DashboardSerializer})
     def get(self, request):
@@ -207,7 +207,7 @@ class AdminDashboardAPIView(APIView):
 class AdminDashboardSalesOverviewAPIView(APIView):
     """Paid-order counts per month for the last year."""
 
-    permission_classes = [IsAdminRole]
+    permission_classes = [IsFullAdmin]
 
     @extend_schema(summary='Paid orders per month', responses={200: SalesOverviewSerializer})
     def get(self, request):
@@ -217,7 +217,7 @@ class AdminDashboardSalesOverviewAPIView(APIView):
 class AdminDashboardPaymentChartAPIView(APIView):
     """Paid-order income per day for the last 30 days."""
 
-    permission_classes = [IsAdminRole]
+    permission_classes = [IsFullAdmin]
 
     @extend_schema(summary='Income per day', responses={200: PaymentChartSerializer})
     def get(self, request):

@@ -1,12 +1,24 @@
-"""Identity operations: tokens, OTP delivery, and bulk user import."""
+"""Identity operations: tokens, one-time codes, and bulk user import.
 
+Three small groups, marked by the section headers below. They live in one
+module because none of them is big enough to be worth hunting through a
+package for; split it the day one of them is.
+"""
+
+from django.conf import settings
 from django.db import transaction
 
 from rest_framework.authtoken.models import Token
+from rest_framework.exceptions import ValidationError
 
 from apps.core.services.factory import get_sms_backend
 from apps.core.spreadsheets import text
 from apps.identity.models import OTP, User
+from apps.identity.phones import normalize_phone
+
+# ---------------------------------------------------------------------------
+# Tokens
+# ---------------------------------------------------------------------------
 
 
 def issue_token(user: User, *, rotate: bool = False) -> str:
@@ -23,6 +35,11 @@ def issue_token(user: User, *, rotate: bool = False) -> str:
     return token.key
 
 
+# ---------------------------------------------------------------------------
+# One-time codes
+# ---------------------------------------------------------------------------
+
+
 def send_otp(phone: str) -> OTP:
     """Issue a one-time code and text it to `phone`.
 
@@ -32,10 +49,30 @@ def send_otp(phone: str) -> OTP:
     stubbing the gateway out.
     """
     otp = OTP.issue(phone)
-    get_sms_backend().send(
-        phone, f'Your ICT with Rahad Sir verification code is {otp.code}'
-    )
+    get_sms_backend().send(phone, settings.SMS_OTP_TEMPLATE.format(code=otp.code))
     return otp
+
+
+def consume_otp(phone: str, code: str) -> None:
+    """Spend `code`, or raise if it is not the live one for `phone`.
+
+    This is a write -- a wrong guess burns an attempt, a right one marks the
+    code consumed -- which is why it is here and not in a serializer's
+    `validate()`, where it used to sit. Two things came of that:
+
+    * A validator that changes state reads as if it does not.
+    * `PasswordResetAPIView` consumed the code before it had checked the
+      phone belonged to anybody, so a perfectly good code was spent on an
+      error that had nothing to do with it. Callers now look the account up
+      first and call this last.
+    """
+    if not OTP.verify(phone, code):
+        raise ValidationError({"otp": ["Invalid or expired OTP."]})
+
+
+# ---------------------------------------------------------------------------
+# Bulk import
+# ---------------------------------------------------------------------------
 
 
 @transaction.atomic
@@ -57,7 +94,10 @@ def import_users(records: list[dict]) -> dict:
 
     created, skipped = 0, 0
     for record in records:
-        phone = text(record, 'phone')
+        # Normalised before the duplicate check, not after: the stored
+        # numbers are canonical, so a sheet holding +8801... would otherwise
+        # match nothing and re-create the whole roster.
+        phone = normalize_phone(text(record, 'phone'))
         email = text(record, 'email') or None
 
         if not phone or phone in taken_phones or (email and email in taken_emails):

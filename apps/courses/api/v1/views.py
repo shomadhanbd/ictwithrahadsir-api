@@ -10,10 +10,15 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.core.api.pagination import LaravelStylePageNumberPagination
-from apps.core.api.permissions import IsAdminRole
+from apps.core.api.permissions import (
+    IsFullAdmin,
+    IsTeachingStaff,
+    assert_may_manage_course,
+)
 from apps.core.api.responses import OkResponseSerializer
 from apps.core.api.viewsets import (
     AdminModelViewSet,
+    CourseScopedAdminMixin,  # noqa: F401
     SchemaSafeQuerysetMixin,
     SlugOrPkLookupMixin,
     UnpaginatedDataListMixin,
@@ -355,7 +360,9 @@ class PublicCourseCategoryListAPIView(UnpaginatedDataListMixin, ListAPIView):
 # ---------------------------------------------------------------------------
 
 
-class AdminCourseViewSet(SlugOrPkLookupMixin, AdminModelViewSet):
+class AdminCourseViewSet(SlugOrPkLookupMixin, CourseScopedAdminMixin, AdminModelViewSet):
+    # A course is its own owner, so the scoping column is the pk.
+    course_field = 'id'
     # `categories` is a m2m on the serializer, so it is one query per course
     # on the list without this.
     queryset = Course.objects.prefetch_related('categories')
@@ -369,6 +376,7 @@ class AdminCourseViewSet(SlugOrPkLookupMixin, AdminModelViewSet):
 
 
 class AdminCourseCategoryViewSet(SlugOrPkLookupMixin, AdminModelViewSet):
+    permission_classes = [IsTeachingStaff]
     queryset = CourseCategory.objects.all()
     serializer_class = CourseCategorySerializer
     lookup_field = 'slug'
@@ -385,6 +393,7 @@ class AdminCourseCategoryViewSet(SlugOrPkLookupMixin, AdminModelViewSet):
 
 
 class AdminCoursePriceViewSet(AdminModelViewSet):
+    permission_classes = [IsFullAdmin]
     queryset = CoursePrice.objects.all()
     serializer_class = CoursePriceSerializer
     search_fields = ['title']
@@ -392,19 +401,20 @@ class AdminCoursePriceViewSet(AdminModelViewSet):
 
 
 class AdminCouponViewSet(AdminModelViewSet):
+    permission_classes = [IsFullAdmin]
     queryset = Coupon.objects.all()
     serializer_class = CouponSerializer
     filterset_class = CouponFilter
 
 
-class AdminRoutineViewSet(AdminModelViewSet):
+class AdminRoutineViewSet(CourseScopedAdminMixin, AdminModelViewSet):
     queryset = Routine.objects.all()
     serializer_class = RoutineSerializer
     search_fields = ['title']
     filterset_class = RoutineFilter
 
 
-class AdminSectionViewSet(SlugOrPkLookupMixin, AdminModelViewSet):
+class AdminSectionViewSet(SlugOrPkLookupMixin, CourseScopedAdminMixin, AdminModelViewSet):
     queryset = Section.objects.all()
     serializer_class = AdminSectionSerializer
     lookup_field = 'slug'
@@ -425,7 +435,7 @@ class AdminSectionViewSet(SlugOrPkLookupMixin, AdminModelViewSet):
         return qs
 
 
-class AdminContentViewSet(AdminModelViewSet):
+class AdminContentViewSet(CourseScopedAdminMixin, AdminModelViewSet):
     # The serializer merges the flat `exam_*` keys in from the related Exam
     # row on every content, exam or not -- a reverse one-to-one, so it is a
     # query each without this.
@@ -445,7 +455,7 @@ class AdminContentToggleAPIView(APIView):
     A GET that mutates, because that is what the admin panel already sends.
     """
 
-    permission_classes = [IsAdminRole]
+    permission_classes = [IsTeachingStaff]
     TOGGLEABLE = ('active', 'paid')
 
     @extend_schema(summary='Toggle a lesson\'s active/paid flag', responses={200: AdminContentSerializer})
@@ -453,6 +463,8 @@ class AdminContentToggleAPIView(APIView):
         content = Content.objects.filter(pk=pk).first()
         if not content:
             raise NotFound('Content not found.')
+        # Fetched by hand, so DRF never ran an object permission for it.
+        assert_may_manage_course(request, content.course_id)
 
         action = request.query_params.get('action')
         if action not in self.TOGGLEABLE:
@@ -464,7 +476,7 @@ class AdminContentToggleAPIView(APIView):
 
 
 class AdminCourseEnrolledUserListAPIView(SchemaSafeQuerysetMixin, ListAPIView):
-    permission_classes = [IsAdminRole]
+    permission_classes = [IsTeachingStaff]
     serializer_class = EnrollmentSerializer
     pagination_class = LaravelStylePageNumberPagination
     # Never used directly -- `get_queryset` replaces it. Declared so the
@@ -476,6 +488,7 @@ class AdminCourseEnrolledUserListAPIView(SchemaSafeQuerysetMixin, ListAPIView):
     search_fields = ['user__name', 'user__phone', 'user__email']
 
     def get_queryset(self):
+        assert_may_manage_course(self.request, int(self.kwargs['pk']))
         # Explicitly ordered: an unordered queryset leaves the page boundaries
         # up to the database, so a student could appear on two pages or on
         # none. Newest enrolment first is also the useful default here.
@@ -490,7 +503,7 @@ class BaseCourseEnrollmentAPIView(APIView):
     """The admin panel identifies a course by `slugOrId` on the enrolment
     endpoints -- either the numeric id or the slug, never `course_id`."""
 
-    permission_classes = [IsAdminRole]
+    permission_classes = [IsTeachingStaff]
 
     def get_course(self, data):
         value = data.get('slugOrId') or data.get('course_id')
@@ -498,8 +511,14 @@ class BaseCourseEnrollmentAPIView(APIView):
             return None
         value = str(value)
         if value.isdigit():
-            return Course.objects.filter(pk=int(value)).first()
-        return Course.objects.filter(slug=value).first()
+            course = Course.objects.filter(pk=int(value)).first()
+        else:
+            course = Course.objects.filter(slug=value).first()
+        if course is not None:
+            # Enrolling somebody grants paid access, so it is scoped the same
+            # way editing the course is.
+            assert_may_manage_course(self.request, course.pk)
+        return course
 
 
 class AdminEnrollmentAPIView(BaseCourseEnrollmentAPIView):
@@ -588,7 +607,7 @@ class AdminEnrollmentAPIView(BaseCourseEnrollmentAPIView):
 class AdminEnrollmentImportAPIView(APIView):
     """Bulk-enrol existing students on a course from a spreadsheet of phones."""
 
-    permission_classes = [IsAdminRole]
+    permission_classes = [IsFullAdmin]
 
     @extend_schema(
         summary='Bulk-enrol students from a spreadsheet',
@@ -607,7 +626,7 @@ class AdminEnrollmentImportAPIView(APIView):
         return Response(import_enrollments(course=course, records=records))
 
 
-class AdminCourseMaterialViewSet(AdminModelViewSet):
+class AdminCourseMaterialViewSet(CourseScopedAdminMixin, AdminModelViewSet):
     """Materials were list-only: the admin panel could see them and nothing
     else. There was no way to add, rename or remove one from the panel at
     all, so the screen was a dead end."""

@@ -37,8 +37,6 @@ api/v1/^admin/teachers/$
 api/v1/^admin/teachers/(?P<pk>[^/.]+)/$
 api/v1/^admin/testimonials/$
 api/v1/^admin/testimonials/(?P<pk>[^/.]+)/$
-api/v1/^admin/users/$
-api/v1/^admin/users/(?P<pk>[^/.]+)/$
 api/v1/admin/auth/logout/
 api/v1/admin/contact-messages/
 api/v1/admin/contact-messages/<int:pk>/
@@ -57,6 +55,8 @@ api/v1/admin/payments/
 api/v1/admin/payments/<int:pk>/
 api/v1/admin/sms-balance/
 api/v1/admin/teachers/lookup/
+api/v1/admin/users/
+api/v1/admin/users/<int:pk>/
 api/v1/admin/users/import/
 api/v1/admin/users/search/
 api/v1/auth/login/

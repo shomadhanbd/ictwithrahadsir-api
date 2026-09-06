@@ -237,8 +237,11 @@ SPECTACULAR_SETTINGS = {
     "TITLE": "Shomadhan Coaching API",
     "DESCRIPTION": (
         "Backend for the Shomadhan Coaching platform: the public site and the "
-        "admin panel. Every /admin/* endpoint requires a staff, admin or "
-        "instructor token."
+        "admin panel. Every /admin/* endpoint requires an admin, teacher or "
+        "moderator token, and each one requires a specific tier: admins own "
+        "accounts, payments and pricing; moderators own site content and the "
+        "contact inbox; teachers own course material, scoped to the courses "
+        "they are assigned to. See apps/core/api/permissions.py."
     ),
     "VERSION": "1.0.0",
     # The schema endpoints are documentation, not part of the API surface.
@@ -334,6 +337,15 @@ SMS_BACKEND = env("SMS_BACKEND", default="console")
 OTP_LENGTH = env.int("OTP_LENGTH", default=6)
 OTP_TTL_SECONDS = env.int("OTP_TTL_SECONDS", default=5 * 60)
 OTP_RESEND_COOLDOWN_SECONDS = env.int("OTP_RESEND_COOLDOWN_SECONDS", default=60)
+
+# The text of the verification SMS. `{code}` is the only placeholder. Kept
+# here rather than in `apps.identity.services` because it is the one part of
+# the OTP flow a non-developer may need to change -- and because a coaching
+# centre's name does not belong hardcoded in a service.
+SMS_OTP_TEMPLATE = env(
+    "SMS_OTP_TEMPLATE",
+    default="Your ICT with Rahad Sir verification code is {code}",
+)
 
 FRONTEND_URL = env("FRONTEND_URL", default="http://localhost:3000")
 ADMIN_FRONTEND_URL = env("ADMIN_FRONTEND_URL", default="http://localhost:3001")
