@@ -35,7 +35,10 @@ class RetiredPathTests(TestCase):
         ('/api/home', '/api/public/home/'),
         ('/api/order', '/api/public/orders/'),
         ('/api/orders', '/api/public/orders/'),
-        ('/api/payment', '/api/public/payments/'),
+        # The manual transfer form went with the move to SSLCommerz; paying an
+        # order is now `orders/<id>/pay/`.
+        ('/api/payment', '/api/public/orders/1/pay/'),
+        ('/api/public/payments/', '/api/public/orders/1/pay/'),
         ('/api/free-course-purchase', '/api/public/enrollments/free/'),
         ('/api/admin/user', '/api/private/users/'),
         ('/api/admin/user-search', '/api/private/users/search/'),

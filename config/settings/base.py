@@ -185,6 +185,7 @@ SPECTACULAR_SETTINGS = {
     "ENUM_NAME_OVERRIDES": {
         "ExamStatusEnum": "apps.exam.models.Exam.Status",
         "PaymentStatusEnum": "apps.billing.models.Payment.Status",
+        "OrderStatusEnum": "apps.billing.models.Order.Status",
         "ContentTypeEnum": "apps.courses.models.Content.Type",
         "QuestionTypeEnum": "apps.question.models.Question.Type",
     },
@@ -239,3 +240,14 @@ REGISTRATION_WINDOW_SECONDS = env.int("REGISTRATION_WINDOW_SECONDS", default=30 
 # Off by default, since a fixed code is a backdoor.
 DEMO_PHONE = env("DEMO_PHONE", default="")
 DEMO_OTP_CODE = env("DEMO_OTP_CODE", default="000000")
+
+# Payments: SSLCommerz is the only gateway (client in apps/billing/sslcommerz.py).
+
+SSLCOMMERZ_STORE_ID = env("SSLCOMMERZ_STORE_ID", default="")
+SSLCOMMERZ_STORE_PASSWORD = env("SSLCOMMERZ_STORE_PASSWORD", default="")
+SSLCOMMERZ_SANDBOX = env.bool("SSLCOMMERZ_SANDBOX", default=True)
+# This API's public https origin. SSLCommerz posts its callbacks here, so it is
+# set explicitly rather than read off a request.
+API_BASE_URL = env("API_BASE_URL", default="http://localhost:8000")
+# The frontend page a student's browser returns to after paying.
+PAYMENT_RESULT_URL = env("PAYMENT_RESULT_URL", default="http://localhost:3000/payment/result")

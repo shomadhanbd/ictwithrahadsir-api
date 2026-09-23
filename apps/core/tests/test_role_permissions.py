@@ -30,6 +30,9 @@ API = '/api'
 #: Admins only: accounts, money, pricing, and who teaches what.
 FULL_ADMIN_ONLY = [
     f'{API}/private/payments/',
+    f'{API}/private/orders/',
+    f'{API}/private/products/',
+    f'{API}/private/product-coupons/',
     f'{API}/private/prices/',
     f'{API}/private/coupons/',
     f'{API}/private/teachers/',

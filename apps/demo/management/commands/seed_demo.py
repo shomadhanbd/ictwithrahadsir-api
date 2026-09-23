@@ -13,6 +13,7 @@ Images are generated as PNGs into MEDIA_ROOT and referenced as absolute
 """
 
 import random
+import uuid
 from datetime import timedelta
 from decimal import Decimal
 
@@ -22,7 +23,8 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.academic.models import Batch, Chapter, ClassLevel, Group, Subject, Topic
-from apps.billing.models import Order, Payment
+from apps.billing.models import Order, Payment, Product, ProductCoupon
+from apps.billing.services import price_after_discount
 from apps.content.models import (
     Advertisement,
     EBook,
@@ -230,6 +232,13 @@ SUBJECTS = [
 
 #: Chapters per subject, and the topics inside each. The names are Bengali,
 #: so their slugs are just the parent's slug plus a number.
+#: title, price (BDT), coupon code (10% off)
+PRODUCTS = [
+    ("HSC ICT ফুল প্যাকেজ", "4500", "FULL10"),
+    ("লাইভ + রেকর্ডেড কম্বো", "3000", "COMBO10"),
+    ("প্রোগ্রামিং বান্ডেল", "2500", "CODE10"),
+]
+
 CHAPTERS = [
     ("সংখ্যা পদ্ধতি ও ডিজিটাল ডিভাইস", ["বাইনারি সংখ্যা", "লজিক গেট"]),
     ("কমিউনিকেশন সিস্টেমস ও নেটওয়ার্কিং", ["ট্রান্সমিশন মিডিয়া", "নেটওয়ার্ক টপোলজি"]),
@@ -457,7 +466,8 @@ class Command(BaseCommand):
         courses = self._seed_courses(categories, teachers)
         students = self._seed_students()
         self._seed_enrollments(courses, students)
-        self._seed_orders(courses, students)
+        products = self._seed_products(courses)
+        self._seed_orders(courses, products, students)
         self._seed_materials(courses)
 
         self.stdout.write(self.style.SUCCESS("\nDemo data ready:"))
@@ -477,6 +487,8 @@ class Command(BaseCommand):
             ("notices", Notice.objects.count()),
             ("students", User.objects.filter(groups__name=User.Role.STUDENT).count()),
             ("enrollments", Enrollment.objects.count()),
+            ("products", Product.objects.count()),
+            ("product coupons", ProductCoupon.objects.count()),
             ("orders", Order.objects.count()),
             ("payments", Payment.objects.count()),
         ]:
@@ -490,6 +502,8 @@ class Command(BaseCommand):
         for model in [
             Payment,
             Order,
+            ProductCoupon,
+            Product,
             Enrollment,
             Content,
             Section,
@@ -956,48 +970,69 @@ class Command(BaseCommand):
                 )
         self.stdout.write("  enrollments")
 
-    def _seed_orders(self, courses, students):
-        """Orders are back-dated across the last 12 months so the admin
-        dashboard's sales-overview and payment charts have a series to plot.
-        `created_at` is auto_now_add, so it is rewritten via queryset update."""
+    def _seed_products(self, courses):
+        """A few bundles, each unlocking two courses for a year, with a coupon."""
+        products = []
+        for index, (title, amount, code) in enumerate(PRODUCTS):
+            product, created = Product.objects.get_or_create(
+                title=title,
+                defaults={
+                    "description": f"{title} — access to the courses below for one year.",
+                    "thumbnail": make_image(f"product-{index}", 600, 800, title[:14], index + 2),
+                    "amount": Decimal(amount),
+                    "access_days": 365,
+                },
+            )
+            if created:
+                product.courses.set(courses[index : index + 2])
+                ProductCoupon.objects.create(product=product, code=code, discount=Decimal("10"))
+            products.append(product)
+        self.stdout.write("  products + coupons")
+        return products
+
+    def _seed_orders(self, courses, products, students):
+        """Orders are back-dated across the last 12 months so there is a
+        history to list. `created_at` is auto_now_add, so it is rewritten via
+        queryset update. Payments look like settled SSLCommerz ones."""
         if Order.objects.exists():
             self.stdout.write("  orders (already present, skipped)")
             return
 
-        vendors = [Payment.Vendor.BKASH, Payment.Vendor.NAGAD, Payment.Vendor.ROCKET]
-        for i in range(90):
+        card_types = ["BKASH-BKash", "NAGAD-Nagad", "VISA-Dutch Bangla", "MASTER-City Bank"]
+        for _ in range(90):
             student = self.rng.choice(students)
             days_ago = self.rng.randint(0, 360)
             created = self.now - timedelta(days=days_ago, hours=self.rng.randint(0, 23))
 
-            course = self.rng.choice(courses)
-            # `prices` is ordered by amount, so `.first()` would always be the
-            # cheap subscription tier — mix both so income varies.
-            available = list(course.prices)
-            if not available:
-                continue
-            price = self.rng.choice(available)
-            amount = price.discount or price.amount
-            order_kwargs = {
-                "course": course,
-                "price": price,
-                "item_title": course.title,
-                "price_title": price.title,
-            }
+            # One order in five is a product; the rest are courses.
+            if products and self.rng.random() < 0.2:
+                product = self.rng.choice(products)
+                amount = price_after_discount(product)
+                order_kwargs = {"product": product, "item_title": product.title}
+            else:
+                course = self.rng.choice(courses)
+                # `prices` is ordered by amount, so `.first()` would always be
+                # the cheap subscription tier — mix both so income varies.
+                available = list(course.prices)
+                if not available:
+                    continue
+                price = self.rng.choice(available)
+                amount = price_after_discount(price)
+                order_kwargs = {
+                    "course": course,
+                    "price": price,
+                    "item_title": course.title,
+                    "price_title": price.title,
+                }
 
             status = self.rng.choices(
                 [Order.Status.PAID, Order.Status.PENDING, Order.Status.CANCELLED],
                 weights=[78, 15, 7],
             )[0]
-            quantity = 1
-            order = Order.objects.create(
-                user=student,
-                quantity=quantity,
-                amount=amount,
-                total=amount * quantity,
-                status=status,
-                **order_kwargs,
-            )
+            if status == Order.Status.PAID and "product" in order_kwargs:
+                if Order.objects.paid().filter(user=student, product=order_kwargs["product"]).exists():
+                    continue  # a student owns a product once
+            order = Order.objects.create(user=student, amount=amount, total=amount, status=status, **order_kwargs)
             Order.objects.filter(pk=order.pk).update(created_at=created)
 
             payment_status = {
@@ -1005,14 +1040,17 @@ class Command(BaseCommand):
                 Order.Status.PENDING: Payment.Status.PENDING,
                 Order.Status.CANCELLED: Payment.Status.FAILED,
             }[status]
+            settled = payment_status == Payment.Status.SUCCESSFUL
             payment = Payment.objects.create(
                 order=order,
                 amount=amount,
-                transaction_id=f"TRX{self.rng.randint(100000, 999999)}{i}",
-                vendor=self.rng.choice(vendors),
-                sent_from=student.phone,
-                sent_to="01711778602",
+                transaction_id=uuid.UUID(int=self.rng.getrandbits(128)).hex,
+                vendor=Payment.Vendor.SSLCOMMERZ,
                 status=payment_status,
+                val_id=f"VAL{self.rng.randint(10**9, 10**10)}" if settled else "",
+                bank_tran_id=f"BNK{self.rng.randint(10**9, 10**10)}" if settled else "",
+                card_type=self.rng.choice(card_types) if settled else "",
+                risk_level=0 if settled else None,
             )
             Payment.objects.filter(pk=payment.pk).update(created_at=created)
         self.stdout.write("  orders + payments")

@@ -26,22 +26,45 @@ def grant_course_access(*, user, course, payment_type, valid_till=None):
     return enrollment
 
 
+def access_until(price):
+    """When access bought at `price` ends; None for forever.
+
+    A price's validity is an absolute cut-off date, or a relative number of
+    days (none meaning forever).
+    """
+    if price.validity_type == CoursePrice.ValidityType.ABSOLUTE:
+        return price.validity_time
+    if price.validity_duration:
+        return timezone.now() + timezone.timedelta(days=price.validity_duration)
+    return None
+
+
 def grant_from_price(*, user, course, price):
     """Enrol against a specific price, deriving validity from its own rule.
 
-    `CoursePrice` carries the validity policy -- an absolute cut-off date or
-    a relative number of days -- so callers do not have to reimplement it.
+    An admin's choice, so it is applied as given, even when it is shorter than
+    what the student had.
     """
     payment_type = Enrollment.PaymentType.FREE if price is None or price.amount == 0 else Enrollment.PaymentType.PAID
-
-    valid_till = None
-    if price is not None:
-        if price.validity_type == CoursePrice.ValidityType.ABSOLUTE:
-            valid_till = price.validity_time
-        elif price.validity_duration:
-            valid_till = timezone.now() + timezone.timedelta(days=price.validity_duration)
-
+    valid_till = access_until(price) if price is not None else None
     return grant_course_access(user=user, course=course, payment_type=payment_type, valid_till=valid_till)
+
+
+def grant_purchased_access(*, user, course, valid_till):
+    """Enrol `user` on a course they paid for, until `valid_till` (None: forever).
+
+    Never shortens access they already have: buying a 30-day bundle must not
+    cut a lifetime enrolment down to 30 days. The later end wins.
+    """
+    existing = Enrollment.objects.filter(course=course, user=user).first()
+    if existing is not None:
+        if existing.valid_till is None or valid_till is None:
+            valid_till = None
+        else:
+            valid_till = max(existing.valid_till, valid_till)
+    return grant_course_access(
+        user=user, course=course, payment_type=Enrollment.PaymentType.PAID, valid_till=valid_till
+    )
 
 
 def revoke_course_access(*, user_id, course) -> bool:

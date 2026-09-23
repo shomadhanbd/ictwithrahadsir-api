@@ -1,14 +1,11 @@
-"""Orders and payments.
+"""Products, orders and payments.
 
-The important thing here is that confirming a payment is not a field edit.
-It moves the payment, moves its order, and grants the student access to the
-course -- three writes across two apps that `apps/billing/services.py`
-performs in one transaction. Saving `status = successful` on the model does
-only the first, so the platform takes the money and enrols nobody, with
-nothing in the UI to suggest anything is wrong.
-
-So `status` is not editable on the form. It is changed through the two
-actions below, which call the service.
+Payments arrive from SSLCommerz and settle themselves. The ones left pending
+with a `val_id` were held back (a risk flag or a mismatch) and wait for a
+person. Confirming one is not a field edit: it moves the payment, its order,
+and grants what was bought -- writes `apps/billing/services.py` performs in one
+transaction. So `status` is not editable on the form; it is changed through
+the two actions below, which call the service.
 """
 
 from django.contrib import admin, messages
@@ -16,7 +13,7 @@ from django.utils.html import format_html
 
 from rest_framework.exceptions import ValidationError
 
-from apps.billing.models import Order, Payment
+from apps.billing.models import Order, Payment, Product, ProductCoupon
 from apps.billing.services import confirm_payment
 from apps.core.admin import TimestampedAdmin
 
@@ -35,9 +32,24 @@ class PaymentInline(admin.TabularInline):
     show_change_link = True
 
 
+class ProductCouponInline(admin.TabularInline):
+    model = ProductCoupon
+    extra = 0
+    fields = ('code', 'discount_type', 'discount', 'valid_till', 'usage_limit', 'active')
+
+
+@admin.register(Product)
+class ProductAdmin(TimestampedAdmin):
+    list_display = ('title', 'amount', 'discount', 'active', 'created_at')
+    list_filter = ('active',)
+    search_fields = ('title', 'slug')
+    filter_horizontal = ('courses',)
+    inlines = [ProductCouponInline]
+
+
 @admin.register(Order)
 class OrderAdmin(TimestampedAdmin):
-    list_display = ('id', 'user', 'item_title', 'amount', 'total', 'status', 'created_at')
+    list_display = ('id', 'user', 'item_title', 'coupon_code', 'amount', 'status', 'created_at')
     list_filter = ('status', 'created_at')
     # An order is looked up by who placed it far more often than by its id,
     # and the phone number is what a student quotes on the phone.
@@ -54,7 +66,7 @@ class OrderAdmin(TimestampedAdmin):
     # `user` is rendered on every row; without this the changelist runs one
     # query per order just to print a name.
     list_select_related = ('user',)
-    autocomplete_fields = ('user', 'course', 'price')
+    autocomplete_fields = ('user', 'course', 'price', 'product')
     inlines = [PaymentInline]
 
     def get_search_results(self, request, queryset, search_term):
@@ -75,7 +87,7 @@ class PaymentAdmin(TimestampedAdmin):
         'status',
         'created_at',
     )
-    list_filter = ('status', 'vendor', 'created_at')
+    list_filter = ('status', 'vendor', 'risk_level', 'created_at')
     search_fields = (
         'transaction_id',
         'order__id',
@@ -89,8 +101,18 @@ class PaymentAdmin(TimestampedAdmin):
     autocomplete_fields = ('order',)
     actions = ('confirm_payments', 'fail_payments')
 
-    #: Set through the actions, never on the form -- see the module docstring.
-    readonly_fields = ('status', 'created_at', 'updated_at')
+    #: Set through the actions or by SSLCommerz, never on the form -- see the
+    #: module docstring.
+    readonly_fields = (
+        'status',
+        'val_id',
+        'bank_tran_id',
+        'card_type',
+        'risk_level',
+        'gateway_response',
+        'created_at',
+        'updated_at',
+    )
 
     @admin.display(description='Payer', ordering='order__user__name')
     def payer(self, payment):
@@ -125,10 +147,10 @@ class PaymentAdmin(TimestampedAdmin):
         if done:
             self.message_user(request, f'{done} payment(s) {verb}.', level=messages.SUCCESS)
 
-    @admin.action(description='Confirm payment — marks the order paid and grants course access')
+    @admin.action(description='Confirm payment — marks the order paid and grants what it bought')
     def confirm_payments(self, request, queryset):
         self._apply(request, queryset, Payment.Status.SUCCESSFUL, 'confirmed')
 
-    @admin.action(description='Mark payment failed — fails the order and returns any reserved stock')
+    @admin.action(description='Mark payment failed — fails the order')
     def fail_payments(self, request, queryset):
         self._apply(request, queryset, Payment.Status.FAILED, 'marked failed')

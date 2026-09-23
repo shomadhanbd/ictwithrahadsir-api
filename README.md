@@ -39,7 +39,8 @@ apps/
                CourseTeacher, a teacher's assignment to one course
   question/    the question bank: blocks, stimulus sets, questions, options
   exam/        exam authoring -- papers assembled from the question bank
-  billing/     Order and Payment
+  billing/     Product (a one-time bundle of courses), ProductCoupon, Order,
+               Payment, and the SSLCommerz client
   content/     Notice, static Page, Testimonial, Advertisement, EBook,
                homepage aggregate (`/home`)
   demo/        the `seed_demo` command; sits above every domain app
@@ -95,11 +96,9 @@ generates with **zero errors**; keep it that way. A new `APIView` that
 neither declares `serializer_class` nor carries `@extend_schema` will emit an
 error and be omitted from the docs entirely.
 
-There are three standing warnings, all of them enum-naming collisions between
-same-named choice fields on unrelated models (`type`, `status`,
-`Coupon.discount_type`). They are cosmetic -- the schema is correct -- and
-clearing them means adding `ENUM_NAME_OVERRIDES` to `SPECTACULAR_SETTINGS`.
-Treat the count as the baseline: a fourth warning is a new problem.
+It also generates with zero warnings. A new choice field that shares a name
+(`status`, `type`) with another model's gets a hash-named enum and a warning;
+name it in `ENUM_NAME_OVERRIDES` in `SPECTACULAR_SETTINGS`.
 
 ## Code style
 
@@ -133,27 +132,36 @@ With no `DATABASE_URL` set, it runs on a local `db.sqlite3` — good enough
 for development. Set `DATABASE_URL=postgres://user:pass@host:5432/dbname` to
 point at real Postgres.
 
-## Docker
-
-```bash
-docker compose up --build
-```
-
-Runs Postgres + the API (migrations and `collectstatic` run automatically on
-container start). Copy `.env.example` values into a `.env` file or export
-them before running to override the defaults baked into `docker-compose.yml`.
-
 ## Switching on real integrations later
 
 - **SMS/OTP gateway**: implement a class in `apps/core/sms.py` extending
   `SmsBackend`, register it in the `BACKENDS` dict, and set
   `SMS_BACKEND=<name>` in `.env`. Until then, OTP codes are logged to the
   server console/log instead of being texted.
-- **Payments**: the platform uses manual mobile-banking confirmation
-  (student submits a transaction ID, an admin verifies it from
-  `/admin/payment`) rather than an automated gateway — this matches how the
-  existing frontends are built. Approving a payment auto-enrolls the student
-  in the paid course.
+- **Payments**: every purchase, course or product, goes through SSLCommerz
+  (`apps/billing/sslcommerz.py`). Set `SSLCOMMERZ_STORE_ID`,
+  `SSLCOMMERZ_STORE_PASSWORD`, `SSLCOMMERZ_SANDBOX`, `API_BASE_URL` and
+  `PAYMENT_RESULT_URL` in `.env`, and register
+  `<API_BASE_URL>/api/public/payments/sslcommerz/ipn/` as the IPN URL in the
+  merchant panel. The flow:
+  1. `POST /api/public/orders/` with `{course_id, price_id}` or `{product_id}`,
+     plus an optional `coupon_code` (`POST /api/public/orders/quote/` prices it
+     first without placing anything).
+  2. `POST /api/public/orders/<id>/pay/` returns `gateway_url`; send the
+     student there. A 100% coupon completes the order with no gateway.
+  3. SSLCommerz posts back to `payments/sslcommerz/success|fail|cancel/`
+     (which redirect the browser to `PAYMENT_RESULT_URL?order_id=&status=`)
+     and to the IPN. A payment is settled only from SSLCommerz's validation
+     API, never from what a callback posts. Settling a course enrols the
+     student for the price's validity; settling a product enrols them on
+     every course it unlocks for the product's validity. A purchase never
+     shortens access a student already has.
+  4. A payment SSLCommerz flags as risky, or whose amount or currency does not
+     match, stays pending for an admin to confirm or fail (`PATCH
+     /api/private/payments/<id>/` or the Django admin actions).
+
+  The manual bKash/Nagad/Rocket flow is retired; its old payments remain as
+  history.
 
 ## Key request/response conventions (matched from the existing frontends)
 

@@ -25,6 +25,9 @@ class OrderQuerySet(models.QuerySet):
     def for_user(self, user):
         return self.filter(user=user)
 
+    def for_products(self):
+        return self.filter(product__isnull=False)
+
 
 class PaymentQuerySet(models.QuerySet):
     def with_payer(self):
@@ -37,3 +40,8 @@ class PaymentQuerySet(models.QuerySet):
 
     def with_status(self, status):
         return self.filter(status=status)
+
+    def held(self):
+        """Reported by SSLCommerz but not fulfilled: a risk flag or a mismatch,
+        waiting for an admin."""
+        return self.filter(status=self.model.Status.PENDING).exclude(val_id="")

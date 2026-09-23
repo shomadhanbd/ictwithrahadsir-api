@@ -1,4 +1,4 @@
-"""HTTP layer for the admin payment screens.
+"""HTTP layer for the admin billing screens: products, coupons, orders, payments.
 
 Every handler here does the same three things and nothing else: validate the
 input with a serializer, call one service or selector, render the result.
@@ -13,10 +13,50 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.billing import services
-from apps.billing.api.serializers import AdminPaymentSerializer, PaymentStatusUpdateRequestSerializer
-from apps.billing.models import Payment
+from apps.billing.api.serializers import (
+    AdminOrderSerializer,
+    AdminPaymentSerializer,
+    AdminProductSerializer,
+    PaymentStatusUpdateRequestSerializer,
+    ProductCouponSerializer,
+)
+from apps.billing.models import Order, Payment, Product, ProductCoupon
 from apps.core.api.pagination import LaravelStylePageNumberPagination
 from apps.core.api.permissions import IsFullAdmin
+from apps.core.api.viewsets import AdminModelViewSet
+
+
+class AdminProductViewSet(AdminModelViewSet):
+    """Products. One somebody has paid for cannot be deleted (409); set
+    `active` to false to stop selling it."""
+
+    serializer_class = AdminProductSerializer
+    queryset = Product.objects.prefetch_related('courses')
+    search_fields = ['title', 'slug']
+    filterset_fields = ['active']
+
+
+class AdminProductCouponViewSet(AdminModelViewSet):
+    serializer_class = ProductCouponSerializer
+    queryset = ProductCoupon.objects.select_related('product')
+    search_fields = ['code']
+    filterset_fields = ['product', 'active']
+
+
+class AdminOrderListAPIView(ListAPIView):
+    """Every order, newest first; `?status=` narrows it."""
+
+    permission_classes = [IsFullAdmin]
+    serializer_class = AdminOrderSerializer
+    pagination_class = LaravelStylePageNumberPagination
+    search_fields = ['id', 'item_title', 'coupon_code', 'user__name', 'user__phone']
+
+    def get_queryset(self):
+        qs = Order.objects.select_related('user').order_by('-id')
+        status_value = self.request.query_params.get('status')
+        if status_value and status_value != 'all':
+            qs = qs.with_status(status_value)
+        return qs
 
 
 class AdminPaymentListAPIView(ListAPIView):
@@ -42,7 +82,8 @@ class AdminPaymentListAPIView(ListAPIView):
 
 
 class AdminPaymentUpdateAPIView(APIView):
-    """Confirming a payment is what actually grants course access."""
+    """An admin's decision on a payment SSLCommerz reported but held back (a
+    risk flag or a mismatch): confirm it to grant access, or fail it."""
 
     permission_classes = [IsFullAdmin]
 
