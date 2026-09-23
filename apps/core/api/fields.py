@@ -4,6 +4,8 @@ from django.core.files.uploadedfile import UploadedFile
 
 from rest_framework import serializers
 
+from apps.core.phones import INVALID_MESSAGE, normalize_phone
+
 
 class MediaField(serializers.Field):
     """
@@ -69,3 +71,27 @@ class MediaField(serializers.Field):
         if isinstance(data, str) and data.strip():
             return data.strip()
         raise serializers.ValidationError("Expected an uploaded file or a URL string.")
+
+
+class PhoneField(serializers.CharField):
+    """Accepts any spelling of a BD mobile, stores the canonical one.
+
+    Here rather than in `identity` because `profiles` needs it for the
+    guardian's number, and `profiles` must not import `identity`.
+    """
+
+    default_error_messages = {"invalid_phone": INVALID_MESSAGE}
+
+    def to_internal_value(self, data):
+        raw = super().to_internal_value(data)
+        if not raw:  # only reachable with allow_blank=True
+            return raw
+        phone = normalize_phone(raw)
+        if not phone:
+            self.fail("invalid_phone")
+        return phone
+
+
+class EmailField(serializers.EmailField):
+    def to_internal_value(self, data):
+        return super().to_internal_value(data).lower()

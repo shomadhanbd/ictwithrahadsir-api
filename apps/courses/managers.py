@@ -19,7 +19,7 @@ from django.utils import timezone
 class CourseQuerySet(models.QuerySet):
     #: The relations every course payload touches. Without these a page of
     #: 15 courses issues a query per course per relation.
-    CATALOGUE_PREFETCH = ('categories', 'instructors__teacher', 'routines')
+    CATALOGUE_PREFETCH = ('categories', 'routines')
 
     def active(self):
         return self.filter(active=True)
@@ -28,7 +28,24 @@ class CourseQuerySet(models.QuerySet):
         return self.filter(featured=True)
 
     def with_catalogue_prefetch(self):
-        return self.prefetch_related(*self.CATALOGUE_PREFETCH)
+        return self.prefetch_related(*self.CATALOGUE_PREFETCH, self._teacher_prefetch())
+
+    @staticmethod
+    def _teacher_prefetch():
+        """The teacher block, in one query rather than three.
+
+        A plain `'instructors__user__teacher'` walks the path as three
+        prefetches; one `select_related` down it joins them into the query that
+        fetches the assignments. Built here rather than beside
+        `CATALOGUE_PREFETCH` because it needs the model, and `models` imports
+        this module.
+        """
+        from apps.courses.models import CourseTeacher
+
+        return models.Prefetch(
+            'instructors',
+            queryset=CourseTeacher.objects.select_related('user__teacher'),
+        )
 
 
 class EnrollmentQuerySet(models.QuerySet):

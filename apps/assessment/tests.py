@@ -18,25 +18,21 @@ from apps.identity.models import User
 
 
 def exam_url(pk):
-    return reverse('api:assessment:v1:exam_detail', args=[pk])
+    return reverse('api:assessment:exam_detail', args=[pk])
 
 
 def submission_url(pk):
-    return reverse('api:assessment:v1:exam_submission', args=[pk])
+    return reverse('api:assessment:exam_submission', args=[pk])
 
 
 def ranking_url(pk):
-    return reverse('api:assessment:v1:exam_ranking', args=[pk])
+    return reverse('api:assessment:exam_ranking', args=[pk])
 
 
 class ExamTestBase(APITestCase):
     def setUp(self):
-        self.student = User.objects.create_user(
-            phone='01810100001', name='Student', password='Str0ngPass!23'
-        )
-        self.auth = {
-            'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=self.student).key}'
-        }
+        self.student = User.objects.create_user(phone='01810100001', name='Student', password='Str0ngPass!23')
+        self.auth = {'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=self.student).key}'}
 
         self.course = Course.objects.create(title='ICT', slug='ict')
         self.section = Section.objects.create(course=self.course, title='Ch1', slug='ict-ch1')
@@ -108,8 +104,12 @@ class ExamAccessTests(ExamTestBase):
 
     def test_non_exam_content_is_not_reachable(self):
         video = Content.objects.create(
-            course=self.course, section=self.section, title='Video',
-            slug='ict-ch1-video', type=Content.Type.VIDEO, paid=False,
+            course=self.course,
+            section=self.section,
+            title='Video',
+            slug='ict-ch1-video',
+            type=Content.Type.VIDEO,
+            paid=False,
         )
         self.assertEqual(self.client.get(exam_url(video.pk), **self.auth).status_code, 404)
 
@@ -149,9 +149,7 @@ class AnswerKeyExposureTests(ExamTestBase):
     def test_one_students_attempt_does_not_reveal_answers_to_another(self):
         ExamAttempt.objects.create(exam=self.exam_config, user=self.student, marks=Decimal('1'))
 
-        classmate = User.objects.create_user(
-            phone='01810100099', name='Classmate', password='Str0ngPass!23'
-        )
+        classmate = User.objects.create_user(phone='01810100099', name='Classmate', password='Str0ngPass!23')
         self.enrol(classmate)
         auth = {'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=classmate).key}'}
 
@@ -161,19 +159,22 @@ class AnswerKeyExposureTests(ExamTestBase):
 
     def test_the_serializer_fails_closed_without_context(self):
         # A new call site that forgets to opt in must not leak by default.
-        from apps.assessment.api.v1.serializers import ExamMcqSerializer
+        from apps.assessment.api.serializers import ExamMcqSerializer
 
         data = ExamMcqSerializer(self.question).data
         self.assertNotIn('answer', data)
 
     def test_admins_still_see_answers_in_the_question_bank(self):
         admin = User.objects.create_user(
-            phone='01710100099', name='Admin', password='Str0ngPass!23',
-            role=User.Role.ADMIN, is_staff=True,
+            phone='01710100099',
+            name='Admin',
+            password='Str0ngPass!23',
+            role=User.Role.ADMIN,
+            is_staff=True,
         )
         auth = {'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=admin).key}'}
 
-        url = reverse('api:assessment:v1:admin-mcq-list')
+        url = reverse('api:assessment:admin-mcq-list')
         row = self.client.get(url, **auth).json()['data'][0]
         self.assertEqual(row['answer'], 'b')
 
@@ -268,9 +269,7 @@ class ExamSubmissionTests(ExamTestBase):
             submission_url(self.exam.pk),
             {
                 'duration': duration,
-                'sections': [
-                    {'answers': [{'mcq_id': self.question.pk, 'user_answer': user_answer}]}
-                ],
+                'sections': [{'answers': [{'mcq_id': self.question.pk, 'user_answer': user_answer}]}],
             },
             format='json',
             **self.auth,
@@ -297,9 +296,7 @@ class ExamSubmissionTests(ExamTestBase):
         self.assertEqual(ExamAttempt.objects.filter(exam=self.exam_config).count(), 1)
 
     def test_sections_must_be_a_list(self):
-        response = self.client.post(
-            submission_url(self.exam.pk), {'sections': 'nope'}, format='json', **self.auth
-        )
+        response = self.client.post(submission_url(self.exam.pk), {'sections': 'nope'}, format='json', **self.auth)
         self.assertEqual(response.status_code, 422)
 
     def test_submitting_returns_the_stored_result(self):
@@ -313,15 +310,9 @@ class ExamRankingTests(ExamTestBase):
     def setUp(self):
         super().setUp()
         self.enrol()
-        self.rival = User.objects.create_user(
-            phone='01810100002', name='Rival', password='Str0ngPass!23'
-        )
-        ExamAttempt.objects.create(
-            exam=self.exam_config, user=self.rival, marks=Decimal('9'), duration=100
-        )
-        ExamAttempt.objects.create(
-            exam=self.exam_config, user=self.student, marks=Decimal('5'), duration=100
-        )
+        self.rival = User.objects.create_user(phone='01810100002', name='Rival', password='Str0ngPass!23')
+        ExamAttempt.objects.create(exam=self.exam_config, user=self.rival, marks=Decimal('9'), duration=100)
+        ExamAttempt.objects.create(exam=self.exam_config, user=self.student, marks=Decimal('5'), duration=100)
 
     def test_ranking_is_ordered_by_marks(self):
         response = self.client.get(ranking_url(self.exam.pk), **self.auth)
@@ -333,9 +324,7 @@ class ExamRankingTests(ExamTestBase):
         self.assertEqual(len(body['rankings']), 2)
 
     def test_caller_without_a_result_has_no_rank(self):
-        outsider = User.objects.create_user(
-            phone='01810100003', name='Outsider', password='Str0ngPass!23'
-        )
+        outsider = User.objects.create_user(phone='01810100003', name='Outsider', password='Str0ngPass!23')
         auth = {'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=outsider).key}'}
         body = self.client.get(ranking_url(self.exam.pk), **auth).json()
         self.assertIsNone(body['user_rank'])
@@ -346,25 +335,26 @@ class AdminExamAttemptTests(ExamTestBase):
     def setUp(self):
         super().setUp()
         admin = User.objects.create_user(
-            phone='01710100001', name='Admin', password='Str0ngPass!23',
-            role=User.Role.ADMIN, is_staff=True,
+            phone='01710100001',
+            name='Admin',
+            password='Str0ngPass!23',
+            role=User.Role.ADMIN,
+            is_staff=True,
         )
-        self.admin_auth = {
-            'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=admin).key}'
-        }
+        self.admin_auth = {'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=admin).key}'}
         ExamAttempt.objects.create(exam=self.exam_config, user=self.student, marks=Decimal('7'))
 
     def test_students_are_refused(self):
-        url = reverse('api:assessment:v1:admin_exam_results')
+        url = reverse('api:assessment:admin_exam_results')
         self.assertEqual(self.client.get(url, **self.auth).status_code, 403)
 
     def test_results_are_paginated(self):
-        url = reverse('api:assessment:v1:admin_exam_results')
+        url = reverse('api:assessment:admin_exam_results')
         body = self.client.get(url, **self.admin_auth).json()
         self.assertEqual(body['meta']['total'], 1)
 
     def test_results_filter_by_exam(self):
-        url = reverse('api:assessment:v1:admin_exam_results')
+        url = reverse('api:assessment:admin_exam_results')
         body = self.client.get(url, {'exam_id': 999999}, **self.admin_auth).json()
         self.assertEqual(body['meta']['total'], 0)
 
@@ -373,28 +363,29 @@ class AdminQuestionBankTests(ExamTestBase):
     def setUp(self):
         super().setUp()
         admin = User.objects.create_user(
-            phone='01710100002', name='Admin', password='Str0ngPass!23',
-            role=User.Role.ADMIN, is_staff=True,
+            phone='01710100002',
+            name='Admin',
+            password='Str0ngPass!23',
+            role=User.Role.ADMIN,
+            is_staff=True,
         )
-        self.admin_auth = {
-            'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=admin).key}'
-        }
+        self.admin_auth = {'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=admin).key}'}
         self.child = QuestionBank.objects.create(title='Binary', parent=self.store)
 
     def test_list_returns_only_top_level_folders(self):
-        url = reverse('api:assessment:v1:admin-mcq-store-list')
+        url = reverse('api:assessment:admin-mcq-store-list')
         body = self.client.get(url, **self.admin_auth).json()
         titles = [row['title'] for row in body['data']]
         self.assertIn('Numbers', titles)
         self.assertNotIn('Binary', titles)
 
     def test_children_are_listed_by_parent_id(self):
-        url = reverse('api:assessment:v1:admin-mcq-store-list')
+        url = reverse('api:assessment:admin-mcq-store-list')
         body = self.client.get(url, {'mcq_store_id': self.store.pk}, **self.admin_auth).json()
         self.assertEqual([row['title'] for row in body['data']], ['Binary'])
 
     def test_questions_filter_by_folder(self):
-        url = reverse('api:assessment:v1:admin-mcq-list')
+        url = reverse('api:assessment:admin-mcq-list')
         body = self.client.get(url, {'mcq_store_id': self.store.pk}, **self.admin_auth).json()
         self.assertEqual(body['meta']['total'], 1)
 
@@ -404,8 +395,8 @@ class PracticeQuizTests(APITestCase):
     piece of content that would persuade a visitor to pay was invisible to
     anyone who had not already paid."""
 
-    TOPICS_URL = reverse('api:assessment:v1:practice_topics')
-    QUESTIONS_URL = reverse('api:assessment:v1:practice_questions')
+    TOPICS_URL = reverse('api:assessment:practice_topics')
+    QUESTIONS_URL = reverse('api:assessment:practice_questions')
 
     def setUp(self):
         self.root = QuestionBank.objects.create(title='ICT bank')
@@ -413,8 +404,14 @@ class PracticeQuizTests(APITestCase):
         self.empty = QuestionBank.objects.create(title='Empty chapter')
         for i in range(6):
             Question.objects.create(
-                bank=self.chapter, question=f'Q{i}', a='1', b='2', c='3', d='4',
-                answer='b', explanation='Because.',
+                bank=self.chapter,
+                question=f'Q{i}',
+                a='1',
+                b='2',
+                c='3',
+                d='4',
+                answer='b',
+                explanation='Because.',
             )
 
     def test_topics_are_public(self):
@@ -448,7 +445,11 @@ class PracticeQuizTests(APITestCase):
     def test_a_topic_filters_the_sample(self):
         other = QuestionBank.objects.create(title='Other')
         Question.objects.create(
-            bank=other, question='Stranger', a='1', b='2', answer='a',
+            bank=other,
+            question='Stranger',
+            a='1',
+            b='2',
+            answer='a',
         )
         response = self.client.get(self.QUESTIONS_URL, {'bank_id': self.chapter.pk, 'limit': 20})
         self.assertNotIn('Stranger', [q['question'] for q in response.data['data']])

@@ -51,9 +51,7 @@ def score_paper(sections, positive: Decimal, negative: Decimal) -> Decimal:
     """
     submitted = _flatten_answers(sections)
     keys = dict(
-        Question.objects.filter(
-            pk__in={qid for qid, _ in submitted if qid is not None}
-        ).values_list('id', 'answer')
+        Question.objects.filter(pk__in={qid for qid, _ in submitted if qid is not None}).values_list('id', 'answer')
     )
 
     total = Decimal('0')

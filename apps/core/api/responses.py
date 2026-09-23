@@ -1,6 +1,6 @@
 """Response shapes shared across apps.
 
-Named `responses`, not `serializers`: `apps/core/api/v1/serializers.py`
+Named `responses`, not `serializers`: `apps/core/api/serializers.py`
 already exists one directory down and holds core's *own* endpoint
 serializers. Two files with the same name in adjacent packages, meaning
 different things, is a trap for anyone reading an import line.
@@ -10,7 +10,7 @@ Those payloads were written as dict literals inside the handlers, which meant
 the key names existed only in the code that happened to build them and were
 invisible to the generated schema.
 
-App-specific payloads belong in that app's `api/v1/serializers.py`; only the
+App-specific payloads belong in that app's `api/*/serializers.py`; only the
 shapes more than one app returns live here.
 """
 

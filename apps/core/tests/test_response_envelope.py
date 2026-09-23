@@ -21,22 +21,23 @@ class UnpaginatedListEnvelopeTests(APITestCase):
 
     #: (reverse name, needs an admin token)
     ENDPOINTS = [
-        ('api:courses:v1:course_category_list', False),
-        ('api:content:v1:ebook_list', False),
-        ('api:content:v1:notice_category_list', False),
-        ('api:assessment:v1:practice_topics', False),
-        ('api:faculty:v1:admin_teacher_lookup', True),
-        ('api:content:v1:admin_page_list', True),
-        ('api:identity:v1:admin_user_search', True),
+        ('api:courses:course_category_list', False),
+        ('api:content:ebook_list', False),
+        ('api:content:notice_category_list', False),
+        ('api:assessment:practice_topics', False),
+        ('api:profiles:admin_teacher_lookup', True),
+        ('api:content:admin_page_list', True),
+        ('api:identity:admin_user_search', True),
     ]
 
     def setUp(self):
         admin = User.objects.create_user(
-            phone='01710800001', name='Admin', role=User.Role.ADMIN, is_staff=True,
+            phone='01710800001',
+            name='Admin',
+            role=User.Role.ADMIN,
+            is_staff=True,
         )
-        self.admin_auth = {
-            'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=admin).key}'
-        }
+        self.admin_auth = {'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=admin).key}'}
 
     def test_unpaginated_endpoints_return_only_a_data_key(self):
         for name, needs_admin in self.ENDPOINTS:

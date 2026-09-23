@@ -23,6 +23,7 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone
 
+from apps.academic.models import Batch, Chapter, ClassLevel, Group, Subject, Topic
 from apps.assessment.models import Exam, ExamAttempt, Question, QuestionBank
 from apps.billing.models import Order, Payment
 from apps.content.models import (
@@ -40,11 +41,12 @@ from apps.courses.models import (
     CourseCategory,
     CourseMaterial,
     CoursePrice,
+    CourseTeacher,
     Enrollment,
     Routine,
     Section,
 )
-from apps.faculty.models import CourseInstructor, Teacher
+from apps.profiles.models import GuardianProfile, StudentProfile, TeacherProfile
 from apps.store.models import CartItem, Product
 from apps.support.models import ContactMessage
 
@@ -127,8 +129,7 @@ CATEGORIES = [
     ("এইচএসসি আইসিটি", "hsc-ict", [("এইচএসসি ২০২৬", "hsc-2026"), ("এইচএসসি ২০২৭", "hsc-2027")]),
     ("এসএসসি আইসিটি", "ssc-ict", [("এসএসসি ২০২৬", "ssc-2026")]),
     ("অ্যাডমিশন প্রস্তুতি", "admission", [("ভার্সিটি ক", "varsity-ka"), ("মেডিকেল", "medical")]),
-    ("প্রোগ্রামিং", "programming", [("সি প্রোগ্রামিং", "c-programming"),
-                                    ("ওয়েব ডিজাইন", "web-design")]),
+    ("প্রোগ্রামিং", "programming", [("সি প্রোগ্রামিং", "c-programming"), ("ওয়েব ডিজাইন", "web-design")]),
 ]
 
 # (title, slug, subtitle, category, duration, featured, is_online, chapters)
@@ -210,30 +211,102 @@ COURSE_FEATURES = [
     "২৪/৭ সাপোর্ট গ্রুপ",
 ]
 
+#: name, slug -- the education levels, in academic order
+CLASS_LEVELS = [
+    ("ষষ্ঠ শ্রেণি", "class-6"),
+    ("সপ্তম শ্রেণি", "class-7"),
+    ("অষ্টম শ্রেণি", "class-8"),
+    ("এসএসসি", "ssc"),
+    ("দাখিল", "dakhil"),
+    ("এইচএসসি", "hsc"),
+    ("আলিম", "alim"),
+    ("অ্যাডমিশন", "admission"),
+]
+
+#: name, slug
+ACADEMIC_GROUPS = [
+    ("বিজ্ঞান", "science"),
+    ("মানবিক", "arts"),
+    ("ব্যবসায় শিক্ষা", "commerce"),
+    ("সাধারণ", "general"),
+]
+
+#: A subject is one row per education level and group.
+#: name, slug stem, class level slug, group slug
+SUBJECTS = [
+    ("আইসিটি", "ict", "ssc", "science"),
+    ("আইসিটি", "ict", "hsc", "science"),
+    ("আইসিটি", "ict", "hsc", "commerce"),
+    ("প্রোগ্রামিং", "programming", "hsc", "science"),
+    ("ওয়েব ডিজাইন", "web-design", "hsc", "science"),
+]
+
+#: Chapters per subject, and the topics inside each. Bengali names, so the
+#: slugs come out transliterated -- an admin retypes them in Bangla if they
+#: want the readable form.
+CHAPTERS = [
+    ("সংখ্যা পদ্ধতি ও ডিজিটাল ডিভাইস", ["বাইনারি সংখ্যা", "লজিক গেট"]),
+    ("কমিউনিকেশন সিস্টেমস ও নেটওয়ার্কিং", ["ট্রান্সমিশন মিডিয়া", "নেটওয়ার্ক টপোলজি"]),
+    ("ডেটাবেজ ম্যানেজমেন্ট সিস্টেম", ["এসকিউএল", "নরমালাইজেশন"]),
+]
+
+#: One batch per level per year, named `<label>-<year>`.
+BATCH_LABELS = {
+    "class-6": "Class 6",
+    "class-7": "Class 7",
+    "class-8": "Class 8",
+    "ssc": "SSC",
+    "dakhil": "Dakhil",
+    "hsc": "HSC",
+    "alim": "Alim",
+    "admission": "Admission",
+}
+BATCH_YEARS = (2027, 2028)
+
+#: name, designation, employment type, bio, subjects taught
 TEACHERS = [
-    ("রাহাদ স্যার", "প্রতিষ্ঠাতা ও প্রধান পরিচালক", "founder",
-     "১২ বছরের বেশি সময় ধরে এইচএসসি আইসিটি পড়াচ্ছেন। ৫০,০০০+ শিক্ষার্থীর প্রিয় শিক্ষক।"),
-    ("তানভীর হাসান", "সিনিয়র ইন্সট্রাক্টর, প্রোগ্রামিং", "instructor",
-     "বুয়েট সিএসই থেকে স্নাতক। সি ও পাইথন প্রোগ্রামিং এর ক্লাস নেন।"),
-    ("নুসরাত জাহান", "ইন্সট্রাক্টর, ওয়েব ডিজাইন", "instructor",
-     "ফ্রন্টএন্ড ডেভেলপার ও শিক্ষক। এইচটিএমএল, সিএসএস ও ওয়েব ডিজাইন অধ্যায় পড়ান।"),
-    ("সাইফুল ইসলাম", "ইন্সট্রাক্টর, ডেটাবেজ", "instructor",
-     "ঢাকা বিশ্ববিদ্যালয়ের আইআইটি থেকে স্নাতকোত্তর। ডেটাবেজ ও নেটওয়ার্কিং পড়ান।"),
+    (
+        "রাহাদ স্যার",
+        "প্রতিষ্ঠাতা ও প্রধান পরিচালক",
+        "permanent",
+        "১২ বছরের বেশি সময় ধরে এইচএসসি আইসিটি পড়াচ্ছেন। ৫০,০০০+ শিক্ষার্থীর প্রিয় শিক্ষক।",
+        ["আইসিটি"],
+    ),
+    (
+        "তানভীর হাসান",
+        "সিনিয়র ইন্সট্রাক্টর, প্রোগ্রামিং",
+        "permanent",
+        "বুয়েট সিএসই থেকে স্নাতক। সি ও পাইথন প্রোগ্রামিং এর ক্লাস নেন।",
+        ["প্রোগ্রামিং"],
+    ),
+    (
+        "নুসরাত জাহান",
+        "ইন্সট্রাক্টর, ওয়েব ডিজাইন",
+        "guest",
+        "ফ্রন্টএন্ড ডেভেলপার ও শিক্ষক। এইচটিএমএল, সিএসএস ও ওয়েব ডিজাইন অধ্যায় পড়ান।",
+        ["ওয়েব ডিজাইন"],
+    ),
+    (
+        "সাইফুল ইসলাম",
+        "ইন্সট্রাক্টর, ডেটাবেজ",
+        "guest",
+        "ঢাকা বিশ্ববিদ্যালয়ের আইআইটি থেকে স্নাতকোত্তর। ডেটাবেজ ও নেটওয়ার্কিং পড়ান।",
+        ["আইসিটি"],
+    ),
 ]
 
 TESTIMONIALS = [
-    ("সাদিয়া আফরিন", "এইচএসসি ২০২৫, ভিকারুননিসা নূন কলেজ", 5,
-     "আইসিটি সবচেয়ে ভয়ের সাবজেক্ট ছিল। রাহাদ স্যারের ক্লাস করে বোর্ডে এ প্লাস পেয়েছি।"),
-    ("মেহেদী হাসান", "এইচএসসি ২০২৫, নটর ডেম কলেজ", 5,
-     "সংখ্যা পদ্ধতির অংক এত সহজে বুঝিয়ে দেওয়ার কারণে পরীক্ষায় একটাও ভুল হয়নি।"),
-    ("ফারহানা ইয়াসমিন", "এইচএসসি ২০২৪, রাজশাহী কলেজ", 4,
-     "লাইভ ক্লাসের রেকর্ডিং যেকোনো সময় দেখা যায়, এটাই সবচেয়ে বড় সুবিধা।"),
-    ("আরিফুল ইসলাম", "ভর্তি পরীক্ষার্থী, ঢাকা", 5,
-     "প্রশ্নব্যাংক সমাধানের ক্লাসগুলো ভর্তি পরীক্ষায় অনেক কাজে দিয়েছে।"),
-    ("তাসনিম রহমান", "এসএসসি ২০২৫, ঢাকা", 5,
-     "প্রতিটি অধ্যায় শেষে পরীক্ষা হওয়ায় নিজের দুর্বলতা ধরতে পেরেছি।"),
-    ("রাকিবুল হাসান", "এইচএসসি ২০২৬, চট্টগ্রাম কলেজ", 4,
-     "পিডিএফ শিটগুলো খুব গোছানো, আলাদা করে নোট করার দরকার হয় না।"),
+    (
+        "সাদিয়া আফরিন",
+        "এইচএসসি ২০২৫, ভিকারুননিসা নূন কলেজ",
+        5,
+        "আইসিটি সবচেয়ে ভয়ের সাবজেক্ট ছিল। রাহাদ স্যারের ক্লাস করে বোর্ডে এ প্লাস পেয়েছি।",
+    ),
+    ("মেহেদী হাসান", "এইচএসসি ২০২৫, নটর ডেম কলেজ", 5, "সংখ্যা পদ্ধতির অংক এত সহজে বুঝিয়ে দেওয়ার কারণে পরীক্ষায় একটাও ভুল হয়নি।"),
+    ("ফারহানা ইয়াসমিন", "এইচএসসি ২০২৪, রাজশাহী কলেজ", 4, "লাইভ ক্লাসের রেকর্ডিং যেকোনো সময় দেখা যায়, এটাই সবচেয়ে বড় সুবিধা।"),
+    ("আরিফুল ইসলাম", "ভর্তি পরীক্ষার্থী, ঢাকা", 5, "প্রশ্নব্যাংক সমাধানের ক্লাসগুলো ভর্তি পরীক্ষায় অনেক কাজে দিয়েছে।"),
+    ("তাসনিম রহমান", "এসএসসি ২০২৫, ঢাকা", 5, "প্রতিটি অধ্যায় শেষে পরীক্ষা হওয়ায় নিজের দুর্বলতা ধরতে পেরেছি।"),
+    ("রাকিবুল হাসান", "এইচএসসি ২০২৬, চট্টগ্রাম কলেজ", 4, "পিডিএফ শিটগুলো খুব গোছানো, আলাদা করে নোট করার দরকার হয় না।"),
 ]
 
 NOTICE_CATEGORIES = [
@@ -244,18 +317,42 @@ NOTICE_CATEGORIES = [
 ]
 
 NOTICES = [
-    ("এইচএসসি ২০২৬ ব্যাচের ভর্তি চলছে", "hsc-2026-admission-open", "পরীক্ষা",
-     "এইচএসসি ২০২৬ ব্যাচের আইসিটি ফুল কোর্সে ভর্তি চলছে। আসন সংখ্যা সীমিত, আগে আসলে আগে পাবেন ভিত্তিতে ভর্তি নেওয়া হচ্ছে।"),
-    ("তৃতীয় অধ্যায়ের মডেল টেস্টের সময়সূচি", "model-test-schedule-chapter-3", "পরীক্ষা",
-     "আগামী শুক্রবার রাত ৯টায় সংখ্যা পদ্ধতি ও ডিজিটাল ডিভাইস অধ্যায়ের মডেল টেস্ট অনুষ্ঠিত হবে। মোট ৩০টি এমসিকিউ, সময় ২০ মিনিট।"),
-    ("নতুন ক্লাস রুটিন প্রকাশিত", "new-class-routine-published", "ক্লাস রুটিন",
-     "চলতি মাসের নতুন ক্লাস রুটিন প্রকাশ করা হয়েছে। প্রতি রবি, মঙ্গল ও বৃহস্পতিবার রাত ৮টায় লাইভ ক্লাস হবে।"),
-    ("ঈদের ছুটিতে ক্লাস বন্ধ থাকবে", "eid-holiday-class-closed", "সাধারণ",
-     "ঈদুল আজহা উপলক্ষে পাঁচ দিন লাইভ ক্লাস বন্ধ থাকবে। তবে রেকর্ডেড ক্লাস ও পরীক্ষা যথারীতি চালু থাকবে।"),
-    ("ভার্সিটি ভর্তি ব্যাচের ফ্রি সেমিনার", "free-admission-seminar", "ভর্তি বিজ্ঞপ্তি",
-     "ভর্তি পরীক্ষায় আইসিটি থেকে সর্বোচ্চ নম্বর তোলার কৌশল নিয়ে ফ্রি সেমিনার। রেজিস্ট্রেশন করে অংশ নিন।"),
-    ("লেকচার শিট ডাউনলোড চালু হয়েছে", "lecture-sheet-download-live", "সাধারণ",
-     "সকল ভর্তিকৃত শিক্ষার্থী এখন কোর্সের ভেতর থেকে অধ্যায়ভিত্তিক পিডিএফ লেকচার শিট ডাউনলোড করতে পারবেন।"),
+    (
+        "এইচএসসি ২০২৬ ব্যাচের ভর্তি চলছে",
+        "hsc-2026-admission-open",
+        "পরীক্ষা",
+        "এইচএসসি ২০২৬ ব্যাচের আইসিটি ফুল কোর্সে ভর্তি চলছে। আসন সংখ্যা সীমিত, আগে আসলে আগে পাবেন ভিত্তিতে ভর্তি নেওয়া হচ্ছে।",
+    ),
+    (
+        "তৃতীয় অধ্যায়ের মডেল টেস্টের সময়সূচি",
+        "model-test-schedule-chapter-3",
+        "পরীক্ষা",
+        "আগামী শুক্রবার রাত ৯টায় সংখ্যা পদ্ধতি ও ডিজিটাল ডিভাইস অধ্যায়ের মডেল টেস্ট অনুষ্ঠিত হবে। মোট ৩০টি এমসিকিউ, সময় ২০ মিনিট।",
+    ),
+    (
+        "নতুন ক্লাস রুটিন প্রকাশিত",
+        "new-class-routine-published",
+        "ক্লাস রুটিন",
+        "চলতি মাসের নতুন ক্লাস রুটিন প্রকাশ করা হয়েছে। প্রতি রবি, মঙ্গল ও বৃহস্পতিবার রাত ৮টায় লাইভ ক্লাস হবে।",
+    ),
+    (
+        "ঈদের ছুটিতে ক্লাস বন্ধ থাকবে",
+        "eid-holiday-class-closed",
+        "সাধারণ",
+        "ঈদুল আজহা উপলক্ষে পাঁচ দিন লাইভ ক্লাস বন্ধ থাকবে। তবে রেকর্ডেড ক্লাস ও পরীক্ষা যথারীতি চালু থাকবে।",
+    ),
+    (
+        "ভার্সিটি ভর্তি ব্যাচের ফ্রি সেমিনার",
+        "free-admission-seminar",
+        "ভর্তি বিজ্ঞপ্তি",
+        "ভর্তি পরীক্ষায় আইসিটি থেকে সর্বোচ্চ নম্বর তোলার কৌশল নিয়ে ফ্রি সেমিনার। রেজিস্ট্রেশন করে অংশ নিন।",
+    ),
+    (
+        "লেকচার শিট ডাউনলোড চালু হয়েছে",
+        "lecture-sheet-download-live",
+        "সাধারণ",
+        "সকল ভর্তিকৃত শিক্ষার্থী এখন কোর্সের ভেতর থেকে অধ্যায়ভিত্তিক পিডিএফ লেকচার শিট ডাউনলোড করতে পারবেন।",
+    ),
 ]
 
 EBOOKS = [
@@ -268,93 +365,231 @@ EBOOKS = [
 # `product_price_after_discount` subtracts. These used to hold the sale price
 # instead — 450/380 — which is the opposite meaning for the same field name.
 PRODUCTS = [
-    ("আইসিটি ডাইজেস্ট (প্রিন্ট কপি)", "ict-digest-print", Decimal("450"), Decimal("70"), 120,
-     "এইচএসসি আইসিটির সম্পূর্ণ সিলেবাস কভার করা প্রিন্টেড ডাইজেস্ট বই।"),
-    ("সংখ্যা পদ্ধতি প্র্যাকটিস বুক", "number-system-practice-book", Decimal("250"), Decimal("51"), 85,
-     "৫০০+ অনুশীলন সমস্যা ও ধাপে ধাপে সমাধান।"),
-    ("বোর্ড প্রশ্নব্যাংক সমাধান", "board-question-bank-solution", Decimal("380"), None, 60,
-     "গত ৯ বছরের সকল বোর্ড প্রশ্নের সমাধান একসাথে।"),
-    ("সি প্রোগ্রামিং ওয়ার্কবুক", "c-programming-workbook", Decimal("320"), Decimal("50"), 45,
-     "হাতে-কলমে কোড লিখে শেখার ওয়ার্কবুক।"),
-    ("লজিক গেট পোস্টার সেট", "logic-gate-poster-set", Decimal("180"), None, 200,
-     "পড়ার টেবিলের জন্য লেমিনেটেড লজিক গেট ও ট্রুথ টেবিল পোস্টার।"),
-    ("এসএসসি আইসিটি গাইড", "ssc-ict-guide", Decimal("300"), Decimal("45"), 70,
-     "এসএসসি সিলেবাস অনুযায়ী অধ্যায়ভিত্তিক গাইড বই।"),
+    (
+        "আইসিটি ডাইজেস্ট (প্রিন্ট কপি)",
+        "ict-digest-print",
+        Decimal("450"),
+        Decimal("70"),
+        120,
+        "এইচএসসি আইসিটির সম্পূর্ণ সিলেবাস কভার করা প্রিন্টেড ডাইজেস্ট বই।",
+    ),
+    (
+        "সংখ্যা পদ্ধতি প্র্যাকটিস বুক",
+        "number-system-practice-book",
+        Decimal("250"),
+        Decimal("51"),
+        85,
+        "৫০০+ অনুশীলন সমস্যা ও ধাপে ধাপে সমাধান।",
+    ),
+    (
+        "বোর্ড প্রশ্নব্যাংক সমাধান",
+        "board-question-bank-solution",
+        Decimal("380"),
+        None,
+        60,
+        "গত ৯ বছরের সকল বোর্ড প্রশ্নের সমাধান একসাথে।",
+    ),
+    (
+        "সি প্রোগ্রামিং ওয়ার্কবুক",
+        "c-programming-workbook",
+        Decimal("320"),
+        Decimal("50"),
+        45,
+        "হাতে-কলমে কোড লিখে শেখার ওয়ার্কবুক।",
+    ),
+    (
+        "লজিক গেট পোস্টার সেট",
+        "logic-gate-poster-set",
+        Decimal("180"),
+        None,
+        200,
+        "পড়ার টেবিলের জন্য লেমিনেটেড লজিক গেট ও ট্রুথ টেবিল পোস্টার।",
+    ),
+    ("এসএসসি আইসিটি গাইড", "ssc-ict-guide", Decimal("300"), Decimal("45"), 70, "এসএসসি সিলেবাস অনুযায়ী অধ্যায়ভিত্তিক গাইড বই।"),
 ]
 
 STUDENT_NAMES = [
-    "সাদিয়া আফরিন", "মেহেদী হাসান", "ফারহানা ইয়াসমিন", "আরিফুল ইসলাম",
-    "তাসনিম রহমান", "রাকিবুল হাসান", "নুসরাত জাহান", "সাইফুল ইসলাম",
-    "জান্নাতুল ফেরদৌস", "শাহরিয়ার কবির", "মাহমুদা খাতুন", "ইমরান হোসেন",
-    "সুমাইয়া আক্তার", "তানভীর আহমেদ", "রুবাইয়া ইসলাম", "নাফিস ইকবাল",
-    "লামিয়া চৌধুরী", "আসিফ মাহমুদ", "সানজিদা পারভীন", "হাসিবুল হক",
-    "মারিয়া তাবাসসুম", "রায়হান কবির", "অন্তরা দাস", "সৌরভ মজুমদার",
+    "সাদিয়া আফরিন",
+    "মেহেদী হাসান",
+    "ফারহানা ইয়াসমিন",
+    "আরিফুল ইসলাম",
+    "তাসনিম রহমান",
+    "রাকিবুল হাসান",
+    "নুসরাত জাহান",
+    "সাইফুল ইসলাম",
+    "জান্নাতুল ফেরদৌস",
+    "শাহরিয়ার কবির",
+    "মাহমুদা খাতুন",
+    "ইমরান হোসেন",
+    "সুমাইয়া আক্তার",
+    "তানভীর আহমেদ",
+    "রুবাইয়া ইসলাম",
+    "নাফিস ইকবাল",
+    "লামিয়া চৌধুরী",
+    "আসিফ মাহমুদ",
+    "সানজিদা পারভীন",
+    "হাসিবুল হক",
+    "মারিয়া তাবাসসুম",
+    "রায়হান কবির",
+    "অন্তরা দাস",
+    "সৌরভ মজুমদার",
     "ইশরাত জাহান",
 ]
 
 INSTITUTIONS = [
-    "ঢাকা কলেজ", "নটর ডেম কলেজ", "ভিকারুননিসা নূন কলেজ", "রাজশাহী কলেজ",
-    "চট্টগ্রাম কলেজ", "আদমজী ক্যান্টনমেন্ট কলেজ", "সরকারি বিজ্ঞান কলেজ",
+    "ঢাকা কলেজ",
+    "নটর ডেম কলেজ",
+    "ভিকারুননিসা নূন কলেজ",
+    "রাজশাহী কলেজ",
+    "চট্টগ্রাম কলেজ",
+    "আদমজী ক্যান্টনমেন্ট কলেজ",
+    "সরকারি বিজ্ঞান কলেজ",
+]
+
+ADDRESSES = [
+    "১২/ক, ধানমন্ডি, ঢাকা",
+    "৪৫ গ্রীন রোড, ফার্মগেট, ঢাকা",
+    "৭ নং সেক্টর, উত্তরা, ঢাকা",
+    "২৩ মিরপুর রোড, ঢাকা",
+    "৯ কাজী নজরুল ইসলাম এভিনিউ, ঢাকা",
 ]
 
 # (question, a, b, c, d, answer, explanation)
 MCQ_BANK = [
-    ("(১১০১)₂ সংখ্যাটির দশমিক মান কত?", "১১", "১৩", "১৫", "৯", "b",
-     "১×৮ + ১×৪ + ০×২ + ১×১ = ১৩"),
-    ("১ কিলোবাইট সমান কত বাইট?", "১০০০", "১০২৪", "৫১২", "২০৪৮", "b",
-     "২^১০ = ১০২৪ বাইট।"),
-    ("কোনটি ইউনিভার্সাল গেট?", "AND", "OR", "NAND", "XOR", "c",
-     "NAND ও NOR দিয়ে সব ধরনের গেট তৈরি করা যায়।"),
-    ("ASCII কোডে অক্ষর সংখ্যা কত বিটে প্রকাশ করা হয়?", "৪", "৭", "৮", "১৬", "b",
-     "স্ট্যান্ডার্ড ASCII ৭ বিটের কোড।"),
-    ("হেক্সাডেসিমেল সংখ্যা পদ্ধতির ভিত্তি কত?", "৮", "১০", "১২", "১৬", "d",
-     "হেক্সাডেসিমেলের বেজ ১৬।"),
-    ("HTML এ সবচেয়ে বড় হেডিং ট্যাগ কোনটি?", "<h1>", "<h6>", "<head>", "<big>", "a",
-     "<h1> সবচেয়ে বড় এবং <h6> সবচেয়ে ছোট হেডিং।"),
-    ("ওয়েবপেজে ছবি যুক্ত করার ট্যাগ কোনটি?", "<image>", "<img>", "<picture>", "<src>", "b",
-     "<img src=\"...\"> ট্যাগ দিয়ে ছবি যুক্ত করা হয়।"),
-    ("সি ভাষায় প্রোগ্রাম কার্যকর হওয়া শুরু হয় কোন ফাংশন থেকে?", "start()", "begin()", "main()", "run()", "c",
-     "প্রতিটি সি প্রোগ্রাম main() ফাংশন থেকে শুরু হয়।"),
-    ("কোনটি লুপ কন্ট্রোল স্টেটমেন্ট নয়?", "for", "while", "do-while", "switch", "d",
-     "switch একটি ডিসিশন কন্ট্রোল স্টেটমেন্ট, লুপ নয়।"),
-    ("ডেটাবেজে প্রাইমারি কী এর বৈশিষ্ট্য কোনটি?", "নাল হতে পারে", "একাধিক থাকতে পারে",
-     "ইউনিক ও নাল নয়", "সবগুলো", "c",
-     "প্রাইমারি কী অবশ্যই ইউনিক হবে এবং নাল হতে পারবে না।"),
-    ("LAN এর পূর্ণরূপ কী?", "Local Area Network", "Long Area Network",
-     "Linked Access Node", "Logical Area Network", "a", "LAN = Local Area Network।"),
-    ("কোন ট্রান্সমিশন মোডে একসাথে দুই দিকে ডেটা যায়?", "সিমপ্লেক্স", "হাফ-ডুপ্লেক্স",
-     "ফুল-ডুপ্লেক্স", "মাল্টিকাস্ট", "c",
-     "ফুল-ডুপ্লেক্সে একই সময়ে উভয় দিকে ডেটা আদান-প্রদান হয়।"),
-    ("অপটিক্যাল ফাইবারে ডেটা পরিবহন হয় কীসের মাধ্যমে?", "তড়িৎ প্রবাহ", "আলোক সংকেত",
-     "রেডিও তরঙ্গ", "মাইক্রোওয়েভ", "b",
-     "অপটিক্যাল ফাইবারে আলোর পূর্ণ অভ্যন্তরীণ প্রতিফলনে ডেটা যায়।"),
-    ("বায়োমেট্রিক্সের উদাহরণ কোনটি?", "পাসওয়ার্ড", "ফিঙ্গারপ্রিন্ট", "ওটিপি", "পিন", "b",
-     "ফিঙ্গারপ্রিন্ট একটি শারীরবৃত্তীয় বায়োমেট্রিক বৈশিষ্ট্য।"),
-    ("ন্যানো টেকনোলজির একক কত?", "১০^-৬ মিটার", "১০^-৯ মিটার", "১০^-১২ মিটার", "১০^-৩ মিটার", "b",
-     "১ ন্যানোমিটার = ১০^-৯ মিটার।"),
+    ("(১১০১)₂ সংখ্যাটির দশমিক মান কত?", "১১", "১৩", "১৫", "৯", "b", "১×৮ + ১×৪ + ০×২ + ১×১ = ১৩"),
+    ("১ কিলোবাইট সমান কত বাইট?", "১০০০", "১০২৪", "৫১২", "২০৪৮", "b", "২^১০ = ১০২৪ বাইট।"),
+    ("কোনটি ইউনিভার্সাল গেট?", "AND", "OR", "NAND", "XOR", "c", "NAND ও NOR দিয়ে সব ধরনের গেট তৈরি করা যায়।"),
+    ("ASCII কোডে অক্ষর সংখ্যা কত বিটে প্রকাশ করা হয়?", "৪", "৭", "৮", "১৬", "b", "স্ট্যান্ডার্ড ASCII ৭ বিটের কোড।"),
+    ("হেক্সাডেসিমেল সংখ্যা পদ্ধতির ভিত্তি কত?", "৮", "১০", "১২", "১৬", "d", "হেক্সাডেসিমেলের বেজ ১৬।"),
+    (
+        "HTML এ সবচেয়ে বড় হেডিং ট্যাগ কোনটি?",
+        "<h1>",
+        "<h6>",
+        "<head>",
+        "<big>",
+        "a",
+        "<h1> সবচেয়ে বড় এবং <h6> সবচেয়ে ছোট হেডিং।",
+    ),
+    (
+        "ওয়েবপেজে ছবি যুক্ত করার ট্যাগ কোনটি?",
+        "<image>",
+        "<img>",
+        "<picture>",
+        "<src>",
+        "b",
+        "<img src=\"...\"> ট্যাগ দিয়ে ছবি যুক্ত করা হয়।",
+    ),
+    (
+        "সি ভাষায় প্রোগ্রাম কার্যকর হওয়া শুরু হয় কোন ফাংশন থেকে?",
+        "start()",
+        "begin()",
+        "main()",
+        "run()",
+        "c",
+        "প্রতিটি সি প্রোগ্রাম main() ফাংশন থেকে শুরু হয়।",
+    ),
+    (
+        "কোনটি লুপ কন্ট্রোল স্টেটমেন্ট নয়?",
+        "for",
+        "while",
+        "do-while",
+        "switch",
+        "d",
+        "switch একটি ডিসিশন কন্ট্রোল স্টেটমেন্ট, লুপ নয়।",
+    ),
+    (
+        "ডেটাবেজে প্রাইমারি কী এর বৈশিষ্ট্য কোনটি?",
+        "নাল হতে পারে",
+        "একাধিক থাকতে পারে",
+        "ইউনিক ও নাল নয়",
+        "সবগুলো",
+        "c",
+        "প্রাইমারি কী অবশ্যই ইউনিক হবে এবং নাল হতে পারবে না।",
+    ),
+    (
+        "LAN এর পূর্ণরূপ কী?",
+        "Local Area Network",
+        "Long Area Network",
+        "Linked Access Node",
+        "Logical Area Network",
+        "a",
+        "LAN = Local Area Network।",
+    ),
+    (
+        "কোন ট্রান্সমিশন মোডে একসাথে দুই দিকে ডেটা যায়?",
+        "সিমপ্লেক্স",
+        "হাফ-ডুপ্লেক্স",
+        "ফুল-ডুপ্লেক্স",
+        "মাল্টিকাস্ট",
+        "c",
+        "ফুল-ডুপ্লেক্সে একই সময়ে উভয় দিকে ডেটা আদান-প্রদান হয়।",
+    ),
+    (
+        "অপটিক্যাল ফাইবারে ডেটা পরিবহন হয় কীসের মাধ্যমে?",
+        "তড়িৎ প্রবাহ",
+        "আলোক সংকেত",
+        "রেডিও তরঙ্গ",
+        "মাইক্রোওয়েভ",
+        "b",
+        "অপটিক্যাল ফাইবারে আলোর পূর্ণ অভ্যন্তরীণ প্রতিফলনে ডেটা যায়।",
+    ),
+    (
+        "বায়োমেট্রিক্সের উদাহরণ কোনটি?",
+        "পাসওয়ার্ড",
+        "ফিঙ্গারপ্রিন্ট",
+        "ওটিপি",
+        "পিন",
+        "b",
+        "ফিঙ্গারপ্রিন্ট একটি শারীরবৃত্তীয় বায়োমেট্রিক বৈশিষ্ট্য।",
+    ),
+    (
+        "ন্যানো টেকনোলজির একক কত?",
+        "১০^-৬ মিটার",
+        "১০^-৯ মিটার",
+        "১০^-১২ মিটার",
+        "১০^-৩ মিটার",
+        "b",
+        "১ ন্যানোমিটার = ১০^-৯ মিটার।",
+    ),
 ]
 
 STATIC_PAGES = [
     # The client requests this key literally (see the web app's about page).
-    ("about", "html",
-     "<h2>আমাদের সম্পর্কে</h2><p>শমাধান কোচিং দেশের যেকোনো প্রান্তের শিক্ষার্থীর কাছে "
-     "মানসম্মত আইসিটি শিক্ষা পৌঁছে দেওয়ার লক্ষ্যে কাজ করছে। ২০১৮ সাল থেকে এখন পর্যন্ত "
-     "৫০ হাজারের বেশি শিক্ষার্থী আমাদের কোর্সে যুক্ত হয়েছেন।</p>"),
-    ("our-goal", "html",
-     "<h2>আমাদের লক্ষ্য</h2><p>প্রতিটি শিক্ষার্থী যেন আইসিটি বিষয়ে আত্মবিশ্বাসের সাথে "
-     "পরীক্ষা দিতে পারে এবং বাস্তব জীবনে প্রযুক্তি ব্যবহার করতে শেখে — এটাই আমাদের লক্ষ্য।</p>"),
-    ("terms-and-conditions", "html",
-     "<h2>শর্তাবলি</h2><p>কোর্সে ভর্তির পর ফি ফেরতযোগ্য নয়। একটি অ্যাকাউন্ট শুধু একজন "
-     "শিক্ষার্থী ব্যবহার করতে পারবেন। ক্লাসের ভিডিও রেকর্ড বা বিতরণ করা সম্পূর্ণ নিষিদ্ধ।</p>"),
-    ("privacy-policy", "html",
-     "<h2>গোপনীয়তা নীতি</h2><p>আমরা শিক্ষার্থীর নাম, মোবাইল নম্বর ও প্রতিষ্ঠানের তথ্য "
-     "শুধুমাত্র কোর্স পরিচালনার জন্য সংগ্রহ করি এবং তৃতীয় পক্ষের সাথে শেয়ার করি না।</p>"),
-    ("refund-policy", "html",
-     "<h2>রিফান্ড নীতি</h2><p>ভুল পেমেন্টের ক্ষেত্রে ৭ কার্যদিবসের মধ্যে আবেদন করলে "
-     "যাচাই সাপেক্ষে অর্থ ফেরত দেওয়া হয়।</p>"),
-    ("contact-info", "html",
-     "<h2>যোগাযোগ</h2><p>মোবাইল: ০১৭১১৭৭৮৬০২<br/>ইমেইল: support@shomadhan.local<br/>"
-     "ঠিকানা: ১২/এ, গ্রীন রোড, ঢাকা ১২০৫</p>"),
+    (
+        "about",
+        "html",
+        "<h2>আমাদের সম্পর্কে</h2><p>শমাধান কোচিং দেশের যেকোনো প্রান্তের শিক্ষার্থীর কাছে "
+        "মানসম্মত আইসিটি শিক্ষা পৌঁছে দেওয়ার লক্ষ্যে কাজ করছে। ২০১৮ সাল থেকে এখন পর্যন্ত "
+        "৫০ হাজারের বেশি শিক্ষার্থী আমাদের কোর্সে যুক্ত হয়েছেন।</p>",
+    ),
+    (
+        "our-goal",
+        "html",
+        "<h2>আমাদের লক্ষ্য</h2><p>প্রতিটি শিক্ষার্থী যেন আইসিটি বিষয়ে আত্মবিশ্বাসের সাথে "
+        "পরীক্ষা দিতে পারে এবং বাস্তব জীবনে প্রযুক্তি ব্যবহার করতে শেখে — এটাই আমাদের লক্ষ্য।</p>",
+    ),
+    (
+        "terms-and-conditions",
+        "html",
+        "<h2>শর্তাবলি</h2><p>কোর্সে ভর্তির পর ফি ফেরতযোগ্য নয়। একটি অ্যাকাউন্ট শুধু একজন "
+        "শিক্ষার্থী ব্যবহার করতে পারবেন। ক্লাসের ভিডিও রেকর্ড বা বিতরণ করা সম্পূর্ণ নিষিদ্ধ।</p>",
+    ),
+    (
+        "privacy-policy",
+        "html",
+        "<h2>গোপনীয়তা নীতি</h2><p>আমরা শিক্ষার্থীর নাম, মোবাইল নম্বর ও প্রতিষ্ঠানের তথ্য "
+        "শুধুমাত্র কোর্স পরিচালনার জন্য সংগ্রহ করি এবং তৃতীয় পক্ষের সাথে শেয়ার করি না।</p>",
+    ),
+    (
+        "refund-policy",
+        "html",
+        "<h2>রিফান্ড নীতি</h2><p>ভুল পেমেন্টের ক্ষেত্রে ৭ কার্যদিবসের মধ্যে আবেদন করলে যাচাই সাপেক্ষে অর্থ ফেরত দেওয়া হয়।</p>",
+    ),
+    (
+        "contact-info",
+        "html",
+        "<h2>যোগাযোগ</h2><p>মোবাইল: ০১৭১১৭৭৮৬০২<br/>ইমেইল: support@shomadhan.local<br/>ঠিকানা: ১২/এ, গ্রীন রোড, ঢাকা ১২০৫</p>",
+    ),
 ]
 
 CONTACT_MESSAGES = [
@@ -385,6 +620,7 @@ class Command(BaseCommand):
             self._wipe()
 
         self._seed_pages()
+        self._seed_academic()
         categories = self._seed_categories()
         teachers = self._seed_teachers()
         self._seed_testimonials()
@@ -408,36 +644,67 @@ class Command(BaseCommand):
             ("sections", Section.objects.count()),
             ("contents", Content.objects.count()),
             ("mcq questions", Question.objects.count()),
-            ("teachers", Teacher.objects.count()),
+            ("class levels", ClassLevel.objects.count()),
+            ("academic groups", Group.objects.count()),
+            ("subjects", Subject.objects.count()),
+            ("chapters", Chapter.objects.count()),
+            ("topics", Topic.objects.count()),
+            ("batches", Batch.objects.count()),
+            ("teachers", TeacherProfile.objects.count()),
             ("testimonials", Testimonial.objects.count()),
             ("notices", Notice.objects.count()),
             ("products", Product.objects.count()),
-            ("students", User.objects.filter(role=User.Role.STUDENT).count()),
+            ("students", User.objects.filter(groups__name=User.Role.STUDENT).count()),
             ("enrollments", Enrollment.objects.count()),
             ("orders", Order.objects.count()),
             ("payments", Payment.objects.count()),
             ("exam results", ExamAttempt.objects.count()),
         ]:
             self.stdout.write(f"  {count:>5}  {label}")
-        self.stdout.write(
-            "\nStudent logins: phone 01810000001 … 01810000025, password student1234"
-        )
+        self.stdout.write("\nStudent logins: phone 01810000001 … 01810000025, password student1234")
 
     # -- wipe ---------------------------------------------------------------
 
     def _wipe(self):
         self.stdout.write("Removing existing demo rows...")
         for model in [
-            Payment, Order, CartItem, ExamAttempt, Enrollment, Content, Section,
-            Routine, Coupon, CoursePrice, CourseInstructor, Course, CourseCategory,
-            Question, QuestionBank, Product, CourseMaterial, ContactMessage,
-            Notice, NoticeCategory, EBook, Advertisement, Testimonial, Teacher,
+            Payment,
+            Order,
+            CartItem,
+            ExamAttempt,
+            Enrollment,
+            Content,
+            Section,
+            Routine,
+            Coupon,
+            CoursePrice,
+            CourseTeacher,
+            Course,
+            CourseCategory,
+            Question,
+            QuestionBank,
+            Product,
+            CourseMaterial,
+            ContactMessage,
+            Notice,
+            NoticeCategory,
+            EBook,
+            Advertisement,
+            Testimonial,
+            TeacherProfile,
+            Batch,
+            Topic,
+            Chapter,
+            Subject,
+            ClassLevel,
+            Group,
         ]:
             model.objects.all().delete()
-        User.objects.filter(role=User.Role.STUDENT, phone__startswith="0181").delete()
+        User.objects.filter(groups__name=User.Role.STUDENT, phone__startswith="0181").delete()
+        # The teacher accounts this command mints, on the reserved 0171 block.
+        User.objects.filter(groups__name=User.Role.TEACHER, phone__startswith="0171").delete()
         Page.objects.exclude(
-            key__in=["homeBannerImage", "homeCourseCounter", "homeStudentCounter",
-                     "homeInstructorCounter"]
+            key__in=["homeBannerImage", "homeCourseCounter", "homeStudentCounter", "homeInstructorCounter"]
         ).delete()
 
     # -- cms ----------------------------------------------------------------
@@ -451,20 +718,21 @@ class Command(BaseCommand):
         }
         for key, value in counters.items():
             Page.objects.update_or_create(
-                key=key, defaults={"slug": key, "value_type": Page.ValueType.COUNTER,
-                                   "value": value}
+                key=key, defaults={"slug": key, "value_type": Page.ValueType.COUNTER, "value": value}
             )
         Page.objects.update_or_create(
             key="homeBannerImage",
-            defaults={"slug": "homeBannerImage", "value_type": Page.ValueType.IMAGE,
-                      "value": "", "image": banner},
+            defaults={"slug": "homeBannerImage", "value_type": Page.ValueType.IMAGE, "value": "", "image": banner},
         )
         for index, (key, value_type, value) in enumerate(STATIC_PAGES):
             Page.objects.update_or_create(
                 key=key,
-                defaults={"slug": key, "value_type": value_type, "value": value,
-                          "image": make_image(f"page-{key}", 1200, 630, key.upper()[:12],
-                                              index + 1)},
+                defaults={
+                    "slug": key,
+                    "value_type": value_type,
+                    "value": value,
+                    "image": make_image(f"page-{key}", 1200, 630, key.upper()[:12], index + 1),
+                },
             )
         self.stdout.write("  pages + homepage counters")
 
@@ -473,31 +741,108 @@ class Command(BaseCommand):
         for index, (title, slug, children) in enumerate(CATEGORIES):
             parent, _ = CourseCategory.objects.get_or_create(
                 slug=slug,
-                defaults={"title": title, "category": None, "order": index,
-                          "image": make_image(f"cat-{index}", 600, 400, f"CAT {index + 1}", index)},
+                defaults={
+                    "title": title,
+                    "category": None,
+                    "order": index,
+                    "image": make_image(f"cat-{index}", 600, 400, f"CAT {index + 1}", index),
+                },
             )
             categories[title] = parent
             for child_index, (child_title, child_slug) in enumerate(children):
                 CourseCategory.objects.get_or_create(
                     slug=child_slug,
-                    defaults={"title": child_title, "category": parent, "order": child_index,
-                              "image": make_image(f"cat-{index}-{child_index}", 600, 400,
-                                                  f"SUB {child_index + 1}", index + 2)},
+                    defaults={
+                        "title": child_title,
+                        "category": parent,
+                        "order": child_index,
+                        "image": make_image(
+                            f"cat-{index}-{child_index}", 600, 400, f"SUB {child_index + 1}", index + 2
+                        ),
+                    },
                 )
         self.stdout.write("  course categories")
         return categories
 
-    def _seed_teachers(self):
-        teachers = []
-        for index, (name, designation, kind, description) in enumerate(TEACHERS):
-            teacher, _ = Teacher.objects.get_or_create(
+    def _seed_academic(self):
+        """Education levels, groups, subjects and batches.
+
+        Slugs are passed rather than generated: transliterating the Bangla
+        names gives "esaesasi" and "bijnana", and these end up in URLs.
+        """
+        levels = {}
+        for order, (name, slug) in enumerate(CLASS_LEVELS):
+            levels[slug], _ = ClassLevel.objects.get_or_create(name=name, defaults={"slug": slug, "order": order})
+
+        groups = {}
+        for order, (name, slug) in enumerate(ACADEMIC_GROUPS):
+            groups[slug], _ = Group.objects.get_or_create(name=name, defaults={"slug": slug, "order": order})
+
+        for order, (name, stem, level_slug, group_slug) in enumerate(SUBJECTS):
+            Subject.objects.get_or_create(
                 name=name,
-                defaults={"designation": designation, "type": kind,
-                          "description": description, "order": index,
-                          "image": make_image(f"teacher-{index}", 500, 500,
-                                              f"T{index + 1}", index + 3)},
+                class_level=levels[level_slug],
+                group=groups[group_slug],
+                defaults={"slug": f"{stem}-{level_slug}-{group_slug}", "order": order},
             )
-            teachers.append(teacher)
+
+        for subject in Subject.objects.all():
+            for number, (chapter_name, topics) in enumerate(CHAPTERS, start=1):
+                chapter, _ = Chapter.objects.get_or_create(
+                    name=chapter_name, subject=subject, defaults={"chapter_number": number}
+                )
+                for topic_name in topics:
+                    Topic.objects.get_or_create(name=topic_name, chapter=chapter)
+
+        order = 0
+        for level_slug, label in BATCH_LABELS.items():
+            for year in BATCH_YEARS:
+                Batch.objects.get_or_create(
+                    name=f"{label}-{year}",
+                    class_level=levels[level_slug],
+                    defaults={"order": order},
+                )
+                order += 1
+
+        self.stdout.write("  academic levels, groups, subjects, chapters, topics and batches")
+
+    def _seed_teachers(self):
+        """A teacher is an account with a profile, not a roster row.
+
+        Active, but with no password, so none of them can sign in until an
+        admin gives them one. `is_active=False` is what `deactivate_user` sets,
+        so using it here would make a teacher look like a blocked account.
+        """
+        levels = list(ClassLevel.objects.all())
+        teachers = []
+        for index, (name, designation, kind, description, subjects) in enumerate(TEACHERS):
+            phone = f"0171000{index + 1:04d}"
+            user = User.objects.filter(phone=phone).first()
+            if user is None:
+                # `create_user` marks the password unusable; writing the row
+                # directly leaves the field's empty-string default, which
+                # Django reports as usable.
+                user = User.objects.create_user(
+                    phone=phone,
+                    password=None,
+                    name=name,
+                    email=f"teacher{index + 1}@shomadhan.local",
+                    image=make_image(f"teacher-{index}", 500, 500, f"T{index + 1}", index + 3),
+                )
+            user.set_role(User.Role.TEACHER)
+            profile, _ = TeacherProfile.objects.get_or_create(
+                user=user,
+                defaults={
+                    "designation": designation,
+                    "type": kind,
+                    "description": description,
+                    "order": index,
+                    "institute": "শমাধান কোচিং",
+                },
+            )
+            profile.subjects.set(Subject.objects.filter(name__in=subjects))
+            profile.levels.set(levels)
+            teachers.append(user)
         self.stdout.write("  teachers")
         return teachers
 
@@ -505,10 +850,12 @@ class Command(BaseCommand):
         for index, (name, designation, rating, text) in enumerate(TESTIMONIALS):
             Testimonial.objects.get_or_create(
                 name=name,
-                defaults={"designation": designation, "ratings": rating,
-                          "description": text,
-                          "image": make_image(f"student-{index}", 400, 400,
-                                              f"S{index + 1}", index)},
+                defaults={
+                    "designation": designation,
+                    "ratings": rating,
+                    "description": text,
+                    "image": make_image(f"student-{index}", 400, 400, f"S{index + 1}", index),
+                },
             )
         self.stdout.write("  testimonials")
 
@@ -520,10 +867,12 @@ class Command(BaseCommand):
         for index, (title, description, kind) in enumerate(ads):
             Advertisement.objects.get_or_create(
                 title=title,
-                defaults={"description": description, "type": kind,
-                          "link": "http://localhost:3000/course",
-                          "image": make_image(f"ad-{index}", 1200, 400,
-                                              f"AD {index + 1}", index + 1)},
+                defaults={
+                    "description": description,
+                    "type": kind,
+                    "link": "http://localhost:3000/course",
+                    "image": make_image(f"ad-{index}", 1200, 400, f"AD {index + 1}", index + 1),
+                },
             )
         self.stdout.write("  advertisements")
 
@@ -539,43 +888,40 @@ class Command(BaseCommand):
         for index, (title, slug, category_title, body) in enumerate(NOTICES):
             notice, created = Notice.objects.get_or_create(
                 slug=slug,
-                defaults={"title": title, "body": body,
-                          "image": make_image(f"notice-{index}", 900, 500,
-                                              f"NOTICE {index + 1}", index + 2)},
+                defaults={
+                    "title": title,
+                    "body": body,
+                    "image": make_image(f"notice-{index}", 900, 500, f"NOTICE {index + 1}", index + 2),
+                },
             )
             if created:
                 notice.categories.add(categories[category_title])
                 # Spread notices back through the last few weeks so the list
                 # is not a single timestamp.
-                Notice.objects.filter(pk=notice.pk).update(
-                    created_at=self.now - timedelta(days=index * 5 + 1)
-                )
+                Notice.objects.filter(pk=notice.pk).update(created_at=self.now - timedelta(days=index * 5 + 1))
         self.stdout.write("  notices")
 
     def _seed_ebooks(self):
         for index, (title, description) in enumerate(EBOOKS):
             EBook.objects.get_or_create(
                 title=title,
-                defaults={"description": description,
-                          "booking_link": "http://localhost:3000/contact",
-                          "preview": f"{MEDIA_BASE}/{SEED_DIR}/ebook-{index}.png",
-                          "image": make_image(f"ebook-{index}", 600, 800,
-                                              f"EBOOK {index + 1}", index + 4)},
+                defaults={
+                    "description": description,
+                    "booking_link": "http://localhost:3000/contact",
+                    "preview": f"{MEDIA_BASE}/{SEED_DIR}/ebook-{index}.png",
+                    "image": make_image(f"ebook-{index}", 600, 800, f"EBOOK {index + 1}", index + 4),
+                },
             )
         self.stdout.write("  ebooks")
 
     # -- exams --------------------------------------------------------------
 
     def _seed_mcq_bank(self):
-        root, _ = QuestionBank.objects.get_or_create(title="আইসিটি প্রশ্নব্যাংক",
-                                                 parent=None, defaults={"order": 0})
-        folders = ["সংখ্যা পদ্ধতি", "নেটওয়ার্কিং", "ওয়েব ডিজাইন", "সি প্রোগ্রামিং",
-                   "ডেটাবেজ"]
+        root, _ = QuestionBank.objects.get_or_create(title="আইসিটি প্রশ্নব্যাংক", parent=None, defaults={"order": 0})
+        folders = ["সংখ্যা পদ্ধতি", "নেটওয়ার্কিং", "ওয়েব ডিজাইন", "সি প্রোগ্রামিং", "ডেটাবেজ"]
         stores = []
         for index, title in enumerate(folders):
-            store, _ = QuestionBank.objects.get_or_create(
-                title=title, parent=root, defaults={"order": index}
-            )
+            store, _ = QuestionBank.objects.get_or_create(title=title, parent=root, defaults={"order": index})
             stores.append(store)
 
         # Deal the shared question bank round-robin into the topic folders.
@@ -585,11 +931,18 @@ class Command(BaseCommand):
             Question.objects.get_or_create(
                 bank=store,
                 question=question,
-                defaults={"a": a, "b": b, "c": c, "d": d, "answer": answer,
-                          "explanation": explanation, "source_subject": "আইসিটি",
-                          "source_year": str(2019 + (index % 7)),
-                          "source_board": ["ঢাকা", "রাজশাহী", "চট্টগ্রাম", "যশোর"][index % 4],
-                          "source_chapter": store.title},
+                defaults={
+                    "a": a,
+                    "b": b,
+                    "c": c,
+                    "d": d,
+                    "answer": answer,
+                    "explanation": explanation,
+                    "source_subject": "আইসিটি",
+                    "source_year": str(2019 + (index % 7)),
+                    "source_board": ["ঢাকা", "রাজশাহী", "চট্টগ্রাম", "যশোর"][index % 4],
+                    "source_chapter": store.title,
+                },
             )
         self.stdout.write("  mcq bank")
         return stores
@@ -617,8 +970,7 @@ class Command(BaseCommand):
                     ),
                     "features": COURSE_FEATURES,
                     "video": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-                    "image": make_image(f"course-{index}", 800, 450,
-                                        f"COURSE {index + 1}", index),
+                    "image": make_image(f"course-{index}", 800, 450, f"COURSE {index + 1}", index),
                 },
             )
             if created:
@@ -666,19 +1018,12 @@ class Command(BaseCommand):
         )
 
     def _seed_course_extras(self, course, teachers, index):
-        teacher = teachers[index % len(teachers)]
-        # Link to the roster teacher rather than copying its fields; the
-        # model fills name/designation/description/image from it on save.
-        CourseInstructor.objects.create(
+        # The assignment names the account and the commission. Everything the
+        # course page shows about the person is read through their profile.
+        CourseTeacher.objects.get_or_create(
             course=course,
-            teacher=teacher,
-            institute="শমাধান কোচিং",
-            type=(CourseInstructor.Type.FOUNDER if teacher.type == "founder"
-                  else CourseInstructor.Type.INSTRUCTOR),
-            commission=Decimal("25.00"),
-            email=f"instructor{index + 1}@shomadhan.local",
-            phone=f"0171000{index + 1:04d}",
-            order=0,
+            user=teachers[index % len(teachers)],
+            defaults={"commission": Decimal("25.00"), "order": 0},
         )
         for label in ["সাপ্তাহিক ক্লাস রুটিন", "পরীক্ষার সময়সূচি"]:
             Routine.objects.create(
@@ -693,14 +1038,18 @@ class Command(BaseCommand):
         for chapter_index, chapter in enumerate(chapters):
             chapter_slug = f"{course_slug}-ch{chapter_index + 1}"
             section = Section.objects.create(
-                course=course, title=chapter, slug=chapter_slug,
-                order=chapter_index, active=True,
+                course=course,
+                title=chapter,
+                slug=chapter_slug,
+                order=chapter_index,
+                active=True,
             )
             order = 0
 
             for lesson_index in range(3):
                 Content.objects.create(
-                    course=course, section=section,
+                    course=course,
+                    section=section,
                     title=f"{chapter} — ক্লাস {lesson_index + 1}",
                     slug=f"{chapter_slug}-video-{lesson_index + 1}",
                     type=Content.Type.VIDEO,
@@ -715,19 +1064,25 @@ class Command(BaseCommand):
                 order += 1
 
             Content.objects.create(
-                course=course, section=section,
+                course=course,
+                section=section,
                 title=f"{chapter} — লেকচার শিট",
                 slug=f"{chapter_slug}-sheet",
-                type=Content.Type.PDF, paid=True, order=order,
+                type=Content.Type.PDF,
+                paid=True,
+                order=order,
                 pdf_file=f"{MEDIA_BASE}/{SEED_DIR}/course-{course_index}.png",
             )
             order += 1
 
             Content.objects.create(
-                course=course, section=section,
+                course=course,
+                section=section,
                 title=f"{chapter} — হ্যান্ডনোট",
                 slug=f"{chapter_slug}-note",
-                type=Content.Type.NOTE, paid=True, order=order,
+                type=Content.Type.NOTE,
+                paid=True,
+                order=order,
                 note_body=(
                     f"<h3>{chapter}</h3><ul>"
                     "<li>অধ্যায়ের গুরুত্বপূর্ণ সংজ্ঞা ও সূত্র</li>"
@@ -738,10 +1093,13 @@ class Command(BaseCommand):
             order += 1
 
             Content.objects.create(
-                course=course, section=section,
+                course=course,
+                section=section,
                 title=f"{chapter} — লাইভ প্রশ্নোত্তর",
                 slug=f"{chapter_slug}-live",
-                type=Content.Type.LIVE, paid=True, order=order,
+                type=Content.Type.LIVE,
+                paid=True,
+                order=order,
                 live_url="https://meet.google.com/demo-shomadhan",
                 live_scheduled_at=self.now + timedelta(days=chapter_index * 3 + 2),
             )
@@ -749,10 +1107,13 @@ class Command(BaseCommand):
 
             store = stores[(course_index + chapter_index) % len(stores)]
             exam_content = Content.objects.create(
-                course=course, section=section,
+                course=course,
+                section=section,
                 title=f"{chapter} — অধ্যায়ভিত্তিক পরীক্ষা",
                 slug=f"{chapter_slug}-exam",
-                type=Content.Type.EXAM, paid=True, order=order,
+                type=Content.Type.EXAM,
+                paid=True,
+                order=order,
             )
             Exam.objects.create(
                 content=exam_content,
@@ -772,8 +1133,7 @@ class Command(BaseCommand):
         for index, course in enumerate(courses[:4]):
             CourseMaterial.objects.get_or_create(
                 title=f"{course.title} — সাপ্লিমেন্টারি শিট",
-                defaults={"type": "pdf", "course": course,
-                          "file": f"{MEDIA_BASE}/{SEED_DIR}/course-{index}.png"},
+                defaults={"type": "pdf", "course": course, "file": f"{MEDIA_BASE}/{SEED_DIR}/course-{index}.png"},
             )
         self.stdout.write("  course materials")
 
@@ -787,15 +1147,16 @@ class Command(BaseCommand):
                 slug=slug,
                 defaults={
                     "name": name,
-                    "price": price, "discount": discount, "stock": stock,
+                    "price": price,
+                    "discount": discount,
+                    "stock": stock,
                     "description": description,
                     "featured": index < 3,
                     "is_book": index != 4,
                     "sku": f"SHM-{index + 101}",
                     "order": index,
                     "discount_till": self.now + timedelta(days=20) if discount else None,
-                    "image": make_image(f"product-{index}", 600, 600,
-                                        f"BOOK {index + 1}", index + 2),
+                    "image": make_image(f"product-{index}", 600, 600, f"BOOK {index + 1}", index + 2),
                 },
             )
             if created:
@@ -807,6 +1168,8 @@ class Command(BaseCommand):
     # -- users --------------------------------------------------------------
 
     def _seed_students(self):
+        class_levels = list(ClassLevel.objects.all())
+        groups = list(Group.objects.all())
         students = []
         for index, name in enumerate(STUDENT_NAMES):
             phone = f"0181000{index + 1:04d}"
@@ -819,12 +1182,23 @@ class Command(BaseCommand):
                     password="student1234",
                     name=name,
                     role=User.Role.STUDENT,
-                    institution=INSTITUTIONS[index % len(INSTITUTIONS)],
-                    educational_session=self.rng.choice(["২০২৪-২৫", "২০২৫-২৬", "২০২৬-২৭"]),
-                    guardian_phone=f"0191000{index + 1:04d}",
                     phone_verified_at=joined,
                     date_joined=joined,
                     image=make_image(f"avatar-{index}", 300, 300, f"U{index + 1}", index),
+                )
+                profile = StudentProfile.objects.create(
+                    user=student,
+                    institution=INSTITUTIONS[index % len(INSTITUTIONS)],
+                    educational_session=self.rng.choice(["২০২৪-২৫", "২০২৫-২৬", "২০২৬-২৭"]),
+                    address=self.rng.choice(ADDRESSES),
+                    class_level=self.rng.choice(class_levels) if class_levels else None,
+                    group=self.rng.choice(groups) if groups else None,
+                )
+                GuardianProfile.objects.create(
+                    student=profile,
+                    name=f"{name.split()[-1]} সাহেব",
+                    phone=f"0191000{index + 1:04d}",
+                    relation="অভিভাবক",
                 )
             students.append(student)
         self.stdout.write("  students")
@@ -834,9 +1208,12 @@ class Command(BaseCommand):
         for student in students:
             for course in self.rng.sample(courses, self.rng.randint(1, 3)):
                 Enrollment.objects.get_or_create(
-                    course=course, user=student,
-                    defaults={"payment_type": Enrollment.PaymentType.PAID,
-                              "valid_till": self.now + timedelta(days=365)},
+                    course=course,
+                    user=student,
+                    defaults={
+                        "payment_type": Enrollment.PaymentType.PAID,
+                        "valid_till": self.now + timedelta(days=365),
+                    },
                 )
         self.stdout.write("  enrollments")
 
@@ -852,8 +1229,7 @@ class Command(BaseCommand):
         for i in range(90):
             student = self.rng.choice(students)
             days_ago = self.rng.randint(0, 360)
-            created = self.now - timedelta(days=days_ago,
-                                           hours=self.rng.randint(0, 23))
+            created = self.now - timedelta(days=days_ago, hours=self.rng.randint(0, 23))
 
             if self.rng.random() < 0.7:
                 course = self.rng.choice(courses)
@@ -864,13 +1240,16 @@ class Command(BaseCommand):
                     continue
                 price = self.rng.choice(available)
                 amount = price.discount or price.amount
-                order_kwargs = {"course": course, "price": price,
-                                "item_title": course.title, "price_title": price.title}
+                order_kwargs = {
+                    "course": course,
+                    "price": price,
+                    "item_title": course.title,
+                    "price_title": price.title,
+                }
             else:
                 product = self.rng.choice(products)
                 amount = product.discount or product.price
-                order_kwargs = {"product": product, "item_title": product.name,
-                                "price_title": "একক ক্রয়"}
+                order_kwargs = {"product": product, "item_title": product.name, "price_title": "একক ক্রয়"}
 
             status = self.rng.choices(
                 [Order.Status.PAID, Order.Status.PENDING, Order.Status.CANCELLED],
@@ -878,8 +1257,12 @@ class Command(BaseCommand):
             )[0]
             quantity = 1
             order = Order.objects.create(
-                user=student, quantity=quantity, amount=amount,
-                total=amount * quantity, status=status, **order_kwargs,
+                user=student,
+                quantity=quantity,
+                amount=amount,
+                total=amount * quantity,
+                status=status,
+                **order_kwargs,
             )
             Order.objects.filter(pk=order.pk).update(created_at=created)
 
@@ -889,7 +1272,8 @@ class Command(BaseCommand):
                 Order.Status.CANCELLED: Payment.Status.FAILED,
             }[status]
             payment = Payment.objects.create(
-                order=order, amount=amount,
+                order=order,
+                amount=amount,
                 transaction_id=f"TRX{self.rng.randint(100000, 999999)}{i}",
                 vendor=self.rng.choice(vendors),
                 sent_from=student.phone,
@@ -902,16 +1286,15 @@ class Command(BaseCommand):
     def _seed_exam_results(self, courses, students):
         """Fill the leaderboard behind /ranking/[id] for the first exam of the
         first few courses."""
-        exams = Exam.objects.filter(
-            content__type=Content.Type.EXAM, content__course__in=courses[:3]
-        ).order_by("pk")[:4]
+        exams = Exam.objects.filter(content__type=Content.Type.EXAM, content__course__in=courses[:3]).order_by("pk")[:4]
 
         for exam in exams:
             for student in self.rng.sample(students, 18):
                 positive = Decimal(self.rng.randint(6, 15))
-                negative = (Decimal(self.rng.randint(0, 4)) * Decimal("0.25"))
+                negative = Decimal(self.rng.randint(0, 4)) * Decimal("0.25")
                 ExamAttempt.objects.get_or_create(
-                    exam=exam, user=student,
+                    exam=exam,
+                    user=student,
                     defaults={
                         "marks": positive - negative,
                         "positive_marks": positive,
@@ -927,9 +1310,14 @@ class Command(BaseCommand):
         for index, (subject, message) in enumerate(CONTACT_MESSAGES):
             student = students[index % len(students)]
             ContactMessage.objects.get_or_create(
-                subject=subject, message=message,
-                defaults={"user": student, "name": student.name,
-                          "phone": student.phone, "email": student.email,
-                          "is_read": index % 2 == 0},
+                subject=subject,
+                message=message,
+                defaults={
+                    "user": student,
+                    "name": student.name,
+                    "phone": student.phone,
+                    "email": student.email,
+                    "is_read": index % 2 == 0,
+                },
             )
         self.stdout.write("  contact messages")

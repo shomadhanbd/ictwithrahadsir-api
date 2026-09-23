@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
 
@@ -16,9 +17,7 @@ class CourseCategory(TimestampModel, OrderedModel):
     title = models.CharField(max_length=150)
     slug = models.SlugField(max_length=220, unique=True, blank=True)
     image = models.URLField(null=True, blank=True)
-    category = models.ForeignKey(
-        "self", null=True, blank=True, on_delete=models.CASCADE, related_name="children"
-    )
+    category = models.ForeignKey("self", null=True, blank=True, on_delete=models.CASCADE, related_name="children")
 
     class Meta:
         ordering = ["order", "title"]
@@ -122,18 +121,14 @@ class CoursePrice(TimestampModel):
         ABSOLUTE = "absolute", "Absolute"
         RELATIVE = "relative", "Relative"
 
-    priceable_type = models.CharField(
-        max_length=50, choices=PRICEABLE_TYPE_CHOICES, default=PRICEABLE_COURSE
-    )
+    priceable_type = models.CharField(max_length=50, choices=PRICEABLE_TYPE_CHOICES, default=PRICEABLE_COURSE)
     priceable_id = models.PositiveIntegerField()
     title = models.CharField(max_length=150)
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     discount = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     discount_till = models.DateTimeField(null=True, blank=True)
     type = models.CharField(max_length=20, choices=Type.choices, default=Type.FULL)
-    validity_type = models.CharField(
-        max_length=20, choices=ValidityType.choices, default=ValidityType.RELATIVE
-    )
+    validity_type = models.CharField(max_length=20, choices=ValidityType.choices, default=ValidityType.RELATIVE)
     validity_time = models.DateTimeField(null=True, blank=True)
     validity_duration = models.PositiveIntegerField(
         null=True, blank=True, help_text="Validity length in days (relative validity)"
@@ -162,9 +157,7 @@ class Coupon(TimestampModel):
     price = models.ForeignKey(CoursePrice, on_delete=models.CASCADE, related_name="coupons")
     code = models.CharField(max_length=50)
     discount = models.DecimalField(max_digits=10, decimal_places=2)
-    discount_type = models.CharField(
-        max_length=20, choices=DiscountType.choices, default=DiscountType.PERCENT
-    )
+    discount_type = models.CharField(max_length=20, choices=DiscountType.choices, default=DiscountType.PERCENT)
     valid_till = models.DateTimeField(null=True, blank=True)
 
     class Meta:
@@ -185,9 +178,7 @@ class Routine(TimestampModel):
 
 class Section(TimestampModel, OrderedModel):
     course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="sections")
-    section = models.ForeignKey(
-        "self", null=True, blank=True, on_delete=models.CASCADE, related_name="sub_sections"
-    )
+    section = models.ForeignKey("self", null=True, blank=True, on_delete=models.CASCADE, related_name="sub_sections")
     title = models.CharField(max_length=255)
     slug = models.SlugField(max_length=280, unique=True, blank=True)
     objects = SectionQuerySet.as_manager()
@@ -289,9 +280,7 @@ class Content(TimestampModel, OrderedModel):
         if not user or not user.is_authenticated:
             return False
 
-        return Enrollment.objects.filter(
-            course_id=self.course_id, user=user
-        ).current().exists()
+        return Enrollment.objects.filter(course_id=self.course_id, user=user).current().exists()
 
 
 class ContentCompletion(TimestampModel):
@@ -314,12 +303,8 @@ class ContentCompletion(TimestampModel):
         on_delete=models.CASCADE,
         related_name="content_completions",
     )
-    content = models.ForeignKey(
-        Content, on_delete=models.CASCADE, related_name="completions"
-    )
-    course = models.ForeignKey(
-        Course, on_delete=models.CASCADE, related_name="content_completions"
-    )
+    content = models.ForeignKey(Content, on_delete=models.CASCADE, related_name="completions")
+    course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="content_completions")
     completed_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
@@ -347,13 +332,9 @@ class Enrollment(TimestampModel):
         SUBSCRIPTION = "subscription", "Subscription"
 
     course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="enrollments")
-    user = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="course_enrollments"
-    )
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="course_enrollments")
     valid_till = models.DateTimeField(null=True, blank=True)
-    payment_type = models.CharField(
-        max_length=20, choices=PaymentType.choices, default=PaymentType.FREE
-    )
+    payment_type = models.CharField(max_length=20, choices=PaymentType.choices, default=PaymentType.FREE)
 
     objects = EnrollmentQuerySet.as_manager()
 
@@ -384,10 +365,43 @@ class CourseMaterial(TimestampModel):
 
     title = models.CharField(max_length=255)
     type = models.CharField(max_length=50, blank=True)
-    course = models.ForeignKey(
-        Course, on_delete=models.CASCADE, related_name="materials", null=True, blank=True
-    )
+    course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="materials", null=True, blank=True)
     file = models.URLField(null=True, blank=True)
 
     def __str__(self):
         return self.title
+
+
+class CourseTeacher(TimestampModel, OrderedModel):
+    """A teacher's assignment to one course, with its commission.
+
+    Everything about the person lives on their `User` and
+    `profiles.TeacherProfile`; this row is the link plus the one number that is
+    genuinely per-course. `commission` is the model's whole justification --
+    without it, `{course, user, order}` would be an ordered `ManyToManyField`.
+    """
+
+    #: `instructors` rather than `teachers`: this related name is what the
+    #: frozen public payload key is built from. See `PublicTeacherSerializer`.
+    course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="instructors")
+    #: `apps.core.api.permissions` reads this backwards, as `user.teaching`,
+    #: so that `core` need not import `courses`.
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="teaching")
+    commission = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        help_text=(
+            "Percent of each sale of this course paid to this teacher. "
+            "Recorded only -- nothing computes a payout from it yet."
+        ),
+    )
+
+    class Meta:
+        ordering = ["order", "-created_at"]
+        constraints = [models.UniqueConstraint(fields=["course", "user"], name="unique_teacher_per_course")]
+
+    def __str__(self):
+        return f"{self.user} on {self.course}"

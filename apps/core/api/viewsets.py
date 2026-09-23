@@ -1,7 +1,7 @@
 from rest_framework import viewsets
 from rest_framework.response import Response
 
-from .permissions import IsCourseInstructor, IsFullAdmin, is_full_admin
+from .permissions import IsCourseTeacher, IsFullAdmin, is_full_admin
 
 
 class SlugOrPkLookupMixin:
@@ -98,7 +98,7 @@ class CourseScopedAdminMixin:
 
     * `get_queryset` narrows the *list*, so a teacher does not see the whole
       catalogue.
-    * `IsCourseInstructor.has_object_permission` guards a *single row*, so a
+    * `IsCourseTeacher.has_object_permission` guards a *single row*, so a
       teacher cannot open, edit or delete another course's lesson by its id.
 
     `course_field` names the column that points at the owning course, and is
@@ -106,7 +106,7 @@ class CourseScopedAdminMixin:
     `id` on `Course` itself, which is its own owner.
     """
 
-    permission_classes = [IsCourseInstructor]
+    permission_classes = [IsCourseTeacher]
 
     #: Column naming the owning course. Override to `"id"` on Course itself.
     course_field = "course_id"
@@ -126,5 +126,5 @@ class CourseScopedAdminMixin:
         # `values_list` inlines as a subquery, so this stays one query however
         # many courses the teacher has -- `test_query_budget` asserts the
         # count does not move with the fixture size.
-        taught = user.instructor_profiles.values_list('course_id', flat=True)
+        taught = user.teaching.values_list('course_id', flat=True)
         return queryset.filter(**{f'{self.course_field}__in': taught})

@@ -82,7 +82,7 @@ class PaginationLinkWindowTests(APITestCase):
         return [link["label"] for link in response.data["meta"]["links"]]
 
     def test_envelope_keys_are_unchanged(self):
-        body = self.client.get("/api/v1/courses/?per_page=5").data
+        body = self.client.get("/api/public/courses/?per_page=5").data
         self.assertEqual(list(body.keys()), ["data", "links", "meta"])
         self.assertEqual(list(body["links"].keys()), ["first", "last", "prev", "next"])
         self.assertEqual(
@@ -92,12 +92,12 @@ class PaginationLinkWindowTests(APITestCase):
 
     def test_link_count_does_not_grow_with_the_table(self):
         """40 pages of courses, but a bounded number of link objects."""
-        response = self.client.get("/api/v1/courses/?per_page=5")
+        response = self.client.get("/api/public/courses/?per_page=5")
         self.assertEqual(response.data["meta"]["last_page"], 40)
         self.assertLess(len(response.data["meta"]["links"]), 20)
 
     def test_the_window_keeps_both_endpoints_and_the_current_page(self):
-        labels = self.labels(self.client.get("/api/v1/courses/?per_page=5&page=20"))
+        labels = self.labels(self.client.get("/api/public/courses/?per_page=5&page=20"))
         self.assertEqual(labels[0], "&laquo; Previous")
         self.assertEqual(labels[-1], "Next &raquo;")
         # First and last page stay reachable from deep in the table.
@@ -108,16 +108,16 @@ class PaginationLinkWindowTests(APITestCase):
             self.assertIn(str(page), labels)
 
     def test_the_current_page_is_the_only_active_one(self):
-        response = self.client.get("/api/v1/courses/?per_page=5&page=20")
+        response = self.client.get("/api/public/courses/?per_page=5&page=20")
         active = [link["label"] for link in response.data["meta"]["links"] if link["active"]]
         self.assertEqual(active, ["20"])
 
     def test_a_short_table_is_not_elided(self):
-        labels = self.labels(self.client.get("/api/v1/courses/?per_page=100"))
+        labels = self.labels(self.client.get("/api/public/courses/?per_page=100"))
         self.assertEqual(labels, ["&laquo; Previous", "1", "2", "Next &raquo;"])
 
     def test_page_links_carry_usable_urls(self):
-        response = self.client.get("/api/v1/courses/?per_page=5&page=20")
+        response = self.client.get("/api/public/courses/?per_page=5&page=20")
         for link in response.data["meta"]["links"]:
             if link["label"] == "...":
                 self.assertIsNone(link["url"])

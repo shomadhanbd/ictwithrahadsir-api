@@ -130,9 +130,7 @@ def submit_payment(*, order, transaction_id: str, details: dict) -> Payment:
     # Checked here as well as by the DB constraint so a reused TrxID comes
     # back as a validation error rather than an IntegrityError 500.
     if transaction_id and Payment.objects.filter(transaction_id=transaction_id).exists():
-        raise ValidationError(
-            {'transaction_id': ['This transaction ID has already been submitted.']}
-        )
+        raise ValidationError({'transaction_id': ['This transaction ID has already been submitted.']})
 
     return Payment.objects.create(
         order=order,
@@ -221,6 +219,4 @@ def claim_free_course(*, user, course) -> Enrollment:
     if not free_price and course.prices.exists():
         raise ValidationError({'course_id': ['This course is not free.']})
 
-    return grant_course_access(
-        user=user, course=course, payment_type=Enrollment.PaymentType.FREE
-    )
+    return grant_course_access(user=user, course=course, payment_type=Enrollment.PaymentType.FREE)

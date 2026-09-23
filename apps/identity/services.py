@@ -1,119 +1,253 @@
-"""Identity operations: tokens, one-time codes, and bulk user import.
-
-Three small groups, marked by the section headers below. They live in one
-module because none of them is big enough to be worth hunting through a
-package for; split it the day one of them is.
-"""
+from collections import Counter
 
 from django.conf import settings
-from django.db import transaction
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import IntegrityError, transaction
+from django.db.models.functions import Lower
+from django.utils import timezone
 
 from rest_framework.authtoken.models import Token
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import Throttled, ValidationError
 
+from apps.core.phones import normalize_phone
 from apps.core.services.factory import get_sms_backend
 from apps.core.spreadsheets import text
 from apps.identity.models import OTP, User
-from apps.identity.phones import normalize_phone
+from apps.profiles.models import GuardianProfile, StudentProfile
 
-# ---------------------------------------------------------------------------
-# Tokens
-# ---------------------------------------------------------------------------
+# -- tokens ------------------------------------------------------------------
+
+
+def revoke_tokens(user: User) -> None:
+    Token.objects.filter(user=user).delete()
 
 
 def issue_token(user: User, *, rotate: bool = False) -> str:
-    """Return the user's API token, optionally replacing any existing one.
-
-    Rotation matters after a credential change: DRF tokens never expire, so
-    without it a token stolen before a password reset stays valid forever
-    afterwards -- the reset would not actually lock the attacker out.
-    """
     if rotate:
-        Token.objects.filter(user=user).delete()
-        return Token.objects.create(user=user).key
+        with transaction.atomic():
+            revoke_tokens(user)
+            return Token.objects.create(user=user).key
     token, _ = Token.objects.get_or_create(user=user)
     return token.key
 
 
-# ---------------------------------------------------------------------------
-# One-time codes
-# ---------------------------------------------------------------------------
+# -- accounts ----------------------------------------------------------------
 
 
-def send_otp(phone: str) -> OTP:
-    """Issue a one-time code and text it to `phone`.
+def authenticate_user(*, password: str, phone: str) -> User:
+    """Phone plus password. Email is not an alternative identifier."""
+    user = User.objects.filter(phone=phone).first()
 
-    The send lives here rather than on `OTP.issue` so that creating an OTP row
-    is not, by itself, a network call: a model save that reaches an SMS
-    gateway is impossible to use from a fixture, a migration or a test without
-    stubbing the gateway out.
-    """
-    otp = OTP.issue(phone)
+    if user is None or not user.check_password(password):
+        raise ValidationError({"password": ["Invalid credentials."]})
+    if not user.is_active:
+        raise ValidationError({"password": ["This account has been deactivated."]})
+    return user
+
+
+def deactivate_user(user: User) -> None:
+    user.is_active = False
+    user.save(update_fields=["is_active"])
+    revoke_tokens(user)
+
+
+# -- one-time codes ----------------------------------------------------------
+
+
+def is_demo_phone(phone: str) -> bool:
+    """The reviewer number, which skips the send and takes a fixed code."""
+    return bool(settings.DEMO_PHONE) and phone == settings.DEMO_PHONE
+
+
+def send_otp(phone: str, purpose: str, meta: dict | None = None) -> OTP | None:
+    if is_demo_phone(phone):
+        return None
+    otp = OTP.issue(phone, purpose, meta=meta)
     get_sms_backend().send(phone, settings.SMS_OTP_TEMPLATE.format(code=otp.code))
     return otp
 
 
-def consume_otp(phone: str, code: str) -> None:
-    """Spend `code`, or raise if it is not the live one for `phone`.
-
-    This is a write -- a wrong guess burns an attempt, a right one marks the
-    code consumed -- which is why it is here and not in a serializer's
-    `validate()`, where it used to sit. Two things came of that:
-
-    * A validator that changes state reads as if it does not.
-    * `PasswordResetAPIView` consumed the code before it had checked the
-      phone belonged to anybody, so a perfectly good code was spent on an
-      error that had nothing to do with it. Callers now look the account up
-      first and call this last.
-    """
-    if not OTP.verify(phone, code):
+def consume_otp(phone: str, code: str, purpose: str) -> None:
+    if is_demo_phone(phone) and str(code or "") == settings.DEMO_OTP_CODE:
+        return
+    if not OTP.verify(phone, code, purpose):
         raise ValidationError({"otp": ["Invalid or expired OTP."]})
 
 
-# ---------------------------------------------------------------------------
-# Bulk import
-# ---------------------------------------------------------------------------
+def request_login_otp(phone: str, meta: dict | None = None) -> dict:
+    user = User.objects.filter(phone=phone).first()
+    wait = OTP.seconds_until_resend(phone)
+    if not wait:
+        send_otp(phone, OTP.Purpose.VERIFY, meta=meta)
+    return {
+        "user_exist": bool(user),
+        "password_exist": bool(user and user.has_usable_password()),
+        "resend_in": wait,
+    }
+
+
+# -- sign-up -----------------------------------------------------------------
+
+
+def verify_phone(phone: str, code: str) -> tuple[User, bool]:
+    """Consume a code; return the account and whether it is still to register."""
+    consume_otp(phone, code, OTP.Purpose.VERIFY)
+
+    user = User.objects.filter(phone=phone).first()
+    if user is None:
+        try:
+            with transaction.atomic():
+                user = User.objects.create_unverified(phone)
+        except IntegrityError:
+            user = User.objects.get(phone=phone)
+
+    user.phone_verified_at = timezone.now()
+    user.save(update_fields=["phone_verified_at"])
+
+    # No password means sign-up never finished, not that the phone is unverified.
+    return user, not user.has_usable_password()
+
+
+def register_user(
+    *,
+    user: User,
+    name: str,
+    password: str,
+    institution: str | None = None,
+    educational_session: str | None = None,
+) -> User:
+    """Fill in the profile of a phone that has just passed OTP verification."""
+    with transaction.atomic():
+        user = User.objects.select_for_update().filter(pk=user.pk).first()
+        if not user or not user.phone_verified_at:
+            raise ValidationError({"phone": ["Phone has not been verified via OTP."]})
+        if user.has_usable_password():
+            raise ValidationError({"phone": ["This phone number is already registered."]})
+        window = timezone.timedelta(seconds=settings.REGISTRATION_WINDOW_SECONDS)
+        if timezone.now() - user.phone_verified_at > window:
+            raise ValidationError({"phone": ["Phone verification has expired. Please verify your number again."]})
+
+        user.name = name
+        user.set_password(password)
+        user.save(update_fields=["name", "password"])
+
+        profile, _ = StudentProfile.objects.get_or_create(user=user)
+        if institution is not None:
+            profile.institution = institution
+        if educational_session is not None:
+            profile.educational_session = educational_session
+        profile.save()
+        # Blank, but present: `StudentProfileSerializer` reads the guardian's
+        # name and number through this relation, and an admin editing the
+        # student later expects a row to fill in rather than to create.
+        GuardianProfile.objects.get_or_create(student=profile)
+    return user
+
+
+# -- password reset ----------------------------------------------------------
+
+
+def start_password_reset(phone: str, meta: dict | None = None) -> None:
+    if not User.objects.filter(phone=phone).exists():
+        raise ValidationError({"phone": ["No account found with this phone number."]})
+
+    wait = OTP.seconds_until_resend(phone)
+    if wait:
+        raise Throttled(wait=wait)
+    send_otp(phone, OTP.Purpose.PASSWORD_RESET, meta=meta)
+
+
+def reset_password(*, phone: str, code: str, password: str) -> User:
+    user = User.objects.filter(phone=phone).first()
+    if not user:
+        raise ValidationError({"phone": ["No account found with this phone number."]})
+    consume_otp(phone, code, OTP.Purpose.PASSWORD_RESET)
+
+    user.set_password(password)
+    user.save(update_fields=["password"])
+    return user
+
+
+# -- bulk import -------------------------------------------------------------
+
+
+#: Header spellings accepted for each column. The `user_*` forms are what the
+#: admin panel's own export writes, so an exported sheet can be filled in and
+#: sent straight back.
+COLUMN_ALIASES = {
+    "phone": ("phone", "user_phone"),
+    "email": ("email", "user_email"),
+    "name": ("name", "user_name"),
+    "password": ("password", "user_password"),
+    "institution": ("institution", "user_institution"),
+}
+
+
+def _cell(record: dict, column: str) -> str:
+    return next((value for key in COLUMN_ALIASES[column] if (value := text(record, key))), "")
+
+
+def _import_rows(records: list[dict]) -> list[dict]:
+    return [
+        {
+            "phone": normalize_phone(_cell(record, "phone")),
+            "email": _cell(record, "email").lower() or None,
+            "name": _cell(record, "name"),
+            "password": _cell(record, "password"),
+            "institution": _cell(record, "institution"),
+        }
+        for record in records
+    ]
+
+
+def _rejection(row: dict, taken_phones: set, taken_emails: set) -> str | None:
+    """Why this row cannot become an account, or None if it can."""
+    if not row["phone"]:
+        return "invalid_phone"
+    if not row["name"]:
+        # A nameless account never reaches the roster; see `registered()`.
+        return "missing_name"
+    if row["phone"] in taken_phones or (row["email"] and row["email"] in taken_emails):
+        return "already_on_file"
+    if not row["password"]:
+        # This path issues no OTP, so the sheet has to supply the way in.
+        return "missing_password"
+    try:
+        validate_password(row["password"])
+    except DjangoValidationError:
+        return "weak_password"
+    return None
 
 
 @transaction.atomic
 def import_users(records: list[dict]) -> dict:
-    """Create student accounts from parsed spreadsheet rows.
+    """Create a student per row, reporting why any row was skipped."""
+    rows = _import_rows(records)
 
-    Returns `{created, skipped}`. A row is skipped when it has no phone, or
-    when its phone or email already belongs to somebody -- silently, because
-    re-uploading a sheet that partly overlaps the roster is the normal way
-    this screen gets used.
+    taken_phones = set(
+        User.objects.filter(phone__in={row["phone"] for row in rows if row["phone"]}).values_list("phone", flat=True)
+    )
+    taken_emails = set(
+        User.objects.annotate(canonical_email=Lower("email"))
+        .filter(canonical_email__in={row["email"] for row in rows if row["email"]})
+        .values_list("canonical_email", flat=True)
+    )
 
-    The existing keys are pulled up front rather than queried per row: the
-    original ran a uniqueness query for every line in the file and let a
-    duplicate email reach the database as an unhandled IntegrityError, i.e. a
-    500 halfway through an import.
-    """
-    taken_phones = set(User.objects.exclude(phone=None).values_list('phone', flat=True))
-    taken_emails = set(User.objects.exclude(email=None).values_list('email', flat=True))
-
-    created, skipped = 0, 0
-    for record in records:
-        # Normalised before the duplicate check, not after: the stored
-        # numbers are canonical, so a sheet holding +8801... would otherwise
-        # match nothing and re-create the whole roster.
-        phone = normalize_phone(text(record, 'phone'))
-        email = text(record, 'email') or None
-
-        if not phone or phone in taken_phones or (email and email in taken_emails):
-            skipped += 1
+    created, reasons = 0, Counter()
+    for row in rows:
+        if reason := _rejection(row, taken_phones, taken_emails):
+            reasons[reason] += 1
             continue
 
-        User.objects.create_user(
-            phone=phone,
-            name=text(record, 'name'),
-            email=email,
-            institution=text(record, 'institution') or None,
-            role=User.Role.STUDENT,
-        )
-        taken_phones.add(phone)
-        if email:
-            taken_emails.add(email)
+        institution, password = row.pop("institution"), row.pop("password")
+        user = User.objects.create_user(**row, password=password, role=User.Role.STUDENT)
+        profile = StudentProfile.objects.create(user=user, institution=institution)
+        GuardianProfile.objects.create(student=profile)
+
+        taken_phones.add(row["phone"])
+        if row["email"]:
+            taken_emails.add(row["email"])
         created += 1
 
-    return {'created': created, 'skipped': skipped}
+    return {"created": created, "skipped": sum(reasons.values()), "skipped_reasons": dict(reasons)}

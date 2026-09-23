@@ -1,13 +1,28 @@
+"""The academic taxonomy: ClassLevel > Group > Subject > Chapter > Topic, plus
+Batch as a cohort of one level.
+
+Each level `PROTECT`s the one above it, so nothing in use can be deleted;
+`is_active` is how you retire a row instead.
+
+The `*_count` fields are typed in, not derived -- nothing relates the question
+bank to these models, so there is nothing to count.
+
+Slugs may be typed in Bangla (see `apps.core.slugs.BanglaSlugField`) but are
+never *generated* as unicode: Django's `slugify` strips Bengali vowel marks,
+turning "সংখ্যা পদ্ধতি" into "সখয-পদধত". A blank slug falls back to the ASCII
+transliteration.
+"""
+
 from django.db import models
 
-from apps.core.slugs import ascii_slug, unique_slug
+from apps.core.slugs import BanglaSlugField, ascii_slug, unique_slug
 
 
 class ClassLevel(models.Model):
     """An education level: class 6, SSC, Dakhil, HSC, Alim, Admission."""
 
     name = models.CharField("Name", max_length=100, unique=True)
-    slug = models.SlugField("Slug", max_length=120, unique=True, blank=True)
+    slug = BanglaSlugField("Slug", max_length=120, unique=True, blank=True)
     group_count = models.PositiveIntegerField("Group Count", default=0)
     subject_count = models.PositiveIntegerField("Subject Count", default=0)
     question_count = models.PositiveIntegerField("Question Count", default=0)
@@ -33,11 +48,12 @@ class Group(models.Model):
     """A branch of study: Science, Arts, Commerce, General.
 
     Named `Group` rather than `Section` because `courses.Section` is already a
-    chapter of a course; `verbose_name` keeps it distinct from `auth.Group`.
+    chapter of a course. The Django admin lists it under Academic, which is
+    what separates it from `auth.Group`.
     """
 
     name = models.CharField("Name", max_length=100, unique=True)
-    slug = models.SlugField("Slug", max_length=120, unique=True, blank=True)
+    slug = BanglaSlugField("Slug", max_length=120, unique=True, blank=True)
     subject_count = models.PositiveIntegerField("Subject Count", default=0)
     question_count = models.PositiveIntegerField("Question Count", default=0)
     chapter_count = models.PositiveIntegerField("Chapter Count", default=0)
@@ -46,8 +62,6 @@ class Group(models.Model):
 
     class Meta:
         ordering = ["order", "name"]
-        verbose_name = "Academic Group"
-        verbose_name_plural = "Academic Groups"
 
     def __str__(self):
         return self.name
@@ -67,13 +81,11 @@ class Subject(models.Model):
     """
 
     name = models.CharField("Name", max_length=100)
-    slug = models.SlugField("Slug", max_length=160, unique=True, blank=True)
+    slug = BanglaSlugField("Slug", max_length=160, unique=True, blank=True)
     class_level = models.ForeignKey(
         ClassLevel, on_delete=models.PROTECT, related_name="subjects", verbose_name="Education Level"
     )
-    group = models.ForeignKey(
-        Group, on_delete=models.PROTECT, related_name="subjects", verbose_name="Academic Group"
-    )
+    group = models.ForeignKey(Group, on_delete=models.PROTECT, related_name="subjects")
     question_count = models.PositiveIntegerField("Question Count", default=0)
     chapter_count = models.PositiveIntegerField("Chapter Count", default=0)
     is_active = models.BooleanField("Active", default=True)
@@ -84,9 +96,7 @@ class Subject(models.Model):
         verbose_name = "Subject"
         verbose_name_plural = "Subjects"
         constraints = [
-            models.UniqueConstraint(
-                fields=["name", "class_level", "group"], name="unique_subject_per_level_and_group"
-            )
+            models.UniqueConstraint(fields=["name", "class_level", "group"], name="unique_subject_per_level_and_group")
         ]
 
     def __str__(self):
@@ -101,6 +111,66 @@ class Subject(models.Model):
         super().save(*args, **kwargs)
 
 
+class Chapter(models.Model):
+    """A chapter within a subject.
+
+    Uniqueness is carried by the slug alone: two chapters of one subject may
+    share a `chapter_number` or a `name`, and the second is suffixed rather
+    than rejected.
+    """
+
+    subject = models.ForeignKey(Subject, on_delete=models.PROTECT, related_name="chapters", verbose_name="Subject")
+    name = models.CharField("Name", max_length=200)
+    slug = BanglaSlugField("Slug", max_length=220, unique=True, blank=True)
+    chapter_number = models.PositiveSmallIntegerField("Chapter Number", default=0)
+    question_count = models.PositiveIntegerField("Question Count", default=0)
+    is_locked = models.BooleanField(
+        "Locked",
+        default=False,
+        help_text=(
+            "Locked chapters appear in lists with is_locked=True so clients can render "
+            "a lock badge. Does not gate question access by itself."
+        ),
+    )
+    is_active = models.BooleanField("Active", default=True)
+
+    class Meta:
+        ordering = ["chapter_number", "name", "id"]
+        indexes = [models.Index(fields=["subject", "chapter_number"])]
+        verbose_name = "Chapter"
+        verbose_name_plural = "Chapters"
+
+    def __str__(self):
+        return f"{self.chapter_number}. {self.name} ({self.subject})"
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            self.slug = unique_slug(self, f"{ascii_slug(self.name)}-{self.subject.slug}")
+        super().save(*args, **kwargs)
+
+
+class Topic(models.Model):
+    """A topic within a chapter -- the most granular curriculum unit."""
+
+    chapter = models.ForeignKey(Chapter, on_delete=models.PROTECT, related_name="topics", verbose_name="Chapter")
+    name = models.CharField("Name", max_length=200)
+    slug = BanglaSlugField("Slug", max_length=220, unique=True, blank=True)
+    is_active = models.BooleanField("Active", default=True)
+
+    class Meta:
+        ordering = ["name", "id"]
+        verbose_name = "Topic"
+        verbose_name_plural = "Topics"
+
+    def __str__(self):
+        return f"{self.name} ({self.chapter})"
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            self.slug = unique_slug(self, f"{ascii_slug(self.name)}-{self.chapter.slug}")
+        super().save(*args, **kwargs)
+
+
 class Batch(models.Model):
     """A cohort taking one education level: "SSC-2027", "HSC-2028".
 
@@ -109,7 +179,7 @@ class Batch(models.Model):
     """
 
     name = models.CharField("Name", max_length=100)
-    slug = models.SlugField("Slug", max_length=160, unique=True, blank=True)
+    slug = BanglaSlugField("Slug", max_length=160, unique=True, blank=True)
     class_level = models.ForeignKey(
         ClassLevel, on_delete=models.PROTECT, related_name="batches", verbose_name="Education Level"
     )
@@ -120,9 +190,7 @@ class Batch(models.Model):
         ordering = ["order", "name", "id"]
         verbose_name = "Batch"
         verbose_name_plural = "Batches"
-        constraints = [
-            models.UniqueConstraint(fields=["name", "class_level"], name="unique_batch_per_level")
-        ]
+        constraints = [models.UniqueConstraint(fields=["name", "class_level"], name="unique_batch_per_level")]
 
     def __str__(self):
         return f"{self.name} ({self.class_level})"

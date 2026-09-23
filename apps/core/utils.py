@@ -31,8 +31,6 @@ def scrub_headers(headers) -> dict:
     Never log an Authorization value -- log only whether one was sent.
     """
     return {
-        key: ('<set>' if str(value).strip() else '<none>')
-        if key.lower() in SENSITIVE_HEADERS
-        else truncate(value)
+        key: ('<set>' if str(value).strip() else '<none>') if key.lower() in SENSITIVE_HEADERS else truncate(value)
         for key, value in dict(headers).items()
     }

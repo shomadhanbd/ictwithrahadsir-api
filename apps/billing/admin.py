@@ -42,7 +42,11 @@ class OrderAdmin(TimestampedAdmin):
     # An order is looked up by who placed it far more often than by its id,
     # and the phone number is what a student quotes on the phone.
     search_fields = (
-        'id', 'item_title', 'user__name', 'user__phone', 'user__email',
+        'id',
+        'item_title',
+        'user__name',
+        'user__phone',
+        'user__email',
         'payments__transaction_id',
     )
     date_hierarchy = 'created_at'
@@ -62,13 +66,22 @@ class OrderAdmin(TimestampedAdmin):
 @admin.register(Payment)
 class PaymentAdmin(TimestampedAdmin):
     list_display = (
-        'id', 'transaction_id', 'payer', 'amount', 'order_amount',
-        'vendor', 'status', 'created_at',
+        'id',
+        'transaction_id',
+        'payer',
+        'amount',
+        'order_amount',
+        'vendor',
+        'status',
+        'created_at',
     )
     list_filter = ('status', 'vendor', 'created_at')
     search_fields = (
-        'transaction_id', 'order__id',
-        'order__user__name', 'order__user__phone', 'order__user__email',
+        'transaction_id',
+        'order__id',
+        'order__user__name',
+        'order__user__phone',
+        'order__user__email',
     )
     date_hierarchy = 'created_at'
     ordering = ('-created_at',)
@@ -93,9 +106,7 @@ class PaymentAdmin(TimestampedAdmin):
         should see it before confirming, not after.
         """
         if payment.amount != payment.order.amount:
-            return format_html(
-                '<span style="color:#b32d2e;font-weight:600">{}</span>', payment.order.amount
-            )
+            return format_html('<span style="color:#b32d2e;font-weight:600">{}</span>', payment.order.amount)
         return payment.order.amount
 
     def _apply(self, request, queryset, status, verb):

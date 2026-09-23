@@ -1,16 +1,16 @@
 """Root URLconf.
 
-The API is served under `/api/v1/` -- versioned, resource-oriented,
-trailing slashes. The original flat paths (`/api/login`, `/api/admin/user`,
-...) were carried for one release as deprecated aliases and have now been
-removed; both frontends call the versioned paths.
+The API is served under `/api/`, split by audience: `/api/private/` is the
+back-office panel, `/api/public/` is the client app. The prefix names *which
+frontend* calls a route, not whether it needs a token -- `public/me/` and
+`public/orders/` both require one.
 
 Resources are named for the domain rather than for the Django app that
-happens to own them, so `notices` can move out of `cms` without breaking a
-client.
+happens to own them, so `notices` can move out of `content` without breaking
+a client.
 
-Adding v2 means copying `apps/<app>/api/v1/` to `api/v2/` and adding one
-`path()` here; v1 keeps serving untouched.
+Deliberately unversioned: both consumers ship from this repo, so a breaking
+change is a coordinated deploy rather than a second URL tree to keep alive.
 """
 
 from django.conf import settings
@@ -24,17 +24,20 @@ from drf_spectacular.views import (
     SpectacularSwaggerView,
 )
 
-from apps.core.api.v1.views import LocalMediaUploadView
+from apps.core.api.private.views import LocalMediaUploadView
 
-# Each app's api/urls.py carries its own namespace and includes its
-# versioned module, so routes reverse as `api:<app>:v1:<route_name>`.
-api_v1_patterns = (
+# Each app's api/urls.py carries its own namespace and assembles its
+# private/public halves, so routes reverse as `api:<app>:<route_name>`.
+api_patterns = (
     [
         path('', include('apps.core.api.urls')),
+        path('', include('apps.academic.api.urls')),
+        path('', include('apps.question.api.urls')),
+        path('', include('apps.profiles.api.urls')),
         path('', include('apps.identity.api.urls')),
-        path('', include('apps.faculty.api.urls')),
         path('', include('apps.courses.api.urls')),
         path('', include('apps.assessment.api.urls')),
+        path('', include('apps.exam.api.urls')),
         path('', include('apps.billing.api.urls')),
         path('', include('apps.store.api.urls')),
         path('', include('apps.content.api.urls')),
@@ -44,18 +47,18 @@ api_v1_patterns = (
 )
 
 urlpatterns = [
-    path('django-admin/', admin.site.urls),
+    path('admin/', admin.site.urls),
     # Not versioned and not deprecated. This path is baked into the absolute
     # URLs already written into image/file columns across the database, so it
     # has to keep resolving for as long as those rows exist -- moving it
-    # under /api/v1/ would orphan every previously uploaded file. re_path
+    # under /api/ would orphan every previously uploaded file. re_path
     # because an object key may contain slashes ("<folder>/<file>.png").
     re_path(
         r'^api/media-upload/(?P<name>.+)$',
         LocalMediaUploadView.as_view(),
         name='local-media-upload',
     ),
-    path('api/v1/', include(api_v1_patterns)),
+    path('api/', include(api_patterns)),
     # Generated from the serializers, so it cannot drift from the code the
     # way a hand-written document would. Deliberately outside the `api`
     # namespace above: these are documentation, not endpoints a client calls.

@@ -45,8 +45,13 @@ class QuestionAdmin(TimestampedAdmin):
 @admin.register(Exam)
 class ExamAdmin(TimestampedAdmin):
     list_display = (
-        'pk', 'content', 'mode', 'total_marks', 'pass_marks',
-        'duration_minutes', 'results_published',
+        'pk',
+        'content',
+        'mode',
+        'total_marks',
+        'pass_marks',
+        'duration_minutes',
+        'results_published',
     )
     list_filter = ('mode', 'start_time', 'result_publish_time')
     # Needed for ExamAttempt's autocomplete on `exam`.
@@ -75,7 +80,10 @@ class ExamAttemptAdmin(ReadOnlyAdmin):
     list_display = ('id', 'student', 'exam', 'marks', 'duration', 'submitted', 'created_at')
     list_filter = ('submitted', 'created_at', 'exam')
     search_fields = (
-        'user__name', 'user__phone', 'user__email', 'exam__content__title',
+        'user__name',
+        'user__phone',
+        'user__email',
+        'exam__content__title',
     )
     ordering = ('-created_at',)
     date_hierarchy = 'created_at'

@@ -1,7 +1,7 @@
 """Flat `exam_*` compatibility for the admin content endpoint.
 
 The admin panel reads and writes ten flat `exam_*` keys on
-`/api/v1/admin/contents/`. Those names are contract, but the fields now
+`/api/admin/contents/`. Those names are contract, but the fields now
 live on `assessment.Exam` rather than on `courses.Content`.
 
 The knowledge sits here rather than in `courses` so the courses serializer

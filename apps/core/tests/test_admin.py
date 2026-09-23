@@ -149,9 +149,7 @@ class AdminQueryBudgetTests(TestCase):
         def make_row():
             i = next(counter)
             user = User.objects.create_user(phone=f'0181080{i:04d}', name=f'B{i}')
-            order = Order.objects.create(
-                user=user, course=course, amount=Decimal('100'), total=Decimal('100')
-            )
+            order = Order.objects.create(user=user, course=course, amount=Decimal('100'), total=Decimal('100'))
             Payment.objects.create(order=order, amount=Decimal('100'), transaction_id=f'TRX{i}')
 
         self._assert_flat('billing', 'payment', make_row)
@@ -185,9 +183,7 @@ class AdminQueryBudgetTests(TestCase):
 
         course = Course.objects.create(title='ICT', active=True)
         section = Section.objects.create(course=course, title='S1')
-        content = Content.objects.create(
-            course=course, section=section, title='Exam', type=Content.Type.EXAM
-        )
+        content = Content.objects.create(course=course, section=section, title='Exam', type=Content.Type.EXAM)
         exam = Exam.objects.create(content=content)
         counter = iter(range(1000))
 

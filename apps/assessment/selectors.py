@@ -31,9 +31,7 @@ def practice_banks_with_counts():
     banks = list(QuestionBank.objects.all())
 
     # One query for the direct count per folder...
-    direct = dict(
-        Question.objects.values_list('bank_id').annotate(n=Count('id')).values_list('bank_id', 'n')
-    )
+    direct = dict(Question.objects.values_list('bank_id').annotate(n=Count('id')).values_list('bank_id', 'n'))
 
     # ...then roll the counts up the tree in Python.
     children = defaultdict(list)

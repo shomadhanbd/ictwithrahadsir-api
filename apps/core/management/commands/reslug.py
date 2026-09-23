@@ -43,10 +43,8 @@ class Command(BaseCommand):
     help = "Regenerate slugs that fell back to 'item'/'product' under the old slugify."
 
     def add_arguments(self, parser):
-        parser.add_argument("--apply", action="store_true",
-                            help="Write the new slugs (default is a dry run).")
-        parser.add_argument("--all", action="store_true",
-                            help="Consider every row, not just broken slugs.")
+        parser.add_argument("--apply", action="store_true", help="Write the new slugs (default is a dry run).")
+        parser.add_argument("--all", action="store_true", help="Consider every row, not just broken slugs.")
 
     def handle(self, *args, **options):
         apply_changes = options["apply"]
@@ -81,8 +79,7 @@ class Command(BaseCommand):
                 if not changes:
                     continue
 
-                self.stdout.write(self.style.MIGRATE_HEADING(
-                    f"\n{model.__name__} ({len(changes)})"))
+                self.stdout.write(self.style.MIGRATE_HEADING(f"\n{model.__name__} ({len(changes)})"))
                 for obj, old, new in changes:
                     self.stdout.write(f"  {old or '(blank)':<24} -> {new}")
                     if apply_changes:
@@ -98,5 +95,6 @@ class Command(BaseCommand):
         elif apply_changes:
             self.stdout.write(self.style.SUCCESS(f"\nRewrote {total} slugs."))
         else:
-            self.stdout.write(self.style.WARNING(
-                f"\nDry run: {total} slugs would change. Re-run with --apply to write them."))
+            self.stdout.write(
+                self.style.WARNING(f"\nDry run: {total} slugs would change. Re-run with --apply to write them.")
+            )

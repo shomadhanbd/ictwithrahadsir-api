@@ -16,37 +16,94 @@ So we transliterate Bengali to ASCII first, then hand the result to
 `slugify()` as usual. Output is stable, unique-able and route-safe.
 """
 
+from django import forms
+from django.core import validators as django_validators
+from django.core.validators import RegexValidator
+from django.db import models
 from django.utils.text import slugify
 
 # Independent vowels.
 VOWELS = {
-    "অ": "o", "আ": "a", "ই": "i", "ঈ": "i", "উ": "u", "ঊ": "u",
-    "ঋ": "ri", "এ": "e", "ঐ": "oi", "ও": "o", "ঔ": "ou",
+    "অ": "o",
+    "আ": "a",
+    "ই": "i",
+    "ঈ": "i",
+    "উ": "u",
+    "ঊ": "u",
+    "ঋ": "ri",
+    "এ": "e",
+    "ঐ": "oi",
+    "ও": "o",
+    "ঔ": "ou",
 }
 
 # Dependent vowel signs (matras), which replace a consonant's inherent "a".
 MATRAS = {
-    "া": "a", "ি": "i", "ী": "i", "ু": "u", "ূ": "u", "ৃ": "ri",
-    "ে": "e", "ৈ": "oi", "ো": "o", "ৌ": "ou",
+    "া": "a",
+    "ি": "i",
+    "ী": "i",
+    "ু": "u",
+    "ূ": "u",
+    "ৃ": "ri",
+    "ে": "e",
+    "ৈ": "oi",
+    "ো": "o",
+    "ৌ": "ou",
 }
 
 CONSONANTS = {
-    "ক": "k", "খ": "kh", "গ": "g", "ঘ": "gh", "ঙ": "ng",
-    "চ": "ch", "ছ": "chh", "জ": "j", "ঝ": "jh", "ঞ": "n",
-    "ট": "t", "ঠ": "th", "ড": "d", "ঢ": "dh", "ণ": "n",
-    "ত": "t", "থ": "th", "দ": "d", "ধ": "dh", "ন": "n",
-    "প": "p", "ফ": "ph", "ব": "b", "ভ": "bh", "ম": "m",
-    "য": "z", "র": "r", "ল": "l",
-    "শ": "sh", "ষ": "sh", "স": "s", "হ": "h",
-    "ড়": "r", "ঢ়": "rh", "য়": "y", "ৎ": "t",
+    "ক": "k",
+    "খ": "kh",
+    "গ": "g",
+    "ঘ": "gh",
+    "ঙ": "ng",
+    "চ": "ch",
+    "ছ": "chh",
+    "জ": "j",
+    "ঝ": "jh",
+    "ঞ": "n",
+    "ট": "t",
+    "ঠ": "th",
+    "ড": "d",
+    "ঢ": "dh",
+    "ণ": "n",
+    "ত": "t",
+    "থ": "th",
+    "দ": "d",
+    "ধ": "dh",
+    "ন": "n",
+    "প": "p",
+    "ফ": "ph",
+    "ব": "b",
+    "ভ": "bh",
+    "ম": "m",
+    "য": "z",
+    "র": "r",
+    "ল": "l",
+    "শ": "sh",
+    "ষ": "sh",
+    "স": "s",
+    "হ": "h",
+    "ড়": "r",
+    "ঢ়": "rh",
+    "য়": "y",
+    "ৎ": "t",
 }
 
 # Marks that attach to a consonant without contributing a vowel.
 SIGNS = {"ং": "ng", "ঃ": "h", "ঁ": "n"}
 
 DIGITS = {
-    "০": "0", "১": "1", "২": "2", "৩": "3", "৪": "4",
-    "৫": "5", "৬": "6", "৭": "7", "৮": "8", "৯": "9",
+    "০": "0",
+    "১": "1",
+    "২": "2",
+    "৩": "3",
+    "৪": "4",
+    "৫": "5",
+    "৬": "6",
+    "৭": "7",
+    "৮": "8",
+    "৯": "9",
 }
 
 HASANT = "্"  # virama: suppresses the inherent vowel, joining consonants
@@ -137,3 +194,57 @@ def unique_slug(instance, base_text, slug_field="slug", fallback="item"):
     while f"{base}-{suffix}" in taken:
         suffix += 1
     return f"{base}-{suffix}"
+
+
+#: Django's unicode slug validator is `^[-\w]+\Z`, and `\w` excludes the
+#: combining vowel marks almost every Bangla word carries -- `বিজ্ঞান` is
+#: rejected, `কম` is not. Widening it by the Bengali block is what makes a
+#: typed Bangla slug possible at all.
+BENGALI_BLOCK = "\u0980-\u09ff"
+
+validate_bangla_slug = RegexValidator(
+    rf"^[-\w{BENGALI_BLOCK}]+\Z",
+    "Enter a valid slug consisting of letters, numbers, underscores or hyphens.",
+    "invalid",
+)
+
+#: Whichever of these Django installed, it rejects Bangla.
+STOCK_SLUG_VALIDATORS = (
+    django_validators.validate_slug,
+    django_validators.validate_unicode_slug,
+)
+
+
+def swap_slug_validator(field):
+    """Put `validate_bangla_slug` in place of Django's, on a model or form field.
+
+    Edited in place rather than via `default_validators`: `CharField.__init__`
+    already reads `field.validators` to append a `MaxLengthValidator`, which
+    materialises the `cached_property`, so assigning `default_validators`
+    afterwards is never consulted.
+    """
+    field.validators[:] = [v for v in field.validators if v not in STOCK_SLUG_VALIDATORS] + [validate_bangla_slug]
+
+
+class BanglaSlugFormField(forms.SlugField):
+    """The form half -- a model field's validators never reach the form."""
+
+    def __init__(self, **kwargs):
+        kwargs.setdefault("allow_unicode", True)
+        super().__init__(**kwargs)
+        swap_slug_validator(self)
+
+
+class BanglaSlugField(models.SlugField):
+    """A `SlugField` that also accepts Bengali.
+
+    Only widens what a human may type; `unique_slug` still generates ASCII.
+    """
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("allow_unicode", True)
+        super().__init__(*args, **kwargs)
+        swap_slug_validator(self)
+
+    def formfield(self, **kwargs):
+        return super().formfield(**{"form_class": BanglaSlugFormField, **kwargs})

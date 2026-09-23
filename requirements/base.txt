@@ -9,12 +9,12 @@ botocore==1.43.52
 certifi==2026.6.17
 charset-normalizer==3.4.9
 dj-database-url==3.1.2
-Django==5.0.14
+Django==6.1.1
 django-cors-headers==4.9.0
 django-environ==0.14.0
-django-filter==25.1
+django-filter==26.1
 django-storages==1.14.6
-djangorestframework==3.17.1
+djangorestframework==3.18.1
 # OpenAPI schema + Swagger UI. In base rather than local because the
 # docs endpoints are served in every environment.
 drf-spectacular==0.30.0
@@ -27,6 +27,10 @@ idna==3.18
 jmespath==1.1.0
 openpyxl==3.1.5
 packaging==26.2
+# Phone parsing/validation (Google's libphonenumber). `apps.identity.phones`
+# uses it to refuse a number that is not a real Bangladeshi mobile.
+django-phonenumber-field==8.5.0
+phonenumbers==9.0.38
 pillow==12.3.0
 python-dateutil==2.9.0.post0
 requests==2.34.2

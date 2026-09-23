@@ -10,7 +10,7 @@ The effect is not cosmetic. `apps/courses/selectors.py::course_progress`
 counts completions by course, so a moved lesson silently kept crediting
 students on the course it left and never credited them on the one it joined.
 
-Signal rather than service for the same reason as `apps/faculty/signals.py`:
+Signal rather than service:
 a `Content` is saved from `AdminContentViewSet` (a `ModelViewSet`), the
 Django admin and the seed command, with no shared chokepoint to hang a
 service call on.
@@ -29,6 +29,6 @@ def realign_content_completions(sender, instance, created, **kwargs):
         # Nothing can have completed a lesson that did not exist.
         return
 
-    ContentCompletion.objects.filter(content=instance).exclude(
+    ContentCompletion.objects.filter(content=instance).exclude(course_id=instance.course_id).update(
         course_id=instance.course_id
-    ).update(course_id=instance.course_id)
+    )

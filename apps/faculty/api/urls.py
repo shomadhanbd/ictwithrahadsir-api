@@ -1,9 +1,0 @@
-from django.urls import include, path
-
-app_name = 'faculty'
-
-urlpatterns = [
-    # Mounted at '' so the emitted paths stay exactly where both frontends
-    # already call them.
-    path('', include('apps.faculty.api.v1.urls')),
-]

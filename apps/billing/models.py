@@ -14,12 +14,8 @@ class Order(TimestampModel):
         CANCELLED = "cancelled", "Cancelled"
 
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="orders")
-    course = models.ForeignKey(
-        Course, on_delete=models.SET_NULL, null=True, blank=True, related_name="orders"
-    )
-    price = models.ForeignKey(
-        CoursePrice, on_delete=models.SET_NULL, null=True, blank=True, related_name="orders"
-    )
+    course = models.ForeignKey(Course, on_delete=models.SET_NULL, null=True, blank=True, related_name="orders")
+    price = models.ForeignKey(CoursePrice, on_delete=models.SET_NULL, null=True, blank=True, related_name="orders")
     product = models.ForeignKey(
         "store.Product", on_delete=models.SET_NULL, null=True, blank=True, related_name="orders"
     )

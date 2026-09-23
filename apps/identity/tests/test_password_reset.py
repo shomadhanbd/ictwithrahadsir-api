@@ -1,33 +1,31 @@
-"""Resetting a forgotten password, and what that must not let through."""
-
 from rest_framework.authtoken.models import Token
 
-from apps.core.tests.base import ThrottledAPITestCase
 from apps.identity.models import OTP, User
 from apps.identity.tests.base import (
     FORGET_PASSWORD_URL,
     ME_URL,
     PASSWORD_RESET_URL,
+    FixedOtpCodeTestCase,
     latest_code,
 )
 
 
-class PasswordResetTests(ThrottledAPITestCase):
+class PasswordResetTests(FixedOtpCodeTestCase):
     def setUp(self):
         super().setUp()
-        self.user = User.objects.create_user(
-            phone="01810003333", name="Student", password="Str0ngPass!23"
-        )
+        self.user = User.objects.create_user(phone="01810003333", name="Student", password="Str0ngPass!23")
 
     def test_forget_password_requires_known_phone(self):
         response = self.client.post(
-            FORGET_PASSWORD_URL, {"phone": "01800000000"},
+            FORGET_PASSWORD_URL,
+            {"phone": "01800000000"},
         )
         self.assertEqual(response.status_code, 422)
 
     def test_forget_password_issues_otp(self):
         response = self.client.post(
-            FORGET_PASSWORD_URL, {"phone": self.user.phone},
+            FORGET_PASSWORD_URL,
+            {"phone": self.user.phone},
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"message": "OTP sent."})
@@ -35,7 +33,8 @@ class PasswordResetTests(ThrottledAPITestCase):
 
     def test_password_reset_changes_the_password(self):
         self.client.post(
-            FORGET_PASSWORD_URL, {"phone": self.user.phone},
+            FORGET_PASSWORD_URL,
+            {"phone": self.user.phone},
         )
         response = self.client.post(
             PASSWORD_RESET_URL,
@@ -55,8 +54,10 @@ class PasswordResetTests(ThrottledAPITestCase):
         response = self.client.post(
             PASSWORD_RESET_URL,
             {
-                "phone": self.user.phone, "otp": "000000",
-                "password": "a", "password_confirmation": "b",
+                "phone": self.user.phone,
+                "otp": "000000",
+                "password": "N3wStr0ng!pass",
+                "password_confirmation": "D1fferent!pass",
             },
         )
         self.assertEqual(response.status_code, 422)
@@ -66,22 +67,24 @@ class PasswordResetTests(ThrottledAPITestCase):
         response = self.client.post(
             PASSWORD_RESET_URL,
             {
-                "phone": self.user.phone, "otp": "000000",
-                "password": "N3wStr0ng!pass", "password_confirmation": "N3wStr0ng!pass",
+                "phone": self.user.phone,
+                "otp": "000000",
+                "password": "N3wStr0ng!pass",
+                "password_confirmation": "N3wStr0ng!pass",
             },
         )
         self.assertEqual(response.status_code, 422)
         self.assertIn("otp", response.json()["errors"])
 
-class PasswordResetSecurityTests(ThrottledAPITestCase):
+
+class PasswordResetSecurityTests(FixedOtpCodeTestCase):
     def setUp(self):
         super().setUp()
-        self.user = User.objects.create_user(
-            phone="01810004321", name="Student", password="Str0ngPass!23"
-        )
+        self.user = User.objects.create_user(phone="01810004321", name="Student", password="Str0ngPass!23")
         self.stale_token = Token.objects.create(user=self.user).key
         self.client.post(
-            FORGET_PASSWORD_URL, {"phone": self.user.phone},
+            FORGET_PASSWORD_URL,
+            {"phone": self.user.phone},
         )
 
     def _reset(self, password):
@@ -96,8 +99,6 @@ class PasswordResetSecurityTests(ThrottledAPITestCase):
         )
 
     def test_weak_password_is_rejected(self):
-        # The register path always ran the configured validators; the reset
-        # path did not, so any strength rule could be sidestepped.
         response = self._reset("1234")
         self.assertEqual(response.status_code, 422)
         self.assertIn("password", response.json()["errors"])
@@ -105,19 +106,13 @@ class PasswordResetSecurityTests(ThrottledAPITestCase):
         self.assertTrue(self.user.check_password("Str0ngPass!23"))
 
     def test_a_rejected_password_does_not_burn_the_code(self):
-        """The code used to be spent inside the serializer's `validate()`,
-        which ran before anything else could reject the request. A user who
-        typed a too-weak password lost the code they had just been texted and
-        had to sit out the resend cooldown to get another."""
         self.assertEqual(self._reset("1234").status_code, 422)
 
-        # The same code still works, which is the whole point.
         self.assertEqual(self._reset("N3wStr0ng!pass").status_code, 200)
         self.user.refresh_from_db()
         self.assertTrue(self.user.check_password("N3wStr0ng!pass"))
 
     def test_an_unknown_phone_does_not_burn_the_code(self):
-        """Same rule, other cause: the account is checked before the code."""
         response = self.client.post(
             PASSWORD_RESET_URL,
             {

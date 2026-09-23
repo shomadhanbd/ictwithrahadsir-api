@@ -44,9 +44,7 @@ def add_to_cart(*, user, product_id) -> CartItem:
 @transaction.atomic
 def adjust_cart_quantity(*, user, product_id, action: str) -> None:
     """Step a basket line up or down; a line stepped to zero is removed."""
-    item = (
-        CartItem.objects.select_for_update().for_user(user).filter(product_id=product_id).first()
-    )
+    item = CartItem.objects.select_for_update().for_user(user).filter(product_id=product_id).first()
     if not item:
         raise NotFound('Item is not in the cart.')
 

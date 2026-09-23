@@ -30,12 +30,16 @@ backend (just set `BACKEND_URL` / `NEXT_PUBLIC_BACKEND_URL` to this API's
 apps/
   core/        infrastructure only: DRF plumbing (auth, pagination,
                permissions, throttling, fields, error envelope), slugs,
-               middleware, SMS services, uploads, management commands
+               phone parsing, middleware, SMS services, uploads, commands
+  academic/    Subject, ClassLevel and Group (science/arts/commerce) -- the
+               small admin-managed lists the profiles are tagged with
+  profiles/    TeacherProfile, StudentProfile and GuardianProfile: who a
+               person is, as distinct from how they sign in
   identity/    User (phone+OTP and email+password auth), OTP, admin user CRUD
-  faculty/     Teacher roster and CourseInstructor, their per-course
-               assignment with commission
+               -- authentication and nothing else
   courses/     Course, CourseCategory, CoursePrice, Coupon, Routine,
-               Section/Content tree, Enrollment, CourseMaterial
+               Section/Content tree, Enrollment, CourseMaterial, and
+               CourseTeacher, a teacher's assignment to one course
   assessment/  Exam, QuestionBank, Question, ExamAttempt -- exam taking,
                results and ranking
   billing/     Order, Payment, and the admin dashboard aggregates
@@ -47,27 +51,37 @@ apps/
 Each app owns one domain and is named after it. Apps depend downward only:
 billing and store depend on courses, courses never depends on them (see
 apps/courses/selectors.py for the one inverted read).
+
+`profiles` sits *below* `identity`, not above it: it reaches the user only
+through `settings.AUTH_USER_MODEL` and imports nothing from `identity`, while
+`identity`'s serializers import it to keep emitting the nested `student` block.
+That one-way arrow is what keeps the two acyclic -- reversing it is the failure
+mode to watch for, and `python manage.py test apps.core` will not catch it.
 ```
 
 Every `/admin/*` endpoint requires a token belonging to a `staff`, `admin`,
-or `instructor` user (`apps.core.api.permissions.IsAdminRole`). Everything else
+or `teacher` user (`apps.core.api.permissions.IsAdminRole`). Everything else
 is public read / authenticated write per-resource, matching how the existing
 frontends already call the API.
 
-Endpoints that instructors must *not* reach layer something stricter on top:
+Endpoints that teachers must *not* reach layer something stricter on top:
 `IsFullAdmin` for admin-only resources, or a resource-specific permission
 such as `apps.identity.api.v1.permissions.CanManageUsers`, which lets an
-instructor manage students but not admins and not deletions. Those rules
+teacher manage students but not admins and not deletions. Those rules
 belong in a permission class and nowhere else -- a serializer only runs on
 create and update, so guards written there do not cover `DELETE`.
 
 ## Architecture
 
-See **[ARCHITECTURE.md](ARCHITECTURE.md)** for the internal layering — which
-layer owns what, the dependency rules between apps, naming conventions, the
-query-cost rules, and the three test guards that pin the API contract.
+Apps depend downward only. `core` is infrastructure and imports no domain app;
+`academic` and `profiles` sit below `identity`, which imports them rather than
+the reverse; `billing` and `store` depend on `courses`, never the other way
+(see `apps/courses/selectors.py` for the one inverted read).
 
-Read it before adding an endpoint.
+Three test guards pin the contract and should not be relaxed to make a change
+pass: `test_url_contract` (the served paths), `test_response_shapes` (the
+frozen payload key lists), and `test_query_budget` (the per-endpoint query
+ceilings).
 
 ## API documentation
 
@@ -85,12 +99,11 @@ generates with **zero errors**; keep it that way. A new `APIView` that
 neither declares `serializer_class` nor carries `@extend_schema` will emit an
 error and be omitted from the docs entirely.
 
-There are four standing warnings, all of them enum-naming collisions between
-same-named choice fields on unrelated models (`type` on `Content`/`Teacher`,
-`status`, `Coupon.discount_type`). They are cosmetic -- the schema is correct
--- and clearing them means adding `ENUM_NAME_OVERRIDES` to
-`SPECTACULAR_SETTINGS`. Treat the count as the baseline: a fifth warning is a
-new problem.
+There are three standing warnings, all of them enum-naming collisions between
+same-named choice fields on unrelated models (`type`, `status`,
+`Coupon.discount_type`). They are cosmetic -- the schema is correct -- and
+clearing them means adding `ENUM_NAME_OVERRIDES` to `SPECTACULAR_SETTINGS`.
+Treat the count as the baseline: a fourth warning is a new problem.
 
 ## Code style
 

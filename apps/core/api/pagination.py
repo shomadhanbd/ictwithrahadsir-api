@@ -35,9 +35,7 @@ class LaravelStylePageNumberPagination(PageNumberPagination):
         def page_url(page_number):
             if page_number is None:
                 return None
-            return self.request.build_absolute_uri(
-                f"{request.path}?{self._replace_page_param(page_number)}"
-            )
+            return self.request.build_absolute_uri(f"{request.path}?{self._replace_page_param(page_number)}")
 
         page_links = [
             {
@@ -80,9 +78,7 @@ class LaravelStylePageNumberPagination(PageNumberPagination):
                                 ("last", page_url(last_page)),
                                 (
                                     "prev",
-                                    page_url(current_page - 1)
-                                    if self.page.has_previous()
-                                    else None,
+                                    page_url(current_page - 1) if self.page.has_previous() else None,
                                 ),
                                 (
                                     "next",
@@ -120,9 +116,7 @@ class LaravelStylePageNumberPagination(PageNumberPagination):
         window = self.page_link_window
         wanted = {1, last_page}
         wanted.update(
-            page
-            for page in range(current_page - window, current_page + window + 1)
-            if 1 <= page <= last_page
+            page for page in range(current_page - window, current_page + window + 1) if 1 <= page <= last_page
         )
 
         numbers, previous = [], 0

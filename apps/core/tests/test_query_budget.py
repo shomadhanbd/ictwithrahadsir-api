@@ -27,16 +27,24 @@ from apps.courses.models import (
     Course,
     CourseCategory,
     CoursePrice,
+    CourseTeacher,
     Enrollment,
     Routine,
     Section,
 )
-from apps.faculty.models import CourseInstructor, Teacher
 from apps.identity.models import User
+from apps.profiles.models import TeacherProfile
 
 
 class QueryBudgetTests(APITestCase):
-    """Builds one realistic dataset and asserts a ceiling per endpoint."""
+    """Builds one realistic dataset and asserts a ceiling per endpoint.
+
+    Each course-shaped budget dropped by one when the teacher block moved
+    to `courses.CourseTeacher`: the payload reads through the assignment's
+    account and its roster entry, and `CourseQuerySet._teacher_prefetch`
+    joins both into the query that fetches the assignments rather than walking
+    them as further prefetches.
+    """
 
     # Overridden by the scaled subclass. Nothing below reads these except
     # the fixture builder, so the assertions are identical at both sizes.
@@ -54,21 +62,19 @@ class QueryBudgetTests(APITestCase):
         cls.user = User.objects.create_user(phone="01810000001", name="Student")
         cls.token = Token.objects.create(user=cls.user)
 
-        roots = [
-            CourseCategory.objects.create(title=f"Category {i}")
-            for i in range(cls.CATEGORY_ROOTS)
-        ]
+        roots = [CourseCategory.objects.create(title=f"Category {i}") for i in range(cls.CATEGORY_ROOTS)]
         for root in roots:
             for j in range(cls.CATEGORY_CHILDREN):
                 # A third level, so a tree walk that only handles two is caught.
-                child = CourseCategory.objects.create(
-                    title=f"{root.title} child {j}", category=root
-                )
-                CourseCategory.objects.create(
-                    title=f"{child.title} leaf", category=child
-                )
+                child = CourseCategory.objects.create(title=f"{root.title} child {j}", category=root)
+                CourseCategory.objects.create(title=f"{child.title} leaf", category=child)
 
-        teachers = [Teacher.objects.create(name=f"Teacher {i}") for i in range(3)]
+        teachers = [
+            TeacherProfile.objects.create(
+                user=User.objects.create_user(phone=f"0187700{i:04d}", name=f"Teacher {i}", role=User.Role.TEACHER)
+            ).user
+            for i in range(3)
+        ]
 
         cls.courses = []
         for i in range(cls.COURSES):
@@ -76,9 +82,7 @@ class QueryBudgetTests(APITestCase):
             course.categories.set(roots)
             cls.courses.append(course)
 
-            CourseInstructor.objects.create(
-                course=course, teacher=teachers[i % 3], name=f"Teacher {i % 3}"
-            )
+            CourseTeacher.objects.create(course=course, user=teachers[i % 3])
             Routine.objects.create(course=course, title=f"Routine {i}")
             CoursePrice.objects.create(
                 priceable_type=CoursePrice.PRICEABLE_COURSE,
@@ -92,9 +96,7 @@ class QueryBudgetTests(APITestCase):
             for s in range(cls.SECTIONS_PER_COURSE):
                 parent = Section.objects.create(course=course, title=f"C{i} Section {s}")
                 # One nested level, so the recursive serializer is exercised.
-                child = Section.objects.create(
-                    course=course, section=parent, title=f"C{i} Sub {s}"
-                )
+                child = Section.objects.create(course=course, section=parent, title=f"C{i} Sub {s}")
                 for c in range(cls.CONTENTS_PER_SECTION):
                     for target in (parent, child):
                         Content.objects.create(
@@ -139,43 +141,41 @@ class QueryBudgetTests(APITestCase):
     # -- course list --------------------------------------------------------
 
     def test_public_course_list(self):
-        with self.assertNumQueries(9):
-            response = self.client.get("/api/v1/courses/?per_page=12")
+        with self.assertNumQueries(8):
+            response = self.client.get("/api/public/courses/?per_page=12")
         self.assertEqual(len(response.data["data"]), 12)
 
     def test_public_course_list_authenticated(self):
         self.authenticate()
-        with self.assertNumQueries(12):
-            response = self.client.get("/api/v1/courses/?per_page=12")
+        with self.assertNumQueries(11):
+            response = self.client.get("/api/public/courses/?per_page=12")
         self.assertEqual(len(response.data["data"]), 12)
 
     def test_my_courses(self):
         self.authenticate()
-        with self.assertNumQueries(11):
-            response = self.client.get("/api/v1/me/courses/")
+        with self.assertNumQueries(10):
+            response = self.client.get("/api/public/me/courses/")
         self.assertEqual(len(response.data["data"]), self.COURSES)
 
     # -- course detail ------------------------------------------------------
 
     def test_course_detail(self):
         """Was 38 queries: two per section, recursively, plus six COUNTs."""
-        with self.assertNumQueries(10):
-            response = self.client.get(f"/api/v1/courses/{self.detail_course.slug}/")
+        with self.assertNumQueries(9):
+            response = self.client.get(f"/api/public/courses/{self.detail_course.slug}/")
         self.assertEqual(len(response.data["sections"]), self.SECTIONS_PER_COURSE)
         # The tree still resolves, not just cheaply but correctly.
         first = response.data["sections"][0]
         self.assertEqual(len(first["sub_sections"]), 1)
         self.assertEqual(len(first["contents"]), self.CONTENTS_PER_SECTION)
-        self.assertEqual(
-            len(first["sub_sections"][0]["contents"]), self.CONTENTS_PER_SECTION
-        )
+        self.assertEqual(len(first["sub_sections"][0]["contents"]), self.CONTENTS_PER_SECTION)
 
     # -- categories ---------------------------------------------------------
 
     def test_course_category_list(self):
         """Was one query per node in the tree, at any depth."""
         with self.assertNumQueries(4):
-            response = self.client.get("/api/v1/course-categories/")
+            response = self.client.get("/api/public/course-categories/")
         self.assertEqual(len(response.data["data"]), self.CATEGORY_ROOTS)
         children = response.data["data"][0]["children"]
         self.assertEqual(len(children), self.CATEGORY_CHILDREN)
@@ -184,8 +184,8 @@ class QueryBudgetTests(APITestCase):
     # -- homepage -----------------------------------------------------------
 
     def test_home(self):
-        with self.assertNumQueries(17):
-            response = self.client.get("/api/v1/home/")
+        with self.assertNumQueries(16):
+            response = self.client.get("/api/public/home/")
         self.assertEqual(len(response.data["courses"]), 12)
 
     # -- notices ------------------------------------------------------------
@@ -193,7 +193,7 @@ class QueryBudgetTests(APITestCase):
     def test_notice_list(self):
         """Was one query per notice, for the m2m category ids."""
         with self.assertNumQueries(3):
-            response = self.client.get("/api/v1/notices/?per_page=20")
+            response = self.client.get("/api/public/notices/?per_page=20")
         self.assertEqual(len(response.data["data"]), 20)
 
     # -- exam ---------------------------------------------------------------
@@ -201,7 +201,7 @@ class QueryBudgetTests(APITestCase):
     def test_exam_detail(self):
         self.authenticate()
         with self.assertNumQueries(6):
-            response = self.client.get(f"/api/v1/exams/{self.exam.pk}/")
+            response = self.client.get(f"/api/public/exams/{self.exam.pk}/")
         questions = response.data["question"]["body"]["sections"][0]["questions"]
         self.assertEqual(len(questions), self.QUESTIONS)
 
@@ -216,9 +216,7 @@ class QueryBudgetTests(APITestCase):
                         # This exam's own bank, not every question in the
                         # database -- which is what a real submission sends,
                         # and keeps the expected mark tied to the fixture.
-                        for q in Question.objects.filter(
-                            bank=self.exam.question_bank
-                        )
+                        for q in Question.objects.filter(bank=self.exam.question_bank)
                     ]
                 }
             ],
@@ -232,18 +230,13 @@ class QueryBudgetTests(APITestCase):
         # still fetched in ONE query for the whole paper, not one per answer,
         # which is what ScaledQueryBudgetTests re-proves at twice the size.
         with self.assertNumQueries(8):
-            response = self.client.post(
-                f"/api/v1/exams/{self.exam.pk}/submission/", payload, format="json"
-            )
+            response = self.client.post(f"/api/public/exams/{self.exam.pk}/submission/", payload, format="json")
         self.assertEqual(response.status_code, 201)
         self.assertEqual(float(response.data["marks"]), float(self.QUESTIONS))
 
     def test_exam_ranking_does_not_scale_with_attempt_count(self):
         """Was: load every attempt id into Python to find one index."""
-        others = [
-            User.objects.create_user(phone=f"018200000{i:02d}", name=f"S{i}")
-            for i in range(10)
-        ]
+        others = [User.objects.create_user(phone=f"018200000{i:02d}", name=f"S{i}") for i in range(10)]
         from apps.assessment.models import ExamAttempt
 
         for i, other in enumerate(others):
@@ -252,7 +245,7 @@ class QueryBudgetTests(APITestCase):
 
         self.authenticate()
         with self.assertNumQueries(5):
-            response = self.client.get(f"/api/v1/exams/{self.exam.pk}/ranking/")
+            response = self.client.get(f"/api/public/exams/{self.exam.pk}/ranking/")
         # Four attempts scored above 5 (marks 6-9), so the caller sits fifth.
         # The attempt on the same marks and duration ties rather than
         # displacing them, which the old index-of-a-materialised-list
@@ -262,17 +255,19 @@ class QueryBudgetTests(APITestCase):
     # -- admin lists --------------------------------------------------------
 
     def test_admin_content_list(self):
-        """The flat `exam_*` keys are read off a related row per content."""
-        admin = User.objects.create_user(
-            phone="01899999999", name="Admin", role=User.Role.ADMIN
-        )
-        self.client.credentials(
-            HTTP_AUTHORIZATION=f"Token {Token.objects.create(user=admin).key}"
-        )
-        with self.assertNumQueries(3):
-            response = self.client.get("/api/v1/admin/contents/?per_page=50")
-        self.assertEqual(len(response.data["data"]), 50)
+        """The flat `exam_*` keys are read off a related row per content.
 
+        Four, not three: `role` is group membership now, so every
+        authenticated request spends one query resolving the caller's role
+        before any permission class can answer. It is a flat cost per
+        request, not per row -- which is what `ScaledQueryBudgetTests`
+        re-running this at twice the size proves.
+        """
+        admin = User.objects.create_user(phone="01899999999", name="Admin", role=User.Role.ADMIN)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {Token.objects.create(user=admin).key}")
+        with self.assertNumQueries(4):
+            response = self.client.get("/api/private/contents/?per_page=50")
+        self.assertEqual(len(response.data["data"]), 50)
 
     def test_practice_topics_do_not_scale_with_folder_count(self):
         """Was: one tree walk plus one COUNT per folder in the bank.
@@ -282,7 +277,7 @@ class QueryBudgetTests(APITestCase):
         a topic list is guaranteed to do over time.
         """
         with self.assertNumQueries(2):
-            response = self.client.get("/api/v1/practice/topics/")
+            response = self.client.get("/api/public/practice/topics/")
         self.assertEqual(response.status_code, 200)
         # Every seeded practice folder holds a question, and each also
         # inherits its descendants', so all of them are playable.

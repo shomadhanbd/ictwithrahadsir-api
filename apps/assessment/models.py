@@ -11,9 +11,7 @@ class QuestionBank(TimestampModel, OrderedModel):
     source."""
 
     title = models.CharField(max_length=255)
-    parent = models.ForeignKey(
-        "self", null=True, blank=True, on_delete=models.CASCADE, related_name="children"
-    )
+    parent = models.ForeignKey("self", null=True, blank=True, on_delete=models.CASCADE, related_name="children")
 
     class Meta:
         ordering = ["order", "title"]
@@ -98,12 +96,8 @@ class Exam(TimestampModel):
     mode = models.CharField(max_length=20, choices=Mode.choices, default=Mode.EXAM)
     total_marks = models.PositiveIntegerField(null=True, blank=True)
     pass_marks = models.PositiveIntegerField(null=True, blank=True)
-    positive_marks = models.DecimalField(
-        max_digits=5, decimal_places=2, null=True, blank=True, default=1
-    )
-    negative_marks = models.DecimalField(
-        max_digits=5, decimal_places=2, null=True, blank=True, default=0
-    )
+    positive_marks = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True, default=1)
+    negative_marks = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True, default=0)
     duration_minutes = models.PositiveIntegerField(null=True, blank=True)
     start_time = models.DateTimeField(null=True, blank=True)
     end_time = models.DateTimeField(null=True, blank=True)
@@ -125,12 +119,8 @@ class Exam(TimestampModel):
 
 
 class ExamAttempt(TimestampModel):
-    exam = models.ForeignKey(
-        Exam, on_delete=models.CASCADE, related_name="attempts"
-    )
-    user = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="exam_results"
-    )
+    exam = models.ForeignKey(Exam, on_delete=models.CASCADE, related_name="attempts")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="exam_results")
     marks = models.DecimalField(max_digits=8, decimal_places=2, default=0)
     positive_marks = models.DecimalField(max_digits=8, decimal_places=2, default=0)
     negative_marks = models.DecimalField(max_digits=8, decimal_places=2, default=0)

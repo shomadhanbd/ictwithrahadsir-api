@@ -2,7 +2,7 @@
 
 Note this is the *Django* admin at `/django-admin/`, which is the back-office
 and debugging surface. The platform's own admin panel is the Next.js app
-talking to `/api/v1/admin/*`; day-to-day work happens there. What the Django
+talking to `/api/admin/*`; day-to-day work happens there. What the Django
 admin is for is the things that panel does not cover -- inspecting a payment
 against its order, finding why a student cannot see a lesson, fixing data by
 hand -- and it should be fast and searchable enough to do that under load.

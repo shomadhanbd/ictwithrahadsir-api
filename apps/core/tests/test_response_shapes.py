@@ -4,7 +4,7 @@
 what comes back from them, so it stays green while a serializer rewrite
 silently changes the shape of a payload behind an unchanged URL. The app
 re-decomposition does exactly that: extracting `Exam` off `Content` and
-unifying `Teacher`/`Instructor` both rewrite serializer internals under
+unifying the teacher models both rewrite serializer internals under
 paths that must not move.
 
 These assert exact key lists and the literal values that come from model
@@ -24,48 +24,100 @@ from rest_framework.authtoken.models import Token
 
 from apps.assessment.models import Exam, QuestionBank
 from apps.content.models import Advertisement, Page, Testimonial
-from apps.courses.models import Content, Course, CourseCategory, Section
-from apps.faculty.models import CourseInstructor, Teacher
+from apps.courses.models import Content, Course, CourseCategory, CourseTeacher, Section
 from apps.identity.models import User
+from apps.profiles.models import TeacherProfile
 
-#: Exactly what `/api/v1/home/` returns, in order.
+#: Exactly what `/api/public/home/` returns, in order.
 HOME_KEYS = [
-    'courses', 'courseCategories', 'advertisement', 'testimonials',
-    'counters', 'suceesstorycounter', 'instructors', 'bannerImage',
+    'courses',
+    'courseCategories',
+    'advertisement',
+    'testimonials',
+    'counters',
+    'suceesstorycounter',
+    'instructors',
+    'bannerImage',
 ]
 
-#: Both the homepage `instructors` (team.Teacher) and course-detail
-#: `instructors` (courses.Instructor) serialise to this same key list --
-#: the unification must keep both byte-identical.
-PUBLIC_INSTRUCTOR_KEYS = [
-    'id', 'name', 'designation', 'description', 'type', 'order', 'image',
+#: Both the homepage `instructors` (profiles.TeacherProfile) and course-detail
+#: `instructors` (courses.CourseTeacher) serialise to this same key list. The
+#: key is spelled `instructors` and stays that way: it is the one piece of the
+#: old vocabulary kept, because an unknown mobile client may read it.
+#: Keeping it frozen is what proved the move out of `faculty` changed no
+#: payload: widening it here would remove the guard, not satisfy it.
+PUBLIC_TEACHER_KEYS = [
+    'id',
+    'name',
+    'designation',
+    'description',
+    'type',
+    'order',
+    'image',
 ]
 
 COURSE_LIST_KEYS = [
-    'id', 'title', 'slug', 'subtitle', 'duration', 'is_online', 'active',
-    'featured', 'fake_user_count', 'video_count', 'class_count', 'exam_count',
-    'note_count', 'link_count', 'live_count', 'audio_count', 'online_count',
-    'offline_count', 'image', 'price', 'categories', 'instructors', 'routines',
-    'subscription_status', 'has_order', 'users_count',
+    'id',
+    'title',
+    'slug',
+    'subtitle',
+    'duration',
+    'is_online',
+    'active',
+    'featured',
+    'fake_user_count',
+    'video_count',
+    'class_count',
+    'exam_count',
+    'note_count',
+    'link_count',
+    'live_count',
+    'audio_count',
+    'online_count',
+    'offline_count',
+    'image',
+    'price',
+    'categories',
+    'instructors',
+    'routines',
+    'subscription_status',
+    'has_order',
+    'users_count',
 ]
 
-#: The original 13 keys in their original order, plus `teacher_id`
-#: appended. This is the one payload the faculty unification could not keep
-#: byte-identical: name/designation/description/image are writable here, and
-#: the assignment now points at a roster Teacher. Appending is safe -- both
-#: frontends read by key, and neither declares the response as exact.
-ADMIN_INSTRUCTOR_KEYS = [
-    'id', 'course_id', 'user_id', 'name', 'email', 'phone', 'designation',
-    'description', 'institute', 'type', 'order', 'commission', 'image',
-    'teacher_id',
+#: The original 13 keys in their original order. `teacher_id` is gone with the
+#: roster model it pointed at -- an assignment names the account directly now
+#: -- and everything but `commission` and `order` is read through that account,
+#: so the panel's table renders unchanged while none of it is editable here.
+ADMIN_COURSE_TEACHER_KEYS = [
+    'id',
+    'course_id',
+    'user_id',
+    'name',
+    'email',
+    'phone',
+    'designation',
+    'description',
+    'institute',
+    'type',
+    'order',
+    'commission',
+    'image',
 ]
 
 #: The ten flat exam fields the admin panel reads and writes on
 #: /admin/contents/. They are contract, whatever model backs them.
 EXAM_FIELD_KEYS = [
-    'exam_store_id', 'exam_mode', 'exam_total_marks', 'exam_pass_marks',
-    'exam_positive_marks', 'exam_negative_marks', 'exam_duration_minutes',
-    'exam_start_time', 'exam_end_time', 'exam_result_publish_time',
+    'exam_store_id',
+    'exam_mode',
+    'exam_total_marks',
+    'exam_pass_marks',
+    'exam_positive_marks',
+    'exam_negative_marks',
+    'exam_duration_minutes',
+    'exam_start_time',
+    'exam_end_time',
+    'exam_result_publish_time',
 ]
 
 #: What a content with NO exam configuration emits today. These come from
@@ -89,29 +141,36 @@ NON_EXAM_DEFAULTS = {
 class ResponseShapeTests(TestCase):
     def setUp(self):
         self.admin = User.objects.create_user(
-            phone='01710900001', name='Admin', password='Str0ngPass!23',
-            role=User.Role.ADMIN, is_staff=True,
+            phone='01710900001',
+            name='Admin',
+            password='Str0ngPass!23',
+            role=User.Role.ADMIN,
+            is_staff=True,
         )
-        self.auth = {
-            'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=self.admin).key}'
-        }
+        self.auth = {'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=self.admin).key}'}
 
         self.category = CourseCategory.objects.create(title='HSC', slug='hsc')
         self.course = Course.objects.create(
-            title='ICT', slug='ict', active=True, featured=True,
+            title='ICT',
+            slug='ict',
+            active=True,
+            featured=True,
             image='http://localhost:8000/media/seed/course-0.png',
         )
         self.course.categories.add(self.category)
 
-        self.teacher = Teacher.objects.create(
-            name='Rahad Sir', designation='Founder', description='Bio',
-            type=Teacher.Type.FOUNDER,
+        self.teacher_user = User.objects.create_user(
+            phone='01899000111',
+            name='Rahad Sir',
+            role=User.Role.TEACHER,
             image='http://localhost:8000/media/seed/teacher-0.png',
         )
-        CourseInstructor.objects.create(
-            course=self.course, teacher=self.teacher,
-            type=CourseInstructor.Type.FOUNDER,
+        self.teacher = TeacherProfile.objects.create(
+            user=self.teacher_user,
+            designation='Founder',
+            description='Bio',
         )
+        CourseTeacher.objects.create(course=self.course, user=self.teacher_user)
 
         Testimonial.objects.create(name='Student', description='Great', ratings=5)
         Advertisement.objects.create(title='Admission open')
@@ -120,54 +179,58 @@ class ResponseShapeTests(TestCase):
             defaults={'slug': 'homeBannerImage', 'value_type': Page.ValueType.IMAGE},
         )
 
-        self.section = Section.objects.create(
-            course=self.course, title='Ch1', slug='ict-ch1'
-        )
+        self.section = Section.objects.create(course=self.course, title='Ch1', slug='ict-ch1')
         self.exam_content = Content.objects.create(
-            course=self.course, section=self.section, title='Exam',
-            slug='ict-exam', type=Content.Type.EXAM,
+            course=self.course,
+            section=self.section,
+            title='Exam',
+            slug='ict-exam',
+            type=Content.Type.EXAM,
         )
         Exam.objects.create(
             content=self.exam_content,
             question_bank=QuestionBank.objects.create(title='Bank'),
-            total_marks=15, pass_marks=8,
+            total_marks=15,
+            pass_marks=8,
             positive_marks=Decimal('1.00'),
             negative_marks=Decimal('0.25'),
             duration_minutes=15,
         )
         self.video_content = Content.objects.create(
-            course=self.course, section=self.section, title='Video',
-            slug='ict-video', type=Content.Type.VIDEO,
+            course=self.course,
+            section=self.section,
+            title='Video',
+            slug='ict-video',
+            type=Content.Type.VIDEO,
         )
 
     # -- public ----------------------------------------------------------
 
     def test_home_payload_shape(self):
-        body = self.client.get(reverse('api:content:v1:home')).json()
+        body = self.client.get(reverse('api:content:home')).json()
         self.assertEqual(list(body.keys()), HOME_KEYS)
-        self.assertEqual(list(body['instructors'][0].keys()), PUBLIC_INSTRUCTOR_KEYS)
+        self.assertEqual(list(body['instructors'][0].keys()), PUBLIC_TEACHER_KEYS)
         self.assertEqual(list(body['courses'][0].keys()), COURSE_LIST_KEYS)
 
     def test_home_instructors_are_the_teacher_roster(self):
-        body = self.client.get(reverse('api:content:v1:home')).json()
+        body = self.client.get(reverse('api:content:home')).json()
         self.assertEqual(body['instructors'][0]['name'], 'Rahad Sir')
-        self.assertEqual(body['instructors'][0]['type'], 'founder')
+        self.assertEqual(body['instructors'][0]['type'], 'permanent')
         self.assertEqual(
             body['instructors'][0]['image'],
-            {'id': body['instructors'][0]['image']['id'],
-             'link': 'http://localhost:8000/media/seed/teacher-0.png'},
+            {'id': body['instructors'][0]['image']['id'], 'link': 'http://localhost:8000/media/seed/teacher-0.png'},
         )
 
     def test_course_list_payload_shape(self):
-        body = self.client.get(reverse('api:courses:v1:course_list')).json()
+        body = self.client.get(reverse('api:courses:course_list')).json()
         self.assertEqual(list(body['data'][0].keys()), COURSE_LIST_KEYS)
 
     def test_course_detail_instructors_shape(self):
-        url = reverse('api:courses:v1:course_detail', args=[self.course.slug])
+        url = reverse('api:courses:course_detail', args=[self.course.slug])
         body = self.client.get(url).json()
 
         instructor = body['instructors'][0]
-        self.assertEqual(list(instructor.keys()), PUBLIC_INSTRUCTOR_KEYS)
+        self.assertEqual(list(instructor.keys()), PUBLIC_TEACHER_KEYS)
         self.assertEqual(instructor['name'], 'Rahad Sir')
         # MediaField renders a {id, link} object, not a bare URL.
         self.assertEqual(sorted(instructor['image'].keys()), ['id', 'link'])
@@ -178,12 +241,12 @@ class ResponseShapeTests(TestCase):
 
     # -- admin -----------------------------------------------------------
 
-    def test_admin_instructor_payload_shape(self):
-        body = self.client.get(reverse('api:faculty:v1:admin-instructor-list'), **self.auth)
-        self.assertEqual(list(body.json()['data'][0].keys()), ADMIN_INSTRUCTOR_KEYS)
+    def test_admin_course_teacher_payload_shape(self):
+        body = self.client.get(reverse('api:courses:admin-course-teacher-list'), **self.auth)
+        self.assertEqual(list(body.json()['data'][0].keys()), ADMIN_COURSE_TEACHER_KEYS)
 
     def test_admin_content_exposes_the_flat_exam_fields(self):
-        url = reverse('api:courses:v1:admin-content-detail', args=[self.exam_content.slug])
+        url = reverse('api:courses:admin-content-detail', args=[self.exam_content.slug])
         body = self.client.get(url, **self.auth).json()
 
         for key in EXAM_FIELD_KEYS:
@@ -198,17 +261,19 @@ class ResponseShapeTests(TestCase):
         # "1.00"/"0.00" even though it is not an exam. Once the fields live
         # on a separate Exam row that a video has no instance of, the
         # serializer has to reproduce them rather than emit nulls.
-        url = reverse('api:courses:v1:admin-content-detail', args=[self.video_content.slug])
+        url = reverse('api:courses:admin-content-detail', args=[self.video_content.slug])
         body = self.client.get(url, **self.auth).json()
 
         actual = {key: body[key] for key in EXAM_FIELD_KEYS}
         self.assertEqual(actual, NON_EXAM_DEFAULTS)
 
     def test_admin_content_accepts_the_flat_exam_fields_on_write(self):
-        url = reverse('api:courses:v1:admin-content-detail', args=[self.exam_content.slug])
+        url = reverse('api:courses:admin-content-detail', args=[self.exam_content.slug])
         response = self.client.patch(
-            url, {'exam_total_marks': 40, 'exam_pass_marks': 20},
-            content_type='application/json', **self.auth,
+            url,
+            {'exam_total_marks': 40, 'exam_pass_marks': 20},
+            content_type='application/json',
+            **self.auth,
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()['exam_total_marks'], 40)
@@ -216,22 +281,32 @@ class ResponseShapeTests(TestCase):
     # -- exam taking -----------------------------------------------------
 
     def test_exam_detail_payload_shape(self):
-        student = User.objects.create_user(
-            phone='01810900001', name='Student', password='Str0ngPass!23'
-        )
+        student = User.objects.create_user(phone='01810900001', name='Student', password='Str0ngPass!23')
         from apps.courses.models import Enrollment
 
         Enrollment.objects.create(course=self.course, user=student)
         auth = {'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=student).key}'}
 
-        url = reverse('api:assessment:v1:exam_detail', args=[self.exam_content.pk])
+        url = reverse('api:assessment:exam_detail', args=[self.exam_content.pk])
         body = self.client.get(url, **auth).json()
 
         self.assertEqual(
             list(body.keys()),
-            ['id', 'title', 'duration', 'total_marks', 'pass_marks',
-             'positive_marks', 'negative_marks', 'start_time', 'end_time',
-             'result_publish_time', 'result_published', 'question', 'result'],
+            [
+                'id',
+                'title',
+                'duration',
+                'total_marks',
+                'pass_marks',
+                'positive_marks',
+                'negative_marks',
+                'start_time',
+                'end_time',
+                'result_publish_time',
+                'result_published',
+                'question',
+                'result',
+            ],
         )
         # The exam is addressed by its Content id -- the extraction must
         # not change which id appears here.
@@ -251,17 +326,18 @@ class AdminSearchTests(TestCase):
     def setUp(self):
         from apps.content.models import Notice
 
-        admin = User.objects.create_user(
-            phone='01899000111', name='Admin', role=User.Role.ADMIN, is_staff=True
-        )
+        admin = User.objects.create_user(phone='01899000111', name='Admin', role=User.Role.ADMIN, is_staff=True)
         self.auth = {'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=admin).key}'}
 
         Notice.objects.create(title='Exam routine published')
         Notice.objects.create(title='Holiday announcement')
         Course.objects.create(title='Physics crash course')
         Course.objects.create(title='Chemistry masterclass')
-        Teacher.objects.create(name='Rahim Uddin', designation='Physics')
-        Teacher.objects.create(name='Karim Ahmed', designation='Chemistry')
+        for i, (name, subject) in enumerate([('Rahim Uddin', 'Physics'), ('Karim Ahmed', 'Chemistry')]):
+            TeacherProfile.objects.create(
+                user=User.objects.create_user(phone=f'0188800{i:04d}', name=name, role=User.Role.TEACHER),
+                designation=subject,
+            )
 
     def assert_filters(self, path, term, expected):
         unfiltered = self.client.get(path, **self.auth).json()['meta']['total']
@@ -270,17 +346,17 @@ class AdminSearchTests(TestCase):
         self.assertLess(filtered, unfiltered, f'{path} ignored ?search=')
 
     def test_notice_search_filters(self):
-        self.assert_filters(reverse('api:content:v1:admin-notice-list'), 'Holiday', 1)
+        self.assert_filters(reverse('api:content:admin-notice-list'), 'Holiday', 1)
 
     def test_course_search_filters(self):
-        self.assert_filters(reverse('api:courses:v1:admin-course-list'), 'Physics', 1)
+        self.assert_filters(reverse('api:courses:admin-course-list'), 'Physics', 1)
 
     def test_teacher_search_filters(self):
-        self.assert_filters(reverse('api:faculty:v1:admin-team-list'), 'Rahim', 1)
+        self.assert_filters(reverse('api:profiles:admin-teacher-list'), 'Rahim', 1)
 
     def test_search_that_matches_nothing_returns_nothing(self):
         """The panel's empty state depends on this actually being empty."""
-        url = reverse('api:content:v1:admin-notice-list')
+        url = reverse('api:content:admin-notice-list')
         body = self.client.get(url, {'search': 'zzzznomatch'}, **self.auth).json()
         self.assertEqual(body['meta']['total'], 0)
         self.assertEqual(body['data'], [])
@@ -295,14 +371,12 @@ class SlugOrPkLookupTests(TestCase):
     """
 
     def setUp(self):
-        admin = User.objects.create_user(
-            phone='01899000222', name='Admin', role=User.Role.ADMIN, is_staff=True
-        )
+        admin = User.objects.create_user(phone='01899000222', name='Admin', role=User.Role.ADMIN, is_staff=True)
         self.auth = {'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=admin).key}'}
         self.course = Course.objects.create(title='Physics First Paper')
 
     def detail(self, value):
-        return self.client.get(f'/api/v1/admin/courses/{value}/', **self.auth)
+        return self.client.get(f'/api/private/courses/{value}/', **self.auth)
 
     def test_detail_by_pk(self):
         res = self.detail(self.course.pk)
@@ -331,31 +405,33 @@ class SlugOrPkLookupTests(TestCase):
 class CourseTabSearchTests(TestCase):
     """The course tabs all ship a search box; each endpoint must honour it.
 
-    Routines, instructors and the enrolled-student list had no
+    Routines, teachers and the enrolled-student list had no
     `search_fields`, so `?search=` was accepted and ignored -- the same inert
     SearchFilter problem as the top-level admin lists.
     """
 
     def setUp(self):
-        from apps.courses.models import Enrollment, Routine
-        from apps.faculty.models import CourseInstructor
+        from apps.courses.models import CourseTeacher, Enrollment, Routine
 
-        admin = User.objects.create_user(
-            phone='01899000333', name='Admin', role=User.Role.ADMIN, is_staff=True
-        )
+        admin = User.objects.create_user(phone='01899000333', name='Admin', role=User.Role.ADMIN, is_staff=True)
         self.auth = {'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=admin).key}'}
         self.course = Course.objects.create(title='Search Tab Course')
 
         Routine.objects.create(course=self.course, title='September routine', link='a.pdf')
         Routine.objects.create(course=self.course, title='October routine', link='b.pdf')
 
-        CourseInstructor.objects.create(course=self.course, name='Rahim Uddin', email='r@x.com')
-        CourseInstructor.objects.create(course=self.course, name='Karim Ahmed', email='k@x.com')
+        for i, name in enumerate(['Rahim Uddin', 'Karim Ahmed']):
+            teacher = User.objects.create_user(
+                phone=f'0189900{i:04d}',
+                name=name,
+                email=f'{name[0].lower()}@x.com',
+                role=User.Role.TEACHER,
+            )
+            TeacherProfile.objects.create(user=teacher)
+            CourseTeacher.objects.create(course=self.course, user=teacher)
 
         for i, name in enumerate(['Nusrat Jahan', 'Imran Hossain']):
-            student = User.objects.create_user(
-                phone=f'0180900{i:04d}', name=name, role=User.Role.STUDENT
-            )
+            student = User.objects.create_user(phone=f'0180900{i:04d}', name=name, role=User.Role.STUDENT)
             Enrollment.objects.create(course=self.course, user=student)
 
     def assert_filters(self, path, term, expected):
@@ -365,27 +441,23 @@ class CourseTabSearchTests(TestCase):
         self.assertLess(filtered, unfiltered, f'{path} ignored ?search=')
 
     def test_routine_search_filters(self):
-        self.assert_filters('/api/v1/admin/routines/', 'October', 1)
+        self.assert_filters('/api/private/routines/', 'October', 1)
 
-    def test_instructor_search_filters(self):
-        self.assert_filters('/api/v1/admin/instructors/', 'Karim', 1)
+    def test_course_teacher_search_filters(self):
+        self.assert_filters('/api/private/course-teachers/', 'Karim', 1)
 
     def test_enrolled_student_search_filters(self):
-        self.assert_filters(
-            f'/api/v1/admin/courses/{self.course.pk}/enrollments/', 'Nusrat', 1
-        )
+        self.assert_filters(f'/api/private/courses/{self.course.pk}/enrollments/', 'Nusrat', 1)
 
     def test_enrolment_pages_do_not_overlap(self):
         """An unordered queryset let a student land on two pages or none."""
         from apps.courses.models import Enrollment
 
         for i in range(2, 8):
-            student = User.objects.create_user(
-                phone=f'0180911{i:04d}', name=f'Student {i}', role=User.Role.STUDENT
-            )
+            student = User.objects.create_user(phone=f'0180911{i:04d}', name=f'Student {i}', role=User.Role.STUDENT)
             Enrollment.objects.create(course=self.course, user=student)
 
-        path = f'/api/v1/admin/courses/{self.course.pk}/enrollments/'
+        path = f'/api/private/courses/{self.course.pk}/enrollments/'
         seen = []
         for page in (1, 2, 3, 4):
             body = self.client.get(path, {'page': page, 'per_page': 2}, **self.auth).json()
@@ -401,9 +473,7 @@ class CategorySearchTests(TestCase):
     def setUp(self):
         from apps.courses.models import CourseCategory
 
-        admin = User.objects.create_user(
-            phone='01899000444', name='Admin', role=User.Role.ADMIN, is_staff=True
-        )
+        admin = User.objects.create_user(phone='01899000444', name='Admin', role=User.Role.ADMIN, is_staff=True)
         self.auth = {'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=admin).key}'}
         self.parent = CourseCategory.objects.create(title='HSC ICT')
         CourseCategory.objects.create(title='Admission Prep')
@@ -411,7 +481,7 @@ class CategorySearchTests(TestCase):
         CourseCategory.objects.create(title='HSC 2027', category=self.parent)
 
     def test_root_search_filters(self):
-        path = '/api/v1/admin/course-categories/'
+        path = '/api/private/course-categories/'
         unfiltered = self.client.get(path, **self.auth).json()['meta']['total']
         filtered = self.client.get(path, {'search': 'Admission'}, **self.auth).json()
         self.assertEqual(filtered['meta']['total'], 1)
@@ -421,7 +491,7 @@ class CategorySearchTests(TestCase):
         # The filter and the search have to compose, or searching inside a
         # category would surface siblings from elsewhere in the tree.
         body = self.client.get(
-            '/api/v1/admin/course-categories/',
+            '/api/private/course-categories/',
             {'category_id': self.parent.pk, 'search': '2027'},
             **self.auth,
         ).json()
@@ -429,7 +499,7 @@ class CategorySearchTests(TestCase):
         self.assertEqual(body['data'][0]['title'], 'HSC 2027')
 
     def test_detail_by_pk_for_the_parent_heading(self):
-        res = self.client.get(f'/api/v1/admin/course-categories/{self.parent.pk}/', **self.auth)
+        res = self.client.get(f'/api/private/course-categories/{self.parent.pk}/', **self.auth)
         self.assertEqual(res.status_code, 200)
         self.assertEqual(res.json()['title'], 'HSC ICT')
 
@@ -440,39 +510,31 @@ class McqSearchTests(TestCase):
     def setUp(self):
         from apps.assessment.models import Question, QuestionBank
 
-        admin = User.objects.create_user(
-            phone='01899000555', name='Admin', role=User.Role.ADMIN, is_staff=True
-        )
+        admin = User.objects.create_user(phone='01899000555', name='Admin', role=User.Role.ADMIN, is_staff=True)
         self.auth = {'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=admin).key}'}
         self.bank = QuestionBank.objects.create(title='ICT Question Bank')
         QuestionBank.objects.create(title='Networking', parent=self.bank)
         QuestionBank.objects.create(title='Databases', parent=self.bank)
-        Question.objects.create(
-            bank=self.bank, question='What is a router?', a='x', b='y', c='z', d='w', answer='a'
-        )
+        Question.objects.create(bank=self.bank, question='What is a router?', a='x', b='y', c='z', d='w', answer='a')
         Question.objects.create(
             bank=self.bank, question='What is a primary key?', a='x', b='y', c='z', d='w', answer='b'
         )
 
     def test_folder_search_filters(self):
-        path = '/api/v1/admin/mcq-folders/'
-        body = self.client.get(
-            path, {'mcq_store_id': self.bank.pk, 'search': 'Networking'}, **self.auth
-        ).json()
+        path = '/api/private/mcq-folders/'
+        body = self.client.get(path, {'mcq_store_id': self.bank.pk, 'search': 'Networking'}, **self.auth).json()
         self.assertEqual(body['meta']['total'], 1)
         self.assertEqual(body['data'][0]['title'], 'Networking')
 
     def test_question_search_filters(self):
-        path = '/api/v1/admin/mcq-questions/'
+        path = '/api/private/mcq-questions/'
         unfiltered = self.client.get(path, {'mcq_store_id': self.bank.pk}, **self.auth).json()
-        filtered = self.client.get(
-            path, {'mcq_store_id': self.bank.pk, 'search': 'primary key'}, **self.auth
-        ).json()
+        filtered = self.client.get(path, {'mcq_store_id': self.bank.pk, 'search': 'primary key'}, **self.auth).json()
         self.assertEqual(filtered['meta']['total'], 1)
         self.assertLess(filtered['meta']['total'], unfiltered['meta']['total'])
 
     def test_folder_detail_by_pk_for_the_trail(self):
-        res = self.client.get(f'/api/v1/admin/mcq-folders/{self.bank.pk}/', **self.auth)
+        res = self.client.get(f'/api/private/mcq-folders/{self.bank.pk}/', **self.auth)
         self.assertEqual(res.status_code, 200)
         self.assertEqual(res.json()['title'], 'ICT Question Bank')
 
@@ -485,9 +547,7 @@ class CourseMaterialCrudTests(TestCase):
     """
 
     def setUp(self):
-        admin = User.objects.create_user(
-            phone='01899000666', name='Admin', role=User.Role.ADMIN, is_staff=True
-        )
+        admin = User.objects.create_user(phone='01899000666', name='Admin', role=User.Role.ADMIN, is_staff=True)
         self.auth = {'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=admin).key}'}
         self.course = Course.objects.create(title='Material Host Course')
 
@@ -495,7 +555,7 @@ class CourseMaterialCrudTests(TestCase):
         from apps.courses.models import CourseMaterial
 
         created = self.client.post(
-            '/api/v1/admin/course-materials/',
+            '/api/private/course-materials/',
             {'title': 'Lecture sheet 1', 'type': 'pdf', 'course_id': self.course.pk},
             content_type='application/json',
             **self.auth,
@@ -504,7 +564,7 @@ class CourseMaterialCrudTests(TestCase):
         pk = created.json()['id']
 
         renamed = self.client.patch(
-            f'/api/v1/admin/course-materials/{pk}/',
+            f'/api/private/course-materials/{pk}/',
             {'title': 'Lecture sheet 2'},
             content_type='application/json',
             **self.auth,
@@ -512,7 +572,7 @@ class CourseMaterialCrudTests(TestCase):
         self.assertEqual(renamed.status_code, 200)
         self.assertEqual(renamed.json()['title'], 'Lecture sheet 2')
 
-        gone = self.client.delete(f'/api/v1/admin/course-materials/{pk}/', **self.auth)
+        gone = self.client.delete(f'/api/private/course-materials/{pk}/', **self.auth)
         self.assertEqual(gone.status_code, 204)
         self.assertFalse(CourseMaterial.objects.filter(pk=pk).exists())
 
@@ -522,13 +582,11 @@ class CourseMaterialCrudTests(TestCase):
         CourseMaterial.objects.create(title='Algebra notes', course=self.course)
         CourseMaterial.objects.create(title='Geometry notes', course=self.course)
 
-        body = self.client.get('/api/v1/admin/course-materials/', **self.auth).json()
+        body = self.client.get('/api/private/course-materials/', **self.auth).json()
         self.assertIn('meta', body, 'the screen paginates; the list must carry meta')
         self.assertEqual(body['meta']['total'], 2)
 
-        filtered = self.client.get(
-            '/api/v1/admin/course-materials/', {'search': 'Algebra'}, **self.auth
-        ).json()
+        filtered = self.client.get('/api/private/course-materials/', {'search': 'Algebra'}, **self.auth).json()
         self.assertEqual(filtered['meta']['total'], 1)
 
     def test_filter_by_course(self):
@@ -538,9 +596,7 @@ class CourseMaterialCrudTests(TestCase):
         CourseMaterial.objects.create(title='Mine', course=self.course)
         CourseMaterial.objects.create(title='Theirs', course=other)
 
-        body = self.client.get(
-            '/api/v1/admin/course-materials/', {'course_id': self.course.pk}, **self.auth
-        ).json()
+        body = self.client.get('/api/private/course-materials/', {'course_id': self.course.pk}, **self.auth).json()
         self.assertEqual(body['meta']['total'], 1)
         self.assertEqual(body['data'][0]['title'], 'Mine')
 
@@ -556,9 +612,7 @@ class AdminPaymentListTests(TestCase):
     def setUp(self):
         from apps.billing.models import Order, Payment
 
-        admin = User.objects.create_user(
-            phone='01899000777', name='Admin', role=User.Role.ADMIN, is_staff=True
-        )
+        admin = User.objects.create_user(phone='01899000777', name='Admin', role=User.Role.ADMIN, is_staff=True)
         self.auth = {'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=admin).key}'}
         course = Course.objects.create(title='Paid Course')
 
@@ -569,12 +623,10 @@ class AdminPaymentListTests(TestCase):
         ]:
             user = User.objects.create_user(phone=phone, name=name, role=User.Role.STUDENT)
             order = Order.objects.create(user=user, course=course, amount=500, total=500)
-            Payment.objects.create(
-                order=order, amount=500, transaction_id=txn, status=status
-            )
+            Payment.objects.create(order=order, amount=500, transaction_id=txn, status=status)
 
     def get(self, **params):
-        return self.client.get('/api/v1/admin/payments/', params, **self.auth).json()
+        return self.client.get('/api/private/payments/', params, **self.auth).json()
 
     def test_search_by_payer_name(self):
         body = self.get(search='Nusrat')
@@ -609,9 +661,7 @@ class ContentSearchTests(TestCase):
     def setUp(self):
         from apps.content.models import EBook, NoticeCategory
 
-        admin = User.objects.create_user(
-            phone='01899000888', name='Admin', role=User.Role.ADMIN, is_staff=True
-        )
+        admin = User.objects.create_user(phone='01899000888', name='Admin', role=User.Role.ADMIN, is_staff=True)
         self.auth = {'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=admin).key}'}
 
         NoticeCategory.objects.create(title='Exam schedule')
@@ -630,29 +680,27 @@ class ContentSearchTests(TestCase):
         self.assertLess(filtered, unfiltered, f'{path} ignored ?search=')
 
     def test_notice_category_search(self):
-        self.assert_filters('/api/v1/admin/notice-categories/', 'Holiday', 1)
+        self.assert_filters('/api/private/notice-categories/', 'Holiday', 1)
 
     def test_testimonial_search(self):
-        self.assert_filters('/api/v1/admin/testimonials/', 'Nusrat', 1)
+        self.assert_filters('/api/private/testimonials/', 'Nusrat', 1)
 
     def test_advertisement_search(self):
-        self.assert_filters('/api/v1/admin/advertisements/', 'popup', 1)
+        self.assert_filters('/api/private/advertisements/', 'popup', 1)
 
     def test_ebook_search(self):
-        self.assert_filters('/api/v1/admin/ebooks/', 'Physics', 1)
+        self.assert_filters('/api/private/ebooks/', 'Physics', 1)
 
     def test_pages_expose_value_type(self):
         """The screen picks the editor from this; it used to guess from the key."""
         # These keys are seeded by a migration, so upsert rather than create.
-        Page.objects.update_or_create(
-            key='about', defaults={'value_type': Page.ValueType.HTML, 'value': '<p>hi</p>'}
-        )
+        Page.objects.update_or_create(key='about', defaults={'value_type': Page.ValueType.HTML, 'value': '<p>hi</p>'})
         Page.objects.update_or_create(
             key='homeStudentCounter',
             defaults={'value_type': Page.ValueType.COUNTER, 'value': '42'},
         )
 
-        body = self.client.get('/api/v1/admin/pages/', **self.auth).json()
+        body = self.client.get('/api/private/pages/', **self.auth).json()
         by_key = {p['key']: p for p in body['data']}
         self.assertEqual(by_key['about']['value_type'], 'html')
         self.assertEqual(by_key['homeStudentCounter']['value_type'], 'counter')
@@ -668,26 +716,33 @@ class AdminContactListTests(TestCase):
     def setUp(self):
         from apps.support.models import ContactMessage
 
-        admin = User.objects.create_user(
-            phone='01899000999', name='Admin', role=User.Role.ADMIN, is_staff=True
-        )
+        admin = User.objects.create_user(phone='01899000999', name='Admin', role=User.Role.ADMIN, is_staff=True)
         self.auth = {'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=admin).key}'}
 
         ContactMessage.objects.create(
-            name='Nusrat Jahan', phone='01810600001',
-            subject='Refund query', message='How do I get a refund?', is_read=False,
+            name='Nusrat Jahan',
+            phone='01810600001',
+            subject='Refund query',
+            message='How do I get a refund?',
+            is_read=False,
         )
         ContactMessage.objects.create(
-            name='Imran Hossain', phone='01810600002',
-            subject='Course access', message='Cannot open the videos', is_read=True,
+            name='Imran Hossain',
+            phone='01810600002',
+            subject='Course access',
+            message='Cannot open the videos',
+            is_read=True,
         )
         ContactMessage.objects.create(
-            name='Rahim Uddin', phone='01810600003',
-            subject='Batch timing', message='When does the next batch start?', is_read=False,
+            name='Rahim Uddin',
+            phone='01810600003',
+            subject='Batch timing',
+            message='When does the next batch start?',
+            is_read=False,
         )
 
     def get(self, **params):
-        return self.client.get('/api/v1/admin/contact-messages/', params, **self.auth).json()
+        return self.client.get('/api/private/contact-messages/', params, **self.auth).json()
 
     def test_search_by_name(self):
         self.assertEqual(self.get(search='Nusrat')['meta']['total'], 1)

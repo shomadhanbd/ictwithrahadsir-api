@@ -21,11 +21,7 @@ from apps.identity.models import User
 
 def ordered_course_ids(user, course_ids):
     """Course ids from `course_ids` that `user` has placed an order for."""
-    return set(
-        Order.objects.filter(user=user, course_id__in=course_ids).values_list(
-            'course_id', flat=True
-        )
-    )
+    return set(Order.objects.filter(user=user, course_id__in=course_ids).values_list('course_id', flat=True))
 
 
 # ---------------------------------------------------------------------------

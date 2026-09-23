@@ -37,11 +37,7 @@ def course_progress(*, user, course) -> dict:
     """
     from apps.courses.models import Content, ContentCompletion
 
-    completed = list(
-        ContentCompletion.objects.filter(user=user, course=course).values_list(
-            'content_id', flat=True
-        )
-    )
+    completed = list(ContentCompletion.objects.filter(user=user, course=course).values_list('content_id', flat=True))
     total = Content.objects.filter(course=course).active().count()
     return {
         'completed_content_ids': completed,

@@ -169,7 +169,11 @@ class EnrollmentAdmin(TimestampedAdmin):
     list_filter = ('payment_type', 'valid_till', 'course')
     # "Why can this student not open the lesson?" starts with their phone.
     search_fields = (
-        'user__name', 'user__phone', 'user__email', 'course__title', 'course__slug',
+        'user__name',
+        'user__phone',
+        'user__email',
+        'course__title',
+        'course__slug',
     )
     ordering = ('-created_at',)
     date_hierarchy = 'created_at'

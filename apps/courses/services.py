@@ -14,6 +14,7 @@ reverse.
 from django.db import transaction
 from django.utils import timezone
 
+from apps.core.phones import normalize_phone
 from apps.core.spreadsheets import text
 from apps.courses.models import CoursePrice, Enrollment
 from apps.identity.models import User
@@ -35,11 +36,7 @@ def grant_from_price(*, user, course, price):
     `CoursePrice` carries the validity policy -- an absolute cut-off date or
     a relative number of days -- so callers do not have to reimplement it.
     """
-    payment_type = (
-        Enrollment.PaymentType.FREE
-        if price is None or price.amount == 0
-        else Enrollment.PaymentType.PAID
-    )
+    payment_type = Enrollment.PaymentType.FREE if price is None or price.amount == 0 else Enrollment.PaymentType.PAID
 
     valid_till = None
     if price is not None:
@@ -48,9 +45,7 @@ def grant_from_price(*, user, course, price):
         elif price.validity_duration:
             valid_till = timezone.now() + timezone.timedelta(days=price.validity_duration)
 
-    return grant_course_access(
-        user=user, course=course, payment_type=payment_type, valid_till=valid_till
-    )
+    return grant_course_access(user=user, course=course, payment_type=payment_type, valid_till=valid_till)
 
 
 def revoke_course_access(*, user_id, course) -> bool:
@@ -73,23 +68,22 @@ def import_enrollments(*, course, records) -> dict:
     sheet of 500 students cost 500 extra queries and, with no transaction
     around it, a failure halfway left half the class enrolled.
     """
-    phones = {text(record, 'phone') for record in records}
-    phones.discard('')
-    users_by_phone = {
-        user.phone: user
-        for user in User.objects.filter(phone__in=phones)
-    }
+    # Normalised before the lookup: stored numbers are canonical
+    # `01XXXXXXXXX`, so a sheet written as +8801... would match nothing and
+    # every row would be counted missing. The sibling importer in
+    # `identity` already did this; this one did not.
+    phones = [normalize_phone(text(record, 'phone')) for record in records]
+    known = User.objects.filter(phone__in={phone for phone in phones if phone})
+    users_by_phone = {user.phone: user for user in known}
 
     attached, missing = 0, 0
-    for record in records:
-        user = users_by_phone.get(text(record, 'phone'))
+    for phone in phones:
+        user = users_by_phone.get(phone)
         if not user:
             missing += 1
             continue
 
-        grant_course_access(
-            user=user, course=course, payment_type=Enrollment.PaymentType.FREE
-        )
+        grant_course_access(user=user, course=course, payment_type=Enrollment.PaymentType.FREE)
         attached += 1
 
     return {'attached': attached, 'missing': missing}
