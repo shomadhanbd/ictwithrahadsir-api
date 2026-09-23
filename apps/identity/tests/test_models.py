@@ -308,7 +308,7 @@ class RoleGroupPermissionTests(TestCase):
 
     def test_the_moderator_group_is_scoped_to_the_published_site(self):
         labels = {p.content_type.app_label for p in self.group(User.Role.MODERATOR).permissions.all()}
-        self.assertEqual(labels, {"content", "store", "support"})
+        self.assertEqual(labels, {"content"})
 
     def test_a_moderator_can_actually_open_something_in_the_admin(self):
         moderator = User.objects.create_user(phone=PHONE, name="Mod", role=User.Role.MODERATOR)

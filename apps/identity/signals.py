@@ -10,7 +10,7 @@ from django.dispatch import receiver
 from apps.identity.roles import Role
 
 #: Mirrors the `is_content_staff` tier in `apps.core.api.permissions`.
-MODERATOR_APP_LABELS = ("content", "store", "support")
+MODERATOR_APP_LABELS = ("content",)
 
 
 @receiver(post_migrate)

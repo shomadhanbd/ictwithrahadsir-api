@@ -16,9 +16,8 @@ class Order(TimestampModel):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="orders")
     course = models.ForeignKey(Course, on_delete=models.SET_NULL, null=True, blank=True, related_name="orders")
     price = models.ForeignKey(CoursePrice, on_delete=models.SET_NULL, null=True, blank=True, related_name="orders")
-    product = models.ForeignKey(
-        "store.Product", on_delete=models.SET_NULL, null=True, blank=True, related_name="orders"
-    )
+    #: Always 1 now that only courses are sold. Kept because it is what an
+    #: order line means, not because anything varies it.
     quantity = models.PositiveIntegerField(default=1)
     item_title = models.CharField(max_length=255, blank=True)
     price_title = models.CharField(max_length=150, blank=True)

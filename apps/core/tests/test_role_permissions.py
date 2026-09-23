@@ -61,8 +61,6 @@ CONTENT_STAFF = [
     f'{API}/private/advertisements/',
     f'{API}/private/ebooks/',
     f'{API}/private/pages/',
-    f'{API}/private/products/',
-    f'{API}/private/contact-messages/',
 ]
 
 #: Admins and teachers: courses and everything taught inside them.
@@ -215,9 +213,9 @@ class EveryAdminPathHasADecidedTierTests(ThrottledAPITestCase):
         )
 
         # One normal form for both shapes a router can produce: registered
-        # with the prefix inline (`api/^private/products/$`) or mounted under
-        # `include('private/')` (`api/private/^products/$`). Same route, and
-        # the matrix writes it as `private/products/` either way.
+        # with the prefix inline (`api/^private/notices/$`) or mounted under
+        # `include('private/')` (`api/private/^notices/$`). Same route, and
+        # the matrix writes it as `private/notices/` either way.
         def as_collection(raw):
             return raw.removeprefix('api/').replace('^', '').rstrip('$')
 

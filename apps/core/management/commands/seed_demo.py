@@ -46,8 +46,6 @@ from apps.courses.models import (
     Section,
 )
 from apps.profiles.models import GuardianProfile, StudentProfile, TeacherProfile
-from apps.store.models import CartItem, Product
-from apps.support.models import ContactMessage
 
 User = get_user_model()
 
@@ -360,53 +358,6 @@ EBOOKS = [
     ("সি প্রোগ্রামিং হ্যান্ডনোট", "সিনট্যাক্স, লুপ ও ফাংশনের সহজ ব্যাখ্যা ও উদাহরণ।"),
 ]
 
-# `discount` is the amount OFF, the same as CoursePrice.discount and what
-# `product_price_after_discount` subtracts. These used to hold the sale price
-# instead — 450/380 — which is the opposite meaning for the same field name.
-PRODUCTS = [
-    (
-        "আইসিটি ডাইজেস্ট (প্রিন্ট কপি)",
-        "ict-digest-print",
-        Decimal("450"),
-        Decimal("70"),
-        120,
-        "এইচএসসি আইসিটির সম্পূর্ণ সিলেবাস কভার করা প্রিন্টেড ডাইজেস্ট বই।",
-    ),
-    (
-        "সংখ্যা পদ্ধতি প্র্যাকটিস বুক",
-        "number-system-practice-book",
-        Decimal("250"),
-        Decimal("51"),
-        85,
-        "৫০০+ অনুশীলন সমস্যা ও ধাপে ধাপে সমাধান।",
-    ),
-    (
-        "বোর্ড প্রশ্নব্যাংক সমাধান",
-        "board-question-bank-solution",
-        Decimal("380"),
-        None,
-        60,
-        "গত ৯ বছরের সকল বোর্ড প্রশ্নের সমাধান একসাথে।",
-    ),
-    (
-        "সি প্রোগ্রামিং ওয়ার্কবুক",
-        "c-programming-workbook",
-        Decimal("320"),
-        Decimal("50"),
-        45,
-        "হাতে-কলমে কোড লিখে শেখার ওয়ার্কবুক।",
-    ),
-    (
-        "লজিক গেট পোস্টার সেট",
-        "logic-gate-poster-set",
-        Decimal("180"),
-        None,
-        200,
-        "পড়ার টেবিলের জন্য লেমিনেটেড লজিক গেট ও ট্রুথ টেবিল পোস্টার।",
-    ),
-    ("এসএসসি আইসিটি গাইড", "ssc-ict-guide", Decimal("300"), Decimal("45"), 70, "এসএসসি সিলেবাস অনুযায়ী অধ্যায়ভিত্তিক গাইড বই।"),
-]
-
 STUDENT_NAMES = [
     "সাদিয়া আফরিন",
     "মেহেদী হাসান",
@@ -529,11 +480,9 @@ class Command(BaseCommand):
         self._seed_notices()
         self._seed_ebooks()
         courses = self._seed_courses(categories, teachers)
-        products = self._seed_products(categories)
         students = self._seed_students()
         self._seed_enrollments(courses, students)
-        self._seed_orders(courses, products, students)
-        self._seed_contact_messages(students)
+        self._seed_orders(courses, students)
         self._seed_materials(courses)
 
         self.stdout.write(self.style.SUCCESS("\nDemo data ready:"))
@@ -551,7 +500,6 @@ class Command(BaseCommand):
             ("teachers", TeacherProfile.objects.count()),
             ("testimonials", Testimonial.objects.count()),
             ("notices", Notice.objects.count()),
-            ("products", Product.objects.count()),
             ("students", User.objects.filter(groups__name=User.Role.STUDENT).count()),
             ("enrollments", Enrollment.objects.count()),
             ("orders", Order.objects.count()),
@@ -567,7 +515,6 @@ class Command(BaseCommand):
         for model in [
             Payment,
             Order,
-            CartItem,
             Enrollment,
             Content,
             Section,
@@ -577,9 +524,7 @@ class Command(BaseCommand):
             CourseTeacher,
             Course,
             CourseCategory,
-            Product,
             CourseMaterial,
-            ContactMessage,
             Notice,
             NoticeCategory,
             EBook,
@@ -988,34 +933,6 @@ class Command(BaseCommand):
 
     # -- shop ---------------------------------------------------------------
 
-    def _seed_products(self, categories):
-        category = categories["এইচএসসি আইসিটি"]
-        products = []
-        for index, (name, slug, price, discount, stock, description) in enumerate(PRODUCTS):
-            product, created = Product.objects.get_or_create(
-                slug=slug,
-                defaults={
-                    "name": name,
-                    "price": price,
-                    "discount": discount,
-                    "stock": stock,
-                    "description": description,
-                    "featured": index < 3,
-                    "is_book": index != 4,
-                    "sku": f"SHM-{index + 101}",
-                    "order": index,
-                    "discount_till": self.now + timedelta(days=20) if discount else None,
-                    "image": make_image(f"product-{index}", 600, 600, f"BOOK {index + 1}", index + 2),
-                },
-            )
-            if created:
-                product.categories.add(category)
-            products.append(product)
-        self.stdout.write("  products")
-        return products
-
-    # -- users --------------------------------------------------------------
-
     def _seed_students(self):
         class_levels = list(ClassLevel.objects.all())
         groups = list(Group.objects.all())
@@ -1066,7 +983,7 @@ class Command(BaseCommand):
                 )
         self.stdout.write("  enrollments")
 
-    def _seed_orders(self, courses, products, students):
+    def _seed_orders(self, courses, students):
         """Orders are back-dated across the last 12 months so the admin
         dashboard's sales-overview and payment charts have a series to plot.
         `created_at` is auto_now_add, so it is rewritten via queryset update."""
@@ -1080,25 +997,20 @@ class Command(BaseCommand):
             days_ago = self.rng.randint(0, 360)
             created = self.now - timedelta(days=days_ago, hours=self.rng.randint(0, 23))
 
-            if self.rng.random() < 0.7:
-                course = self.rng.choice(courses)
-                # `prices` is ordered by amount, so `.first()` would always be
-                # the cheap subscription tier — mix both so income varies.
-                available = list(course.prices)
-                if not available:
-                    continue
-                price = self.rng.choice(available)
-                amount = price.discount or price.amount
-                order_kwargs = {
-                    "course": course,
-                    "price": price,
-                    "item_title": course.title,
-                    "price_title": price.title,
-                }
-            else:
-                product = self.rng.choice(products)
-                amount = product.discount or product.price
-                order_kwargs = {"product": product, "item_title": product.name, "price_title": "একক ক্রয়"}
+            course = self.rng.choice(courses)
+            # `prices` is ordered by amount, so `.first()` would always be the
+            # cheap subscription tier — mix both so income varies.
+            available = list(course.prices)
+            if not available:
+                continue
+            price = self.rng.choice(available)
+            amount = price.discount or price.amount
+            order_kwargs = {
+                "course": course,
+                "price": price,
+                "item_title": course.title,
+                "price_title": price.title,
+            }
 
             status = self.rng.choices(
                 [Order.Status.PAID, Order.Status.PENDING, Order.Status.CANCELLED],
@@ -1131,19 +1043,3 @@ class Command(BaseCommand):
             )
             Payment.objects.filter(pk=payment.pk).update(created_at=created)
         self.stdout.write("  orders + payments")
-
-    def _seed_contact_messages(self, students):
-        for index, (subject, message) in enumerate(CONTACT_MESSAGES):
-            student = students[index % len(students)]
-            ContactMessage.objects.get_or_create(
-                subject=subject,
-                message=message,
-                defaults={
-                    "user": student,
-                    "name": student.name,
-                    "phone": student.phone,
-                    "email": student.email,
-                    "is_read": index % 2 == 0,
-                },
-            )
-        self.stdout.write("  contact messages")

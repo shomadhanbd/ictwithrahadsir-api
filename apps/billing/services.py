@@ -40,22 +40,6 @@ def price_after_discount(price) -> Decimal:
     return max(Decimal('0'), price.amount - price.discount)
 
 
-def product_price_after_discount(product) -> Decimal:
-    """The payable unit price for a `Product`.
-
-    Same rule as a course price: `discount` is the amount OFF. The store had
-    no server-side total at all until orders learned about products, so the
-    meaning of `Product.discount` was decided only by the seed -- which wrote
-    a sale price, the opposite of what `CoursePrice` means by the same field
-    name. One field name with two meanings in one API is a trap for every
-    consumer, so products follow the course rule and the seed was corrected
-    to match.
-    """
-    if not _discount_is_live(product.discount, product.discount_till):
-        return product.price
-    return max(Decimal('0'), product.price - product.discount)
-
-
 # ---------------------------------------------------------------------------
 # Orders
 # ---------------------------------------------------------------------------
@@ -73,41 +57,6 @@ def create_course_order(*, user, course, price) -> Order:
         price_title=price.title,
         amount=amount,
         total=amount,
-        status=Order.Status.PENDING,
-    )
-
-
-@transaction.atomic
-def create_product_order(*, user, product, quantity: int = 1) -> Order:
-    """Place a pending order for `quantity` of a product, reserving the stock.
-
-    The stock is re-read with `select_for_update()` inside the transaction and
-    decremented here rather than at payment confirmation. Checking without
-    reserving does not prevent overselling: two requests arriving together
-    both read the same figure, both pass the check, and both are accepted.
-    Holding the row for the duration of the write is what makes the check mean
-    anything.
-
-    The stock is given back if the payment is later marked failed -- see
-    `confirm_payment`.
-    """
-    # Re-read under a row lock; the instance handed in was fetched outside
-    # this transaction and its `stock` may already be stale.
-    locked = product.__class__.objects.select_for_update().get(pk=product.pk)
-    if locked.stock < quantity:
-        raise ValidationError({'quantity': [f'Only {locked.stock} left in stock.']})
-
-    locked.stock -= quantity
-    locked.save(update_fields=['stock'])
-
-    unit = product_price_after_discount(locked)
-    return Order.objects.create(
-        user=user,
-        product=locked,
-        quantity=quantity,
-        item_title=locked.name,
-        amount=unit,
-        total=unit * quantity,
         status=Order.Status.PENDING,
     )
 
@@ -190,18 +139,8 @@ def confirm_payment(*, payment, status, confirm_amount_mismatch: bool = False) -
     elif status == Payment.Status.FAILED:
         order.status = Order.Status.FAILED
         order.save(update_fields=['status'])
-        _release_reserved_stock(order)
 
     return payment
-
-
-def _release_reserved_stock(order) -> None:
-    """Give back the stock a product order reserved when it was placed."""
-    if not order.product_id:
-        return
-    product = order.product.__class__.objects.select_for_update().get(pk=order.product_id)
-    product.stock += order.quantity
-    product.save(update_fields=['stock'])
 
 
 # ---------------------------------------------------------------------------

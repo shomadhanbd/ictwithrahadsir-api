@@ -71,19 +71,14 @@ class OrderAPIView(APIView):
         return Response({'data': OrderSerializer(orders, many=True).data})
 
     @extend_schema(
-        summary='Place an order for a course or a product',
+        summary='Place an order for a course',
         request=OrderCreateRequestSerializer,
         responses={201: OrderCreateResponseSerializer},
     )
     def post(self, request):
         serializer = OrderCreateRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        selection = serializer.validated_data
-
-        if 'product' in selection:
-            order = services.create_product_order(user=request.user, **selection)
-        else:
-            order = services.create_course_order(user=request.user, **selection)
+        order = services.create_course_order(user=request.user, **serializer.validated_data)
 
         return Response(
             OrderCreateResponseSerializer({'id': order.id, 'order': order}).data,

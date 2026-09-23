@@ -54,7 +54,7 @@ class OrderAdmin(TimestampedAdmin):
     # `user` is rendered on every row; without this the changelist runs one
     # query per order just to print a name.
     list_select_related = ('user',)
-    autocomplete_fields = ('user', 'course', 'price', 'product')
+    autocomplete_fields = ('user', 'course', 'price')
     inlines = [PaymentInline]
 
     def get_search_results(self, request, queryset, search_term):

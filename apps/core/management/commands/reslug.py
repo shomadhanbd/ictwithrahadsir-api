@@ -22,7 +22,6 @@ from django.db import transaction
 from apps.content.models import Notice, NoticeCategory
 from apps.core.slugs import ascii_slug
 from apps.courses.models import Content, Course, CourseCategory, Section
-from apps.store.models import Product
 
 # Slugs the old code produced when it had nothing usable to work with.
 BROKEN = re.compile(r"^(item|product)(-\d+)?$")
@@ -35,7 +34,6 @@ TARGETS = [
     (Content, "title"),
     (NoticeCategory, "title"),
     (Notice, "title"),
-    (Product, "name"),
 ]
 
 

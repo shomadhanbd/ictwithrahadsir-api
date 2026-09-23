@@ -38,9 +38,7 @@ api_patterns = (
         path('', include('apps.courses.api.urls')),
         path('', include('apps.exam.api.urls')),
         path('', include('apps.billing.api.urls')),
-        path('', include('apps.store.api.urls')),
         path('', include('apps.content.api.urls')),
-        path('', include('apps.support.api.urls')),
     ],
     'api',
 )

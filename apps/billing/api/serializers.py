@@ -4,7 +4,6 @@ from rest_framework import serializers
 
 from apps.billing.models import Order, Payment
 from apps.courses.models import Course, CoursePrice
-from apps.store.models import Product
 
 
 class DetailsJsonStringField(serializers.Field):
@@ -33,7 +32,6 @@ class DetailsJsonStringField(serializers.Field):
 class OrderSerializer(serializers.ModelSerializer):
     user_id = serializers.PrimaryKeyRelatedField(source="user", read_only=True)
     course_id = serializers.PrimaryKeyRelatedField(source="course", read_only=True)
-    product_id = serializers.PrimaryKeyRelatedField(source="product", read_only=True)
     price_id = serializers.PrimaryKeyRelatedField(source="price", read_only=True)
 
     class Meta:
@@ -42,9 +40,7 @@ class OrderSerializer(serializers.ModelSerializer):
             "id",
             "user_id",
             "course_id",
-            "product_id",
             "price_id",
-            "quantity",
             "item_title",
             "price_title",
             "amount",
@@ -100,36 +96,17 @@ class AdminPaymentSerializer(serializers.ModelSerializer):
 
 
 class OrderCreateRequestSerializer(serializers.Serializer):
-    """One endpoint places both course orders and product orders.
+    """Places an order for a course at one of its prices.
 
-    A `product_id` in the body selects the product branch; otherwise the
-    course/price pair is required. They are the same resource with a
-    different item, which is why `Order` has carried `product` and `quantity`
-    from the start.
+    It used to place product orders too, selected by a `product_id` in the
+    body. The `store` app those pointed at has been removed.
     """
 
     course_id = serializers.IntegerField(required=False)
     price_id = serializers.IntegerField(required=False)
-    product_id = serializers.IntegerField(required=False)
-    quantity = serializers.IntegerField(required=False, default=1)
-
-    def validate_quantity(self, value):
-        # `IntegerField` already rejects non-numeric input with its own
-        # message; this only covers the in-range rule.
-        if value < 1:
-            raise serializers.ValidationError('Must be at least 1.')
-        return value
 
     def validate(self, attrs):
-        if attrs.get('product_id'):
-            return self._validate_product(attrs)
         return self._validate_course(attrs)
-
-    def _validate_product(self, attrs):
-        product = Product.objects.active().filter(pk=attrs['product_id']).first()
-        if not product:
-            raise serializers.ValidationError({'product_id': ['Unknown product.']})
-        return {'product': product, 'quantity': attrs.get('quantity', 1)}
 
     def _validate_course(self, attrs):
         course_id = attrs.get('course_id')
