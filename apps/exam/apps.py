@@ -5,7 +5,6 @@ class ExamConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'
     name = 'apps.exam'
     label = 'exam'
-    #: Distinguishes this from `assessment`, which registers its own `Exam`.
     verbose_name = 'Exam Authoring'
 
     def ready(self):

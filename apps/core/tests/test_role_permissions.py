@@ -76,8 +76,6 @@ TEACHING_STAFF = [
     # Minting a presigned upload URL is back-office write access to the
     # bucket, so it sits with the other teaching-staff tools.
     f'{API}/private/uploads/signed-url/',
-    f'{API}/private/mcq-folders/',
-    f'{API}/private/mcq-questions/',
     # The question bank and the exams built out of it: a teacher cannot
     # assemble a paper from questions they are not allowed to see.
     f'{API}/private/question-blocks/',
@@ -87,7 +85,6 @@ TEACHING_STAFF = [
     f'{API}/private/exams/',
     f'{API}/private/exam-sections/',
     f'{API}/private/exam-section-questions/',
-    f'{API}/private/exam-results/',
     f'{API}/private/users/search/',
 ]
 

@@ -143,7 +143,7 @@ class AdminContentViewSet(CourseScopedAdminMixin, AdminModelViewSet):
     # The serializer merges the flat `exam_*` keys in from the related Exam
     # row on every content, exam or not -- a reverse one-to-one, so it is a
     # query each without this.
-    queryset = Content.objects.select_related('exam')
+    queryset = Content.objects.all()
     serializer_class = AdminContentSerializer
     lookup_field = 'slug'
     # The last admin list whose search box posted `?search=` into an inert

@@ -24,7 +24,6 @@ class UnpaginatedListEnvelopeTests(APITestCase):
         ('api:courses:course_category_list', False),
         ('api:content:ebook_list', False),
         ('api:content:notice_category_list', False),
-        ('api:assessment:practice_topics', False),
         ('api:profiles:admin_teacher_lookup', True),
         ('api:content:admin_page_list', True),
         ('api:identity:admin_user_search', True),

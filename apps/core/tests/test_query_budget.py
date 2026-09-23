@@ -19,7 +19,6 @@ to make a failing build green.
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APITestCase
 
-from apps.assessment.models import Exam, Question, QuestionBank
 from apps.billing.models import Order
 from apps.content.models import Notice, NoticeCategory
 from apps.courses.models import (
@@ -54,8 +53,6 @@ class QueryBudgetTests(APITestCase):
     CATEGORY_ROOTS = 3
     CATEGORY_CHILDREN = 3
     NOTICES = 20
-    QUESTIONS = 30
-    PRACTICE_BANKS = 6
 
     @classmethod
     def setUpTestData(cls):
@@ -107,29 +104,6 @@ class QueryBudgetTests(APITestCase):
                         )
 
         cls.detail_course = cls.courses[0]
-
-        # The exam hangs off the last course, not the one the detail test
-        # reads, so that test's content counts stay exactly the fixture's.
-        exam_course = cls.courses[-1]
-        bank = QuestionBank.objects.create(title="Bank")
-        for i in range(cls.QUESTIONS):
-            Question.objects.create(bank=bank, question=f"Q{i}", answer="a")
-        exam_content = Content.objects.create(
-            course=exam_course,
-            section=Section.objects.filter(course=exam_course).first(),
-            title="Exam content",
-            type=Content.Type.EXAM,
-        )
-        cls.exam = Exam.objects.create(content=exam_content, question_bank=bank)
-
-        # A nested folder tree for the practice topic list. Each folder is a
-        # child of the one before it, so the tree gets *deeper* as the fixture
-        # grows -- which is what an implementation that walks the tree per
-        # folder is worst at.
-        parent = None
-        for i in range(cls.PRACTICE_BANKS):
-            parent = QuestionBank.objects.create(title=f"Practice {i}", parent=parent)
-            Question.objects.create(bank=parent, question=f"PQ{i}", answer="a")
 
         notice_category = NoticeCategory.objects.create(title="Notice cat")
         for i in range(cls.NOTICES):
@@ -198,62 +172,6 @@ class QueryBudgetTests(APITestCase):
 
     # -- exam ---------------------------------------------------------------
 
-    def test_exam_detail(self):
-        self.authenticate()
-        with self.assertNumQueries(6):
-            response = self.client.get(f"/api/public/exams/{self.exam.pk}/")
-        questions = response.data["question"]["body"]["sections"][0]["questions"]
-        self.assertEqual(len(questions), self.QUESTIONS)
-
-    def test_exam_submission_marks_in_one_query_per_paper(self):
-        """Was one SELECT per submitted answer."""
-        self.authenticate()
-        payload = {
-            "sections": [
-                {
-                    "answers": [
-                        {"mcq_id": q.id, "user_answer": "a"}
-                        # This exam's own bank, not every question in the
-                        # database -- which is what a real submission sends,
-                        # and keeps the expected mark tied to the fixture.
-                        for q in Question.objects.filter(bank=self.exam.question_bank)
-                    ]
-                }
-            ],
-            "duration": 60,
-        }
-        # 8, not 6: the two added statements are a SAVEPOINT/RELEASE pair, not
-        # data queries. The INSERT runs inside its own atomic block so that a
-        # duplicate submission arriving at the same moment raises a catchable
-        # IntegrityError instead of a 500 (see apps.assessment.services).
-        # What this test exists to pin is unchanged -- the answer keys are
-        # still fetched in ONE query for the whole paper, not one per answer,
-        # which is what ScaledQueryBudgetTests re-proves at twice the size.
-        with self.assertNumQueries(8):
-            response = self.client.post(f"/api/public/exams/{self.exam.pk}/submission/", payload, format="json")
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(float(response.data["marks"]), float(self.QUESTIONS))
-
-    def test_exam_ranking_does_not_scale_with_attempt_count(self):
-        """Was: load every attempt id into Python to find one index."""
-        others = [User.objects.create_user(phone=f"018200000{i:02d}", name=f"S{i}") for i in range(10)]
-        from apps.assessment.models import ExamAttempt
-
-        for i, other in enumerate(others):
-            ExamAttempt.objects.create(exam=self.exam, user=other, marks=i, duration=10)
-        ExamAttempt.objects.create(exam=self.exam, user=self.user, marks=5, duration=10)
-
-        self.authenticate()
-        with self.assertNumQueries(5):
-            response = self.client.get(f"/api/public/exams/{self.exam.pk}/ranking/")
-        # Four attempts scored above 5 (marks 6-9), so the caller sits fifth.
-        # The attempt on the same marks and duration ties rather than
-        # displacing them, which the old index-of-a-materialised-list
-        # approach decided arbitrarily.
-        self.assertEqual(response.data["user_rank"], 5)
-
-    # -- admin lists --------------------------------------------------------
-
     def test_admin_content_list(self):
         """The flat `exam_*` keys are read off a related row per content.
 
@@ -268,20 +186,6 @@ class QueryBudgetTests(APITestCase):
         with self.assertNumQueries(4):
             response = self.client.get("/api/private/contents/?per_page=50")
         self.assertEqual(len(response.data["data"]), 50)
-
-    def test_practice_topics_do_not_scale_with_folder_count(self):
-        """Was: one tree walk plus one COUNT per folder in the bank.
-
-        `all_questions()` costs a query per level of nesting, so listing the
-        topics cost more the deeper and wider the bank grew -- the one thing
-        a topic list is guaranteed to do over time.
-        """
-        with self.assertNumQueries(2):
-            response = self.client.get("/api/public/practice/topics/")
-        self.assertEqual(response.status_code, 200)
-        # Every seeded practice folder holds a question, and each also
-        # inherits its descendants', so all of them are playable.
-        self.assertEqual(len(response.data["data"]), self.PRACTICE_BANKS + 1)
 
 
 class ScaledQueryBudgetTests(QueryBudgetTests):
@@ -298,5 +202,3 @@ class ScaledQueryBudgetTests(QueryBudgetTests):
     CATEGORY_ROOTS = 6
     CATEGORY_CHILDREN = 6
     NOTICES = 40
-    QUESTIONS = 60
-    PRACTICE_BANKS = 12

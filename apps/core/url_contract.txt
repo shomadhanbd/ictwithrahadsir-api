@@ -17,10 +17,6 @@ api/private/^courses/$
 api/private/^courses/(?P<slug>[^/.]+)/$
 api/private/^ebooks/$
 api/private/^ebooks/(?P<pk>[^/.]+)/$
-api/private/^mcq-folders/$
-api/private/^mcq-folders/(?P<pk>[^/.]+)/$
-api/private/^mcq-questions/$
-api/private/^mcq-questions/(?P<pk>[^/.]+)/$
 api/private/^notice-categories/$
 api/private/^notice-categories/(?P<slug>[^/.]+)/$
 api/private/^notices/$
@@ -51,7 +47,6 @@ api/private/dashboard/
 api/private/dashboard/payment-chart/
 api/private/dashboard/sales-overview/
 api/private/enrollments/
-api/private/exam-results/
 api/private/exam-section-questions/
 api/private/exam-section-questions/<int:pk>/
 api/private/exam-sections/
@@ -104,9 +99,6 @@ api/public/courses/<slug:slug>/materials/
 api/public/courses/<slug:slug>/progress/
 api/public/ebooks/
 api/public/enrollments/free/
-api/public/exams/<int:pk>/
-api/public/exams/<int:pk>/ranking/
-api/public/exams/<int:pk>/submission/
 api/public/home/
 api/public/me/
 api/public/me/courses/
@@ -115,8 +107,6 @@ api/public/notices/
 api/public/orders/
 api/public/pages/<slug:key>/
 api/public/payments/
-api/public/practice/questions/
-api/public/practice/topics/
 api/public/products/
 api/redoc/
 api/schema/

@@ -24,7 +24,6 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.academic.models import Batch, Chapter, ClassLevel, Group, Subject, Topic
-from apps.assessment.models import Exam, ExamAttempt, Question, QuestionBank
 from apps.billing.models import Order, Payment
 from apps.content.models import (
     Advertisement,
@@ -455,104 +454,6 @@ ADDRESSES = [
 ]
 
 # (question, a, b, c, d, answer, explanation)
-MCQ_BANK = [
-    ("(১১০১)₂ সংখ্যাটির দশমিক মান কত?", "১১", "১৩", "১৫", "৯", "b", "১×৮ + ১×৪ + ০×২ + ১×১ = ১৩"),
-    ("১ কিলোবাইট সমান কত বাইট?", "১০০০", "১০২৪", "৫১২", "২০৪৮", "b", "২^১০ = ১০২৪ বাইট।"),
-    ("কোনটি ইউনিভার্সাল গেট?", "AND", "OR", "NAND", "XOR", "c", "NAND ও NOR দিয়ে সব ধরনের গেট তৈরি করা যায়।"),
-    ("ASCII কোডে অক্ষর সংখ্যা কত বিটে প্রকাশ করা হয়?", "৪", "৭", "৮", "১৬", "b", "স্ট্যান্ডার্ড ASCII ৭ বিটের কোড।"),
-    ("হেক্সাডেসিমেল সংখ্যা পদ্ধতির ভিত্তি কত?", "৮", "১০", "১২", "১৬", "d", "হেক্সাডেসিমেলের বেজ ১৬।"),
-    (
-        "HTML এ সবচেয়ে বড় হেডিং ট্যাগ কোনটি?",
-        "<h1>",
-        "<h6>",
-        "<head>",
-        "<big>",
-        "a",
-        "<h1> সবচেয়ে বড় এবং <h6> সবচেয়ে ছোট হেডিং।",
-    ),
-    (
-        "ওয়েবপেজে ছবি যুক্ত করার ট্যাগ কোনটি?",
-        "<image>",
-        "<img>",
-        "<picture>",
-        "<src>",
-        "b",
-        "<img src=\"...\"> ট্যাগ দিয়ে ছবি যুক্ত করা হয়।",
-    ),
-    (
-        "সি ভাষায় প্রোগ্রাম কার্যকর হওয়া শুরু হয় কোন ফাংশন থেকে?",
-        "start()",
-        "begin()",
-        "main()",
-        "run()",
-        "c",
-        "প্রতিটি সি প্রোগ্রাম main() ফাংশন থেকে শুরু হয়।",
-    ),
-    (
-        "কোনটি লুপ কন্ট্রোল স্টেটমেন্ট নয়?",
-        "for",
-        "while",
-        "do-while",
-        "switch",
-        "d",
-        "switch একটি ডিসিশন কন্ট্রোল স্টেটমেন্ট, লুপ নয়।",
-    ),
-    (
-        "ডেটাবেজে প্রাইমারি কী এর বৈশিষ্ট্য কোনটি?",
-        "নাল হতে পারে",
-        "একাধিক থাকতে পারে",
-        "ইউনিক ও নাল নয়",
-        "সবগুলো",
-        "c",
-        "প্রাইমারি কী অবশ্যই ইউনিক হবে এবং নাল হতে পারবে না।",
-    ),
-    (
-        "LAN এর পূর্ণরূপ কী?",
-        "Local Area Network",
-        "Long Area Network",
-        "Linked Access Node",
-        "Logical Area Network",
-        "a",
-        "LAN = Local Area Network।",
-    ),
-    (
-        "কোন ট্রান্সমিশন মোডে একসাথে দুই দিকে ডেটা যায়?",
-        "সিমপ্লেক্স",
-        "হাফ-ডুপ্লেক্স",
-        "ফুল-ডুপ্লেক্স",
-        "মাল্টিকাস্ট",
-        "c",
-        "ফুল-ডুপ্লেক্সে একই সময়ে উভয় দিকে ডেটা আদান-প্রদান হয়।",
-    ),
-    (
-        "অপটিক্যাল ফাইবারে ডেটা পরিবহন হয় কীসের মাধ্যমে?",
-        "তড়িৎ প্রবাহ",
-        "আলোক সংকেত",
-        "রেডিও তরঙ্গ",
-        "মাইক্রোওয়েভ",
-        "b",
-        "অপটিক্যাল ফাইবারে আলোর পূর্ণ অভ্যন্তরীণ প্রতিফলনে ডেটা যায়।",
-    ),
-    (
-        "বায়োমেট্রিক্সের উদাহরণ কোনটি?",
-        "পাসওয়ার্ড",
-        "ফিঙ্গারপ্রিন্ট",
-        "ওটিপি",
-        "পিন",
-        "b",
-        "ফিঙ্গারপ্রিন্ট একটি শারীরবৃত্তীয় বায়োমেট্রিক বৈশিষ্ট্য।",
-    ),
-    (
-        "ন্যানো টেকনোলজির একক কত?",
-        "১০^-৬ মিটার",
-        "১০^-৯ মিটার",
-        "১০^-১২ মিটার",
-        "১০^-৩ মিটার",
-        "b",
-        "১ ন্যানোমিটার = ১০^-৯ মিটার।",
-    ),
-]
-
 STATIC_PAGES = [
     # The client requests this key literally (see the web app's about page).
     (
@@ -627,13 +528,11 @@ class Command(BaseCommand):
         self._seed_advertisements()
         self._seed_notices()
         self._seed_ebooks()
-        stores = self._seed_mcq_bank()
-        courses = self._seed_courses(categories, teachers, stores)
+        courses = self._seed_courses(categories, teachers)
         products = self._seed_products(categories)
         students = self._seed_students()
         self._seed_enrollments(courses, students)
         self._seed_orders(courses, products, students)
-        self._seed_exam_results(courses, students)
         self._seed_contact_messages(students)
         self._seed_materials(courses)
 
@@ -643,7 +542,6 @@ class Command(BaseCommand):
             ("courses", Course.objects.count()),
             ("sections", Section.objects.count()),
             ("contents", Content.objects.count()),
-            ("mcq questions", Question.objects.count()),
             ("class levels", ClassLevel.objects.count()),
             ("academic groups", Group.objects.count()),
             ("subjects", Subject.objects.count()),
@@ -658,7 +556,6 @@ class Command(BaseCommand):
             ("enrollments", Enrollment.objects.count()),
             ("orders", Order.objects.count()),
             ("payments", Payment.objects.count()),
-            ("exam results", ExamAttempt.objects.count()),
         ]:
             self.stdout.write(f"  {count:>5}  {label}")
         self.stdout.write("\nStudent logins: phone 01810000001 … 01810000025, password student1234")
@@ -671,7 +568,6 @@ class Command(BaseCommand):
             Payment,
             Order,
             CartItem,
-            ExamAttempt,
             Enrollment,
             Content,
             Section,
@@ -681,8 +577,6 @@ class Command(BaseCommand):
             CourseTeacher,
             Course,
             CourseCategory,
-            Question,
-            QuestionBank,
             Product,
             CourseMaterial,
             ContactMessage,
@@ -916,40 +810,7 @@ class Command(BaseCommand):
 
     # -- exams --------------------------------------------------------------
 
-    def _seed_mcq_bank(self):
-        root, _ = QuestionBank.objects.get_or_create(title="আইসিটি প্রশ্নব্যাংক", parent=None, defaults={"order": 0})
-        folders = ["সংখ্যা পদ্ধতি", "নেটওয়ার্কিং", "ওয়েব ডিজাইন", "সি প্রোগ্রামিং", "ডেটাবেজ"]
-        stores = []
-        for index, title in enumerate(folders):
-            store, _ = QuestionBank.objects.get_or_create(title=title, parent=root, defaults={"order": index})
-            stores.append(store)
-
-        # Deal the shared question bank round-robin into the topic folders.
-        for index, row in enumerate(MCQ_BANK):
-            question, a, b, c, d, answer, explanation = row
-            store = stores[index % len(stores)]
-            Question.objects.get_or_create(
-                bank=store,
-                question=question,
-                defaults={
-                    "a": a,
-                    "b": b,
-                    "c": c,
-                    "d": d,
-                    "answer": answer,
-                    "explanation": explanation,
-                    "source_subject": "আইসিটি",
-                    "source_year": str(2019 + (index % 7)),
-                    "source_board": ["ঢাকা", "রাজশাহী", "চট্টগ্রাম", "যশোর"][index % 4],
-                    "source_chapter": store.title,
-                },
-            )
-        self.stdout.write("  mcq bank")
-        return stores
-
-    # -- courses ------------------------------------------------------------
-
-    def _seed_courses(self, categories, teachers, stores):
+    def _seed_courses(self, categories, teachers):
         courses = []
         for index, row in enumerate(COURSES):
             title, slug, subtitle, category_title, duration, featured, is_online, chapters = row
@@ -977,7 +838,7 @@ class Command(BaseCommand):
                 course.categories.add(categories[category_title])
                 self._seed_course_prices(course, index)
                 self._seed_course_extras(course, teachers, index)
-                self._seed_course_tree(course, chapters, stores, index, slug)
+                self._seed_course_tree(course, chapters, index, slug)
             courses.append(course)
         self.stdout.write("  courses + sections + contents")
         return courses
@@ -1032,7 +893,7 @@ class Command(BaseCommand):
                 link=f"{MEDIA_BASE}/{SEED_DIR}/course-{index}.png",
             )
 
-    def _seed_course_tree(self, course, chapters, stores, course_index, course_slug):
+    def _seed_course_tree(self, course, chapters, course_index, course_slug):
         """One section per chapter: video lessons, a lecture sheet, a note, a
         live class and a chapter exam wired to an MCQ folder."""
         for chapter_index, chapter in enumerate(chapters):
@@ -1105,8 +966,9 @@ class Command(BaseCommand):
             )
             order += 1
 
-            store = stores[(course_index + chapter_index) % len(stores)]
-            exam_content = Content.objects.create(
+            # The lesson still exists; the paper behind it does not, until the
+            # replacement for the retired `assessment` app can hold one.
+            Content.objects.create(
                 course=course,
                 section=section,
                 title=f"{chapter} — অধ্যায়ভিত্তিক পরীক্ষা",
@@ -1114,19 +976,6 @@ class Command(BaseCommand):
                 type=Content.Type.EXAM,
                 paid=True,
                 order=order,
-            )
-            Exam.objects.create(
-                content=exam_content,
-                question_bank=store,
-                mode=Exam.Mode.EXAM,
-                total_marks=15,
-                pass_marks=8,
-                positive_marks=Decimal("1.00"),
-                negative_marks=Decimal("0.25"),
-                duration_minutes=15,
-                start_time=self.now - timedelta(days=7),
-                end_time=self.now + timedelta(days=30),
-                result_publish_time=self.now - timedelta(days=6),
             )
 
     def _seed_materials(self, courses):
@@ -1282,29 +1131,6 @@ class Command(BaseCommand):
             )
             Payment.objects.filter(pk=payment.pk).update(created_at=created)
         self.stdout.write("  orders + payments")
-
-    def _seed_exam_results(self, courses, students):
-        """Fill the leaderboard behind /ranking/[id] for the first exam of the
-        first few courses."""
-        exams = Exam.objects.filter(content__type=Content.Type.EXAM, content__course__in=courses[:3]).order_by("pk")[:4]
-
-        for exam in exams:
-            for student in self.rng.sample(students, 18):
-                positive = Decimal(self.rng.randint(6, 15))
-                negative = Decimal(self.rng.randint(0, 4)) * Decimal("0.25")
-                ExamAttempt.objects.get_or_create(
-                    exam=exam,
-                    user=student,
-                    defaults={
-                        "marks": positive - negative,
-                        "positive_marks": positive,
-                        "negative_marks": negative,
-                        "duration": self.rng.randint(240, 900),
-                        "submitted": True,
-                        "answers": [],
-                    },
-                )
-        self.stdout.write("  exam results")
 
     def _seed_contact_messages(self, students):
         for index, (subject, message) in enumerate(CONTACT_MESSAGES):

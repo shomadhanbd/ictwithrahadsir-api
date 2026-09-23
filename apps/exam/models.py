@@ -7,9 +7,8 @@ the same shape.
 
 **Authoring only.** Nothing here records an attempt, an answer or a mark earned.
 
-`apps.exam.Exam` is not `apps.assessment.Exam`, and `apps.question.Question` is
-not `apps.assessment.Question`. The two systems are parallel and share nothing;
-any module importing both must alias.
+It replaces the retired `assessment` app, which stored a paper as flat columns
+on a lesson. Nothing is shared with it and nothing was carried over.
 """
 
 from django.conf import settings

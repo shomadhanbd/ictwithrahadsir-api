@@ -25,6 +25,10 @@ class RetiredPathTests(TestCase):
     """
 
     #: (retired path, canonical replacement)
+    #:
+    #: The exam-taking and MCQ-store aliases are gone with the `assessment`
+    #: app they pointed into. They belong back here, aimed at the new routes,
+    #: once `apps.exam` can serve a paper to a student.
     ALIASES = [
         ('/api/login', '/api/public/auth/login/'),
         ('/api/register', '/api/public/auth/register/'),
@@ -49,8 +53,6 @@ class RetiredPathTests(TestCase):
         ('/api/payment', '/api/public/payments/'),
         ('/api/free-course-purchase', '/api/public/enrollments/free/'),
         ('/api/aws-upload-url', '/api/private/uploads/signed-url/'),
-        ('/api/exams/1', '/api/public/exams/1/'),
-        ('/api/ranking/1', '/api/public/exams/1/ranking/'),
         ('/api/admin/user', '/api/private/users/'),
         ('/api/admin/user-search', '/api/private/users/search/'),
         ('/api/admin/user/import', '/api/private/users/import/'),
@@ -64,9 +66,6 @@ class RetiredPathTests(TestCase):
         ('/api/admin/coupon', '/api/private/coupons/'),
         ('/api/admin/routine', '/api/private/routines/'),
         ('/api/admin/instructor', '/api/private/course-teachers/'),
-        ('/api/admin/mcq', '/api/private/mcq-questions/'),
-        ('/api/admin/mcq-store', '/api/private/mcq-folders/'),
-        ('/api/admin/result', '/api/private/exam-results/'),
         ('/api/admin/product', '/api/private/products/'),
         ('/api/admin/payment', '/api/private/payments/'),
         ('/api/admin/notice', '/api/private/notices/'),

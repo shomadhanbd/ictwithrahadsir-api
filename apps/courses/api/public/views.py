@@ -114,7 +114,7 @@ class BaseContentAPIView(APIView):
 
     def get_accessible_content(self, slug):
         # The detail payload reads the linked Exam for exam content.
-        content = Content.objects.select_related('exam').filter(slug=slug, active=True).first()
+        content = Content.objects.filter(slug=slug, active=True).first()
         if not content:
             raise NotFound('Content not found.')
         if not content.is_accessible_by(self.request.user):

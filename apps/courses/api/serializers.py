@@ -4,8 +4,6 @@ from django.db.models import Count
 from rest_framework import serializers
 from rest_framework.validators import UniqueTogetherValidator
 
-from apps.assessment import content_exam
-from apps.assessment.models import Exam, QuestionBank
 from apps.core.api.fields import MediaField
 from apps.core.spreadsheets import SpreadsheetField
 from apps.courses import selectors as course_selectors
@@ -314,29 +312,26 @@ class ContentDetailSerializer(serializers.ModelSerializer):
         return {"id": obj.id, "title": obj.title, "link": obj.pdf_file}
 
     def get_exam(self, obj) -> dict | None:
+        """The paper attached to a lesson, once there is somewhere to store one.
+
+        The legacy `assessment` app that held these rows has been removed and
+        `apps.exam` is authoring-only, with no student-facing delivery yet. The
+        key stays on the wire so the shape does not change under the clients;
+        it reports the lesson and nothing else until the new app can answer.
+        """
         if obj.type != Content.Type.EXAM:
             return None
-        request = self.context.get("request")
-        exam = getattr(obj, "exam", None)
-
-        result = None
-        if request and request.user.is_authenticated and exam is not None:
-            from apps.assessment.models import ExamAttempt
-
-            result = ExamAttempt.objects.filter(exam=exam, user=request.user).first()
 
         return {
-            # Still the Content id: Exam uses it as its own primary key, so
-            # this is the same number either way.
             "id": obj.id,
             "title": obj.title,
-            "total_marks": exam and exam.total_marks,
-            "pass_marks": exam and exam.pass_marks,
-            "start_time": exam and exam.start_time,
-            "end_time": exam and exam.end_time,
-            "result_publish_time": exam and exam.result_publish_time,
-            "duration": exam and exam.duration_minutes,
-            "submitted": bool(result),
+            "total_marks": None,
+            "pass_marks": None,
+            "start_time": None,
+            "end_time": None,
+            "result_publish_time": None,
+            "duration": None,
+            "submitted": False,
         }
 
     def get_link(self, obj) -> dict | None:
@@ -352,61 +347,15 @@ class ContentDetailSerializer(serializers.ModelSerializer):
 class AdminContentSerializer(serializers.ModelSerializer):
     """Content CRUD for the admin panel.
 
-    The ten flat `exam_*` keys are contract but no longer live on Content --
-    they moved to `assessment.Exam`. They are declared here explicitly and
-    merged in and out through `apps.assessment.content_exam`, so the wire
-    format is unchanged while the storage is not.
+    It used to carry ten flat `exam_*` keys, stored on `assessment.Exam` and
+    merged in and out on the way past. That app has been removed; when the
+    replacement built on `apps.exam` can hold a lesson's paper, this is where
+    it attaches.
     """
 
     pdf_file = MediaField(upload_to="pdf", required=False)
     course_id = serializers.PrimaryKeyRelatedField(source="course", queryset=Course.objects.all())
     section_id = serializers.PrimaryKeyRelatedField(source="section", queryset=Section.objects.all())
-
-    exam_store_id = serializers.PrimaryKeyRelatedField(
-        queryset=QuestionBank.objects.all(), required=False, allow_null=True
-    )
-    exam_mode = serializers.ChoiceField(choices=Exam.Mode.choices, required=False, default=Exam.Mode.EXAM)
-    exam_total_marks = serializers.IntegerField(required=False, allow_null=True)
-    exam_pass_marks = serializers.IntegerField(required=False, allow_null=True)
-    # max_digits/decimal_places must match the model, or DRF renders 1.0
-    # where the old payload said "1.00".
-    exam_positive_marks = serializers.DecimalField(max_digits=5, decimal_places=2, required=False, allow_null=True)
-    exam_negative_marks = serializers.DecimalField(max_digits=5, decimal_places=2, required=False, allow_null=True)
-    exam_duration_minutes = serializers.IntegerField(required=False, allow_null=True)
-    exam_start_time = serializers.DateTimeField(required=False, allow_null=True)
-    exam_end_time = serializers.DateTimeField(required=False, allow_null=True)
-    exam_result_publish_time = serializers.DateTimeField(required=False, allow_null=True)
-
-    EXAM_KEYS = tuple(content_exam.FIELD_MAP)
-
-    def to_representation(self, instance):
-        data = super().to_representation(instance)
-        stored = content_exam.read_exam_fields(instance)
-        for key in self.EXAM_KEYS:
-            value = stored[key]
-            if value is None or key == "exam_store_id":
-                # exam_store_id is already the pk; the others need their
-                # field's own rendering (decimals as "1.00", datetimes as
-                # ISO strings).
-                data[key] = value
-            else:
-                data[key] = self.fields[key].to_representation(value)
-        return data
-
-    def _pop_exam_values(self, validated_data):
-        return {key: validated_data.pop(key) for key in list(self.EXAM_KEYS) if key in validated_data}
-
-    def create(self, validated_data):
-        exam_values = self._pop_exam_values(validated_data)
-        content = super().create(validated_data)
-        content_exam.write_exam_fields(content, exam_values)
-        return content
-
-    def update(self, instance, validated_data):
-        exam_values = self._pop_exam_values(validated_data)
-        content = super().update(instance, validated_data)
-        content_exam.write_exam_fields(content, exam_values)
-        return content
 
     class Meta:
         model = Content
@@ -432,16 +381,6 @@ class AdminContentSerializer(serializers.ModelSerializer):
             "link_url",
             "live_url",
             "live_scheduled_at",
-            "exam_store_id",
-            "exam_mode",
-            "exam_total_marks",
-            "exam_pass_marks",
-            "exam_positive_marks",
-            "exam_negative_marks",
-            "exam_duration_minutes",
-            "exam_start_time",
-            "exam_end_time",
-            "exam_result_publish_time",
         ]
         read_only_fields = ["id", "slug"]
 

@@ -166,33 +166,3 @@ class AdminQueryBudgetTests(TestCase):
             Content.objects.create(course=course, section=section, title=f'Lesson {i}')
 
         self._assert_flat('courses', 'content', make_row)
-
-    def test_exam_attempt_changelist_is_flat(self):
-        """Two levels deep (`exam__content`), which Django cannot infer.
-
-        Django auto-applies a bare `select_related()` when `list_display`
-        names a foreign key, which covers the one-level cases on its own.
-        What it cannot do is follow a second hop, and both this list and the
-        payment list render one -- so these are the two that genuinely need
-        `list_select_related` spelled out.
-        """
-        from decimal import Decimal
-
-        from apps.assessment.models import Exam, ExamAttempt
-        from apps.courses.models import Content, Course, Section
-
-        course = Course.objects.create(title='ICT', active=True)
-        section = Section.objects.create(course=course, title='S1')
-        content = Content.objects.create(course=course, section=section, title='Exam', type=Content.Type.EXAM)
-        exam = Exam.objects.create(content=content)
-        counter = iter(range(1000))
-
-        def make_row():
-            i = next(counter)
-            ExamAttempt.objects.create(
-                exam=exam,
-                user=User.objects.create_user(phone=f'0181090{i:04d}', name=f'A{i}'),
-                marks=Decimal('10'),
-            )
-
-        self._assert_flat('assessment', 'examattempt', make_row)

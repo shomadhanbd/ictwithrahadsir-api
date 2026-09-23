@@ -15,14 +15,11 @@ Key order matters: DRF emits keys in `Meta.fields` order, and the two
 frontends destructure these payloads.
 """
 
-from decimal import Decimal
-
 from django.test import TestCase
 from django.urls import reverse
 
 from rest_framework.authtoken.models import Token
 
-from apps.assessment.models import Exam, QuestionBank
 from apps.content.models import Advertisement, Page, Testimonial
 from apps.courses.models import Content, Course, CourseCategory, CourseTeacher, Section
 from apps.identity.models import User
@@ -105,38 +102,6 @@ ADMIN_COURSE_TEACHER_KEYS = [
     'image',
 ]
 
-#: The ten flat exam fields the admin panel reads and writes on
-#: /admin/contents/. They are contract, whatever model backs them.
-EXAM_FIELD_KEYS = [
-    'exam_store_id',
-    'exam_mode',
-    'exam_total_marks',
-    'exam_pass_marks',
-    'exam_positive_marks',
-    'exam_negative_marks',
-    'exam_duration_minutes',
-    'exam_start_time',
-    'exam_end_time',
-    'exam_result_publish_time',
-]
-
-#: What a content with NO exam configuration emits today. These come from
-#: model field defaults, so once the fields move to a separate Exam row
-#: that a video does not have, they must still be produced -- not nulls.
-#: COERCE_DECIMAL_TO_STRING is not overridden, hence the strings.
-NON_EXAM_DEFAULTS = {
-    'exam_store_id': None,
-    'exam_mode': 'exam',
-    'exam_total_marks': None,
-    'exam_pass_marks': None,
-    'exam_positive_marks': '1.00',
-    'exam_negative_marks': '0.00',
-    'exam_duration_minutes': None,
-    'exam_start_time': None,
-    'exam_end_time': None,
-    'exam_result_publish_time': None,
-}
-
 
 class ResponseShapeTests(TestCase):
     def setUp(self):
@@ -187,15 +152,6 @@ class ResponseShapeTests(TestCase):
             slug='ict-exam',
             type=Content.Type.EXAM,
         )
-        Exam.objects.create(
-            content=self.exam_content,
-            question_bank=QuestionBank.objects.create(title='Bank'),
-            total_marks=15,
-            pass_marks=8,
-            positive_marks=Decimal('1.00'),
-            negative_marks=Decimal('0.25'),
-            duration_minutes=15,
-        )
         self.video_content = Content.objects.create(
             course=self.course,
             section=self.section,
@@ -245,73 +201,7 @@ class ResponseShapeTests(TestCase):
         body = self.client.get(reverse('api:courses:admin-course-teacher-list'), **self.auth)
         self.assertEqual(list(body.json()['data'][0].keys()), ADMIN_COURSE_TEACHER_KEYS)
 
-    def test_admin_content_exposes_the_flat_exam_fields(self):
-        url = reverse('api:courses:admin-content-detail', args=[self.exam_content.slug])
-        body = self.client.get(url, **self.auth).json()
-
-        for key in EXAM_FIELD_KEYS:
-            self.assertIn(key, body, f'{key} disappeared from the admin content payload')
-        self.assertEqual(body['exam_total_marks'], 15)
-        self.assertEqual(body['exam_positive_marks'], '1.00')
-        self.assertEqual(body['exam_negative_marks'], '0.25')
-
-    def test_non_exam_content_still_emits_the_exam_field_defaults(self):
-        # The trap in the Exam extraction: these values come from model
-        # field defaults today, so a video reports exam_mode="exam" and
-        # "1.00"/"0.00" even though it is not an exam. Once the fields live
-        # on a separate Exam row that a video has no instance of, the
-        # serializer has to reproduce them rather than emit nulls.
-        url = reverse('api:courses:admin-content-detail', args=[self.video_content.slug])
-        body = self.client.get(url, **self.auth).json()
-
-        actual = {key: body[key] for key in EXAM_FIELD_KEYS}
-        self.assertEqual(actual, NON_EXAM_DEFAULTS)
-
-    def test_admin_content_accepts_the_flat_exam_fields_on_write(self):
-        url = reverse('api:courses:admin-content-detail', args=[self.exam_content.slug])
-        response = self.client.patch(
-            url,
-            {'exam_total_marks': 40, 'exam_pass_marks': 20},
-            content_type='application/json',
-            **self.auth,
-        )
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()['exam_total_marks'], 40)
-
     # -- exam taking -----------------------------------------------------
-
-    def test_exam_detail_payload_shape(self):
-        student = User.objects.create_user(phone='01810900001', name='Student', password='Str0ngPass!23')
-        from apps.courses.models import Enrollment
-
-        Enrollment.objects.create(course=self.course, user=student)
-        auth = {'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=student).key}'}
-
-        url = reverse('api:assessment:exam_detail', args=[self.exam_content.pk])
-        body = self.client.get(url, **auth).json()
-
-        self.assertEqual(
-            list(body.keys()),
-            [
-                'id',
-                'title',
-                'duration',
-                'total_marks',
-                'pass_marks',
-                'positive_marks',
-                'negative_marks',
-                'start_time',
-                'end_time',
-                'result_publish_time',
-                'result_published',
-                'question',
-                'result',
-            ],
-        )
-        # The exam is addressed by its Content id -- the extraction must
-        # not change which id appears here.
-        self.assertEqual(body['id'], self.exam_content.pk)
-        self.assertEqual(body['question']['exam_id'], self.exam_content.pk)
 
 
 class AdminSearchTests(TestCase):
@@ -502,41 +392,6 @@ class CategorySearchTests(TestCase):
         res = self.client.get(f'/api/private/course-categories/{self.parent.pk}/', **self.auth)
         self.assertEqual(res.status_code, 200)
         self.assertEqual(res.json()['title'], 'HSC ICT')
-
-
-class McqSearchTests(TestCase):
-    """The MCQ store searches folders and questions on the server."""
-
-    def setUp(self):
-        from apps.assessment.models import Question, QuestionBank
-
-        admin = User.objects.create_user(phone='01899000555', name='Admin', role=User.Role.ADMIN, is_staff=True)
-        self.auth = {'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=admin).key}'}
-        self.bank = QuestionBank.objects.create(title='ICT Question Bank')
-        QuestionBank.objects.create(title='Networking', parent=self.bank)
-        QuestionBank.objects.create(title='Databases', parent=self.bank)
-        Question.objects.create(bank=self.bank, question='What is a router?', a='x', b='y', c='z', d='w', answer='a')
-        Question.objects.create(
-            bank=self.bank, question='What is a primary key?', a='x', b='y', c='z', d='w', answer='b'
-        )
-
-    def test_folder_search_filters(self):
-        path = '/api/private/mcq-folders/'
-        body = self.client.get(path, {'mcq_store_id': self.bank.pk, 'search': 'Networking'}, **self.auth).json()
-        self.assertEqual(body['meta']['total'], 1)
-        self.assertEqual(body['data'][0]['title'], 'Networking')
-
-    def test_question_search_filters(self):
-        path = '/api/private/mcq-questions/'
-        unfiltered = self.client.get(path, {'mcq_store_id': self.bank.pk}, **self.auth).json()
-        filtered = self.client.get(path, {'mcq_store_id': self.bank.pk, 'search': 'primary key'}, **self.auth).json()
-        self.assertEqual(filtered['meta']['total'], 1)
-        self.assertLess(filtered['meta']['total'], unfiltered['meta']['total'])
-
-    def test_folder_detail_by_pk_for_the_trail(self):
-        res = self.client.get(f'/api/private/mcq-folders/{self.bank.pk}/', **self.auth)
-        self.assertEqual(res.status_code, 200)
-        self.assertEqual(res.json()['title'], 'ICT Question Bank')
 
 
 class CourseMaterialCrudTests(TestCase):

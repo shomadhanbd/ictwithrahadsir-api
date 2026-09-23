@@ -64,7 +64,6 @@ LOCAL_APPS = [
     "apps.profiles",
     "apps.identity",
     "apps.courses",
-    "apps.assessment",
     "apps.exam",
     "apps.billing",
     "apps.store",
