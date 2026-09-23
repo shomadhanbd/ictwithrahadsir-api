@@ -10,13 +10,9 @@ from django.test import TestCase, override_settings
 
 import requests
 
-from apps.core.services.bulksmsbd_sms_service import (
-    ACCEPTED,
-    BulkSmsBdBackend,
-    BulkSmsBdError,
-)
-from apps.core.services.console_sms_service import ConsoleSmsBackend
-from apps.core.services.factory import get_sms_backend
+from apps.core.sms import BulkSmsBdBackend, BulkSmsBdError, ConsoleSmsBackend, get_sms_backend
+
+ACCEPTED = BulkSmsBdBackend.ACCEPTED
 
 
 def fake_response(payload, status=200):

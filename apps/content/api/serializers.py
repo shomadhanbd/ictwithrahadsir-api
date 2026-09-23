@@ -13,21 +13,21 @@ class NoticeCategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = NoticeCategory
         fields = ["id", "title", "slug", "notice_category_id", "order"]
-        read_only_fields = ["id", "slug"]
+        read_only_fields = ["id"]
 
 
 class NoticeSerializer(serializers.ModelSerializer):
-    image = MediaField(upload_to="notice", required=False)
+    image = MediaField(required=False)
     categories = serializers.PrimaryKeyRelatedField(many=True, queryset=NoticeCategory.objects.all(), required=False)
 
     class Meta:
         model = Notice
         fields = ["id", "title", "slug", "body", "image", "categories", "created_at"]
-        read_only_fields = ["id", "slug", "created_at"]
+        read_only_fields = ["id", "created_at"]
 
 
 class TestimonialSerializer(serializers.ModelSerializer):
-    image = MediaField(upload_to="testimonial", required=False)
+    image = MediaField(required=False)
 
     class Meta:
         model = Testimonial
@@ -36,7 +36,7 @@ class TestimonialSerializer(serializers.ModelSerializer):
 
 
 class AdvertisementSerializer(serializers.ModelSerializer):
-    image = MediaField(upload_to="advertisement", required=False)
+    image = MediaField(required=False)
 
     class Meta:
         model = Advertisement
@@ -45,12 +45,12 @@ class AdvertisementSerializer(serializers.ModelSerializer):
 
 
 class EBookSerializer(serializers.ModelSerializer):
-    image = MediaField(upload_to="ebook", required=False)
+    image = MediaField(required=False)
     # Admin's EBook type declares `preview: string | null` (unlike `image`,
     # which is `{id, link}`) and calls `.split("/")` on it directly -- a bare
     # `{id, link}` object here would break both the "view PDF" link and that
     # filename parsing.
-    preview = MediaField(upload_to="ebook", required=False, bare=True)
+    preview = MediaField(required=False, bare=True)
 
     class Meta:
         model = EBook
@@ -59,7 +59,7 @@ class EBookSerializer(serializers.ModelSerializer):
 
 
 class PageSerializer(serializers.ModelSerializer):
-    image = MediaField(upload_to="page", required=False)
+    image = MediaField(required=False)
 
     class Meta:
         model = Page
@@ -77,7 +77,7 @@ class HomeCounterSerializer(serializers.ModelSerializer):
 
 
 class HomeBannerSerializer(serializers.ModelSerializer):
-    image = MediaField(upload_to="page", required=False)
+    image = MediaField(required=False)
 
     class Meta:
         model = Page

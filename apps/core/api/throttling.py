@@ -1,16 +1,7 @@
-"""Rate limits for the unauthenticated auth endpoints.
+"""Rate limits for the unauthenticated auth endpoints, keyed on client IP.
 
-Nothing in the project was throttled, so `/api/login` accepted password
-guesses as fast as they could be sent. The OTP endpoints have their own
-per-phone protections (attempt cap and resend cooldown in `apps.identity`),
-but those do nothing against an attacker working through passwords.
-
-Two limits per endpoint rather than one: a burst limit stops the fast
-scripted attack, and a sustained hourly limit stops the slow one that would
-sit comfortably under any per-minute threshold.
-
-These key on client IP, so keep the burst allowance loose enough for the
-many real users who share one carrier NAT address.
+Each endpoint gets a burst limit (fast scripted attacks) and a sustained
+hourly one (slow attacks). Rates are set in `REST_FRAMEWORK` settings.
 """
 
 from rest_framework.throttling import AnonRateThrottle
@@ -25,7 +16,7 @@ class LoginSustainedThrottle(AnonRateThrottle):
 
 
 class AuthBurstThrottle(AnonRateThrottle):
-    """For the account-creation and password-reset entry points."""
+    """Registration and password reset."""
 
     scope = 'auth_burst'
 

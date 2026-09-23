@@ -122,7 +122,7 @@ class AdminTeacherSerializer(TeacherSerializer):
     name = serializers.CharField(source="user.name", max_length=150, required=False)
     phone = PhoneField(source="user.phone", max_length=20, required=False)
     email = serializers.EmailField(source="user.email", required=False, allow_blank=True, allow_null=True)
-    image = MediaField(source="user.image", upload_to="users", required=False)
+    image = MediaField(source="user.image", required=False)
     subject_ids = serializers.PrimaryKeyRelatedField(
         source="subjects", queryset=Subject.objects.all(), many=True, required=False
     )

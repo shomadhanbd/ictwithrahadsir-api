@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils.translation import gettext_lazy as _
 
 from apps.core.models import OrderedModel, TimestampModel
 from apps.core.slugs import unique_slug
@@ -6,7 +7,7 @@ from apps.core.slugs import unique_slug
 
 class NoticeCategory(TimestampModel, OrderedModel):
     title = models.CharField(max_length=150)
-    slug = models.SlugField(max_length=220, unique=True, blank=True)
+    slug = models.SlugField(max_length=220, unique=True, blank=True, verbose_name=_("slug"))
     notice_category = models.ForeignKey(
         "self", null=True, blank=True, on_delete=models.CASCADE, related_name="children"
     )
@@ -26,7 +27,7 @@ class NoticeCategory(TimestampModel, OrderedModel):
 
 class Notice(TimestampModel):
     title = models.CharField(max_length=255)
-    slug = models.SlugField(max_length=280, unique=True, blank=True)
+    slug = models.SlugField(max_length=280, unique=True, blank=True, verbose_name=_("slug"))
     body = models.TextField(blank=True)
     image = models.URLField(null=True, blank=True)
     categories = models.ManyToManyField(NoticeCategory, related_name="notices", blank=True)

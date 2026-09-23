@@ -30,6 +30,9 @@ class QuestionBlockFilter(filters.FilterSet):
     #: and a block has no type of its own -- it lives on its questions, which
     #: hang off either the block or its stimulus set.
     question_type = filters.ChoiceFilter(choices=Question.Type.choices, method='by_question_type')
+    #: `?no_topic=true`: blocks tagged with no topic -- the Question Bank's
+    #: "Unknown" folder inside a chapter.
+    no_topic = filters.BooleanFilter(method='by_no_topic')
     source = filters.NumberFilter(method='defer')
     source_year = filters.NumberFilter(method='defer')
     source_kind = filters.ChoiceFilter(choices=QuestionSource.Kind.choices, method='defer')
@@ -55,6 +58,12 @@ class QuestionBlockFilter(filters.FilterSet):
         wanted = Question.objects.filter(owned, question_type=value)
         wrong = Question.objects.filter(owned, question_type__in=other)
         return queryset.filter(Exists(wanted)).filter(~Exists(wrong))
+
+    def by_no_topic(self, queryset, name, value):
+        """`EXISTS`, not a join on `topics`: a block with two topics would
+        otherwise be listed twice."""
+        tagged = Exists(QuestionBlock.topics.through.objects.filter(questionblock=OuterRef('pk')))
+        return queryset.filter(~tagged if value else tagged)
 
     def defer(self, queryset, name, value):
         """Collected in `filter_queryset` instead, so they land in one JOIN."""

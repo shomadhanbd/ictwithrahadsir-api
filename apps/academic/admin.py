@@ -1,7 +1,6 @@
-"""Slugs are editable everywhere so they can be typed in Bangla; a blank one is
-built from the name on save. `prepopulated_fields` is deliberately unused -- its
-JS slugify mangles Bangla.
-"""
+"""Slugs are editable everywhere; a blank one is built from the name on save.
+`question_count`, and the subject and chapter counts shown in the Question Bank,
+are read-only: "Refresh questions" recounts them."""
 
 from django.contrib import admin
 
@@ -20,14 +19,8 @@ class ClassLevelAdmin(admin.ModelAdmin):
         'is_active',
         'order',
     )
-    list_editable = (
-        'group_count',
-        'subject_count',
-        'question_count',
-        'chapter_count',
-        'is_active',
-        'order',
-    )
+    list_editable = ('group_count', 'chapter_count', 'is_active', 'order')
+    readonly_fields = ('question_count', 'subject_count')
     list_filter = ('is_active',)
     search_fields = ('name', 'slug')
 
@@ -43,7 +36,8 @@ class GroupAdmin(admin.ModelAdmin):
         'is_active',
         'order',
     )
-    list_editable = ('subject_count', 'question_count', 'chapter_count', 'is_active', 'order')
+    list_editable = ('subject_count', 'chapter_count', 'is_active', 'order')
+    readonly_fields = ('question_count',)
     list_filter = ('is_active',)
     search_fields = ('name', 'slug')
 
@@ -60,7 +54,8 @@ class SubjectAdmin(admin.ModelAdmin):
         'is_active',
         'order',
     )
-    list_editable = ('question_count', 'chapter_count', 'is_active', 'order')
+    list_editable = ('is_active', 'order')
+    readonly_fields = ('question_count', 'chapter_count')
     list_filter = ('class_level', 'group', 'is_active')
     search_fields = ('name', 'slug')
     autocomplete_fields = ('class_level', 'group')
@@ -72,7 +67,8 @@ class SubjectAdmin(admin.ModelAdmin):
 @admin.register(Chapter)
 class ChapterAdmin(admin.ModelAdmin):
     list_display = ('chapter_number', 'name', 'subject', 'slug', 'question_count', 'is_locked', 'is_active')
-    list_editable = ('question_count', 'is_locked', 'is_active')
+    list_editable = ('is_locked', 'is_active')
+    readonly_fields = ('question_count',)
     list_filter = ('subject', 'is_locked', 'is_active')
     search_fields = ('name', 'slug', 'subject__name')
     autocomplete_fields = ('subject',)
@@ -83,8 +79,9 @@ class ChapterAdmin(admin.ModelAdmin):
 
 @admin.register(Topic)
 class TopicAdmin(admin.ModelAdmin):
-    list_display = ('name', 'chapter', 'slug', 'is_active')
+    list_display = ('name', 'chapter', 'slug', 'question_count', 'is_active')
     list_editable = ('is_active',)
+    readonly_fields = ('question_count',)
     list_filter = ('chapter', 'is_active')
     search_fields = ('name', 'slug', 'chapter__name')
     autocomplete_fields = ('chapter',)

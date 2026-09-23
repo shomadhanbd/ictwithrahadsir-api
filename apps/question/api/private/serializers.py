@@ -99,6 +99,22 @@ class AdminQuestionSerializer(serializers.ModelSerializer):
 
         services.validate_owner_kind(block=block, question_set=question_set)
 
+        owner = services.owning_block(block=block, question_set=question_set)
+        if self.instance is None:
+            services.validate_parts_change(owner)
+            services.validate_new_part_type(owner, attrs.get("question_type", Question.Type.MCQ))
+        else:
+            previous = services.owning_block(block=self.instance.block, question_set=self.instance.question_set)
+            if previous != owner:
+                # A move is a removal from one block and an addition to another.
+                services.validate_parts_change(previous)
+                services.validate_parts_change(owner)
+            services.validate_type_change(
+                owner,
+                before=self.instance.question_type,
+                after=attrs.get("question_type", self.instance.question_type),
+            )
+
         question_type = attrs.get("question_type", getattr(self.instance, "question_type", Question.Type.MCQ))
         if "metadata" in attrs or self.instance is None:
             # Stored already normalised: a client that omits `select_mode` gets
@@ -318,10 +334,18 @@ class AdminQuestionBlockSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
+        subject = attrs.get("subject", getattr(self.instance, "subject", None))
+        kind = attrs.get("kind", getattr(self.instance, "kind", QuestionBlock.Kind.STANDALONE))
+        if "topics" in attrs:
+            topics = attrs["topics"]
+        else:
+            topics = list(self.instance.topics.all()) if self.instance is not None else []
+        services.validate_block_change(self.instance, subject=subject, kind=kind)
         services.validate_block(
-            subject=attrs.get("subject", getattr(self.instance, "subject", None)),
+            subject=subject,
             chapter=attrs.get("chapter", getattr(self.instance, "chapter", None)),
-            kind=attrs.get("kind", getattr(self.instance, "kind", QuestionBlock.Kind.STANDALONE)),
+            kind=kind,
+            topics=topics,
             #: Reads the request too, not only the stored row: on create the
             #: instance has no stimulus yet, so checking the instance alone let
             #: a standalone block be handed one in the very same request.

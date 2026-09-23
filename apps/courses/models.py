@@ -2,6 +2,7 @@ from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 
 from apps.core.models import OrderedModel, TimestampModel
 from apps.core.slugs import unique_slug
@@ -15,7 +16,7 @@ from apps.courses.managers import (
 
 class CourseCategory(TimestampModel, OrderedModel):
     title = models.CharField(max_length=150)
-    slug = models.SlugField(max_length=220, unique=True, blank=True)
+    slug = models.SlugField(max_length=220, unique=True, blank=True, verbose_name=_("slug"))
     image = models.URLField(null=True, blank=True)
     category = models.ForeignKey("self", null=True, blank=True, on_delete=models.CASCADE, related_name="children")
 
@@ -35,7 +36,7 @@ class CourseCategory(TimestampModel, OrderedModel):
 class Course(TimestampModel):
     title = models.CharField(max_length=255)
     subtitle = models.CharField(max_length=255, blank=True)
-    slug = models.SlugField(max_length=280, unique=True, blank=True)
+    slug = models.SlugField(max_length=280, unique=True, blank=True, verbose_name=_("slug"))
     duration = models.CharField(max_length=100, blank=True)
     is_online = models.BooleanField(default=True)
     active = models.BooleanField(default=True)
@@ -180,7 +181,7 @@ class Section(TimestampModel, OrderedModel):
     course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="sections")
     section = models.ForeignKey("self", null=True, blank=True, on_delete=models.CASCADE, related_name="sub_sections")
     title = models.CharField(max_length=255)
-    slug = models.SlugField(max_length=280, unique=True, blank=True)
+    slug = models.SlugField(max_length=280, unique=True, blank=True, verbose_name=_("slug"))
     objects = SectionQuerySet.as_manager()
 
     active = models.BooleanField(default=True)
@@ -220,7 +221,7 @@ class Content(TimestampModel, OrderedModel):
     course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="contents")
     section = models.ForeignKey(Section, on_delete=models.CASCADE, related_name="contents")
     title = models.CharField(max_length=255)
-    slug = models.SlugField(max_length=280, unique=True, blank=True)
+    slug = models.SlugField(max_length=280, unique=True, blank=True, verbose_name=_("slug"))
     type = models.CharField(max_length=20, choices=Type.choices)
     variant = models.CharField(max_length=20, choices=Variant.choices, default=Variant.NEW)
     available_from = models.DateTimeField(null=True, blank=True)

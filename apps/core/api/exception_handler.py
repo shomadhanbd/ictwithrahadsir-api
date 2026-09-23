@@ -6,14 +6,11 @@ from rest_framework.views import exception_handler as drf_exception_handler
 
 
 def laravel_style_exception_handler(exc, context):
-    """
-    Normalizes DRF exceptions into the Laravel-style error envelope both
-    frontends already parse: `{message, errors: {field: [msg, ...]}}` for
-    validation errors, `{message}` for everything else.
-    """
+    """Render errors in the envelope both frontends parse:
+    `{message, errors: {field: [msg, ...]}}` for validation errors,
+    `{message}` for everything else."""
     if isinstance(exc, ProtectedError):
-        # A `PROTECT` foreign key. DRF does not know this one, so without it
-        # the delete surfaces as a 500 rather than "you cannot do that yet".
+        # Deleting a row a `PROTECT` foreign key still points at.
         return Response(
             {"message": "This is still in use and cannot be deleted."},
             status=status.HTTP_409_CONFLICT,
@@ -34,20 +31,13 @@ def laravel_style_exception_handler(exc, context):
         else:
             messages = detail if isinstance(detail, list) else [detail]
             response.data = {"message": " ".join(str(m) for m in messages)}
-        return response
-
-    if isinstance(exc, (exceptions.NotAuthenticated, exceptions.AuthenticationFailed)):
+    elif isinstance(exc, (exceptions.NotAuthenticated, exceptions.AuthenticationFailed)):
         response.data = {"message": "Unauthenticated."}
-        return response
-
-    if isinstance(exc, exceptions.PermissionDenied):
-        response.data = {"message": str(exc.detail) if hasattr(exc, "detail") else "Forbidden."}
-        return response
-
-    if isinstance(exc, exceptions.NotFound):
+    elif isinstance(exc, exceptions.PermissionDenied):
+        response.data = {"message": str(exc.detail)}
+    elif isinstance(exc, exceptions.NotFound):
         response.data = {"message": "Not found."}
-        return response
-
-    detail = response.data.get("detail") if isinstance(response.data, dict) else None
-    response.data = {"message": str(detail) if detail else "Something went wrong."}
+    else:
+        detail = response.data.get("detail") if isinstance(response.data, dict) else None
+        response.data = {"message": str(detail) if detail else "Something went wrong."}
     return response

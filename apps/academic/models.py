@@ -4,25 +4,26 @@ Batch as a cohort of one level.
 Each level `PROTECT`s the one above it, so nothing in use can be deleted;
 `is_active` is how you retire a row instead.
 
-The `*_count` fields are typed in, not derived -- nothing relates the question
-bank to these models, so there is nothing to count.
+`question_count`, `ClassLevel.subject_count` and `Subject.chapter_count` are
+recounted on demand by `apps.question.counts` (the Question Bank's "Refresh
+questions" button); the other `*_count` fields are typed in.
 
-Slugs may be typed in Bangla (see `apps.core.slugs.BanglaSlugField`) but are
-never *generated* as unicode: Django's `slugify` strips Bengali vowel marks,
-turning "সংখ্যা পদ্ধতি" into "সখয-পদধত". A blank slug falls back to the ASCII
-transliteration.
+Slugs are English. A blank one is built from the name (see
+`apps.core.slugs`), so a Bangla-named row should be given a slug explicitly.
 """
 
 from django.db import models
+from django.utils.text import slugify
+from django.utils.translation import gettext_lazy as _
 
-from apps.core.slugs import BanglaSlugField, ascii_slug, unique_slug
+from apps.core.slugs import unique_slug
 
 
 class ClassLevel(models.Model):
     """An education level: class 6, SSC, Dakhil, HSC, Alim, Admission."""
 
     name = models.CharField("Name", max_length=100, unique=True)
-    slug = BanglaSlugField("Slug", max_length=120, unique=True, blank=True)
+    slug = models.SlugField(max_length=120, unique=True, blank=True, verbose_name=_("slug"))
     group_count = models.PositiveIntegerField("Group Count", default=0)
     subject_count = models.PositiveIntegerField("Subject Count", default=0)
     question_count = models.PositiveIntegerField("Question Count", default=0)
@@ -53,7 +54,7 @@ class Group(models.Model):
     """
 
     name = models.CharField("Name", max_length=100, unique=True)
-    slug = BanglaSlugField("Slug", max_length=120, unique=True, blank=True)
+    slug = models.SlugField(max_length=120, unique=True, blank=True, verbose_name=_("slug"))
     subject_count = models.PositiveIntegerField("Subject Count", default=0)
     question_count = models.PositiveIntegerField("Question Count", default=0)
     chapter_count = models.PositiveIntegerField("Chapter Count", default=0)
@@ -81,7 +82,7 @@ class Subject(models.Model):
     """
 
     name = models.CharField("Name", max_length=100)
-    slug = BanglaSlugField("Slug", max_length=160, unique=True, blank=True)
+    slug = models.SlugField(max_length=160, unique=True, blank=True, verbose_name=_("slug"))
     class_level = models.ForeignKey(
         ClassLevel, on_delete=models.PROTECT, related_name="subjects", verbose_name="Education Level"
     )
@@ -106,7 +107,7 @@ class Subject(models.Model):
         if not self.slug:
             # From the triple, not the name: the name alone collides on every
             # level and group, giving physics-2, physics-3.
-            base = f"{ascii_slug(self.name)}-{self.class_level.slug}-{self.group.slug}"
+            base = f"{slugify(self.name)}-{self.class_level.slug}-{self.group.slug}"
             self.slug = unique_slug(self, base)
         super().save(*args, **kwargs)
 
@@ -121,7 +122,7 @@ class Chapter(models.Model):
 
     subject = models.ForeignKey(Subject, on_delete=models.PROTECT, related_name="chapters", verbose_name="Subject")
     name = models.CharField("Name", max_length=200)
-    slug = BanglaSlugField("Slug", max_length=220, unique=True, blank=True)
+    slug = models.SlugField(max_length=220, unique=True, blank=True, verbose_name=_("slug"))
     chapter_number = models.PositiveSmallIntegerField("Chapter Number", default=0)
     question_count = models.PositiveIntegerField("Question Count", default=0)
     is_locked = models.BooleanField(
@@ -145,7 +146,7 @@ class Chapter(models.Model):
 
     def save(self, *args, **kwargs):
         if not self.slug:
-            self.slug = unique_slug(self, f"{ascii_slug(self.name)}-{self.subject.slug}")
+            self.slug = unique_slug(self, f"{slugify(self.name)}-{self.subject.slug}")
         super().save(*args, **kwargs)
 
 
@@ -154,7 +155,8 @@ class Topic(models.Model):
 
     chapter = models.ForeignKey(Chapter, on_delete=models.PROTECT, related_name="topics", verbose_name="Chapter")
     name = models.CharField("Name", max_length=200)
-    slug = BanglaSlugField("Slug", max_length=220, unique=True, blank=True)
+    slug = models.SlugField(max_length=220, unique=True, blank=True, verbose_name=_("slug"))
+    question_count = models.PositiveIntegerField("Question Count", default=0)
     is_active = models.BooleanField("Active", default=True)
 
     class Meta:
@@ -167,7 +169,7 @@ class Topic(models.Model):
 
     def save(self, *args, **kwargs):
         if not self.slug:
-            self.slug = unique_slug(self, f"{ascii_slug(self.name)}-{self.chapter.slug}")
+            self.slug = unique_slug(self, f"{slugify(self.name)}-{self.chapter.slug}")
         super().save(*args, **kwargs)
 
 
@@ -179,7 +181,7 @@ class Batch(models.Model):
     """
 
     name = models.CharField("Name", max_length=100)
-    slug = BanglaSlugField("Slug", max_length=160, unique=True, blank=True)
+    slug = models.SlugField(max_length=160, unique=True, blank=True, verbose_name=_("slug"))
     class_level = models.ForeignKey(
         ClassLevel, on_delete=models.PROTECT, related_name="batches", verbose_name="Education Level"
     )
@@ -199,7 +201,7 @@ class Batch(models.Model):
         if not self.slug:
             # The level disambiguates a bare "2027", but only when the name
             # does not already carry it, so "SSC-2027" stays `ssc-2027`.
-            base = ascii_slug(self.name)
+            base = slugify(self.name)
             level = self.class_level.slug
             if level not in base:
                 base = f"{base}-{level}"

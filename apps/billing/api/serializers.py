@@ -152,60 +152,6 @@ class PaymentStatusUpdateRequestSerializer(serializers.Serializer):
     confirm_amount_mismatch = serializers.BooleanField(required=False, default=False)
 
 
-# ---------------------------------------------------------------------------
-# Dashboard response serializers
-#
-# The admin dashboard payloads are camelCase and nested, and were previously
-# built as dict literals inside the view. Declaring them keeps the key names
-# and their order in one readable place -- and key order is contract, since
-# `apps/core/test_response_shapes.py` pins it and both frontends destructure
-# these payloads.
-# ---------------------------------------------------------------------------
-
-
-class _PeriodSerializer(serializers.Serializer):
-    thisMonth = serializers.IntegerField()
-    thisYear = serializers.IntegerField()
-
-
-class _IncomeSerializer(serializers.Serializer):
-    # FloatField, not DecimalField. Money is a string elsewhere in this API
-    # (`Order.amount` serialises as "800.00"), but these three have always
-    # gone out as JSON *numbers* -- DRF's encoder renders a raw `Sum()` result
-    # that way, and the dashboard reads them as numbers. `DecimalField` would
-    # quietly turn them into strings and break the panel.
-    thisMonth = serializers.FloatField()
-    thisYear = serializers.FloatField()
-    lifeTime = serializers.FloatField()
-
-
-class _OrderCountsSerializer(serializers.Serializer):
-    completed = _PeriodSerializer()
-    incomplete = _PeriodSerializer()
-
-
-class _TotalCountsSerializer(serializers.Serializer):
-    courses = serializers.IntegerField()
-    students = serializers.IntegerField()
-
-
-class DashboardSerializer(serializers.Serializer):
-    income = _IncomeSerializer()
-    orders = _OrderCountsSerializer()
-    totalCounts = _TotalCountsSerializer()
-    studentsRegistered = _PeriodSerializer()
-
-
-class SalesOverviewSerializer(serializers.Serializer):
-    months = serializers.ListField(child=serializers.CharField())
-    courseSales = serializers.ListField(child=serializers.IntegerField())
-
-
-class PaymentChartSerializer(serializers.Serializer):
-    allDays = serializers.ListField(child=serializers.CharField())
-    income = serializers.ListField(child=serializers.FloatField())
-
-
 class FreeEnrollmentResponseSerializer(serializers.Serializer):
     """Confirms the claim and echoes back which course it was for."""
 

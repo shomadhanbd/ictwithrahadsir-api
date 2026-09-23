@@ -16,14 +16,14 @@ from apps.academic.api.private.serializers import (
     TopicSerializer,
 )
 from apps.academic.models import Batch, Chapter, ClassLevel, Group, Subject, Topic
-from apps.core.api.permissions import IsFullAdminOrTeacherReadOnly
+from apps.core.api.permissions import IsFullAdminOrTeacherReadOnly, IsTeachingStaffAdminDeletes
 
 #: The names are Bangla; an admin searches for "hsc".
 SLUG_SEARCH = ["name", "slug"]
 
 
 class AdminClassLevelListCreateAPIView(ListCreateAPIView):
-    permission_classes = [IsFullAdminOrTeacherReadOnly]
+    permission_classes = [IsTeachingStaffAdminDeletes]
     serializer_class = ClassLevelSerializer
     queryset = ClassLevel.objects.all()
     search_fields = SLUG_SEARCH
@@ -31,7 +31,7 @@ class AdminClassLevelListCreateAPIView(ListCreateAPIView):
 
 
 class AdminClassLevelDetailAPIView(RetrieveUpdateDestroyAPIView):
-    permission_classes = [IsFullAdminOrTeacherReadOnly]
+    permission_classes = [IsTeachingStaffAdminDeletes]
     serializer_class = ClassLevelSerializer
     queryset = ClassLevel.objects.all()
 
@@ -51,7 +51,7 @@ class AdminGroupDetailAPIView(RetrieveUpdateDestroyAPIView):
 
 
 class AdminSubjectListCreateAPIView(ListCreateAPIView):
-    permission_classes = [IsFullAdminOrTeacherReadOnly]
+    permission_classes = [IsTeachingStaffAdminDeletes]
     serializer_class = SubjectSerializer
     queryset = Subject.objects.select_related("class_level", "group")
     search_fields = ["name", "slug", "class_level__name", "group__name"]
@@ -59,13 +59,13 @@ class AdminSubjectListCreateAPIView(ListCreateAPIView):
 
 
 class AdminSubjectDetailAPIView(RetrieveUpdateDestroyAPIView):
-    permission_classes = [IsFullAdminOrTeacherReadOnly]
+    permission_classes = [IsTeachingStaffAdminDeletes]
     serializer_class = SubjectSerializer
     queryset = Subject.objects.select_related("class_level", "group")
 
 
 class AdminChapterListCreateAPIView(ListCreateAPIView):
-    permission_classes = [IsFullAdminOrTeacherReadOnly]
+    permission_classes = [IsTeachingStaffAdminDeletes]
     serializer_class = ChapterSerializer
     queryset = Chapter.objects.select_related("subject")
     search_fields = ["name", "slug", "subject__name"]
@@ -73,13 +73,13 @@ class AdminChapterListCreateAPIView(ListCreateAPIView):
 
 
 class AdminChapterDetailAPIView(RetrieveUpdateDestroyAPIView):
-    permission_classes = [IsFullAdminOrTeacherReadOnly]
+    permission_classes = [IsTeachingStaffAdminDeletes]
     serializer_class = ChapterSerializer
     queryset = Chapter.objects.select_related("subject")
 
 
 class AdminTopicListCreateAPIView(ListCreateAPIView):
-    permission_classes = [IsFullAdminOrTeacherReadOnly]
+    permission_classes = [IsTeachingStaffAdminDeletes]
     serializer_class = TopicSerializer
     queryset = Topic.objects.select_related("chapter")
     search_fields = ["name", "slug", "chapter__name"]
@@ -87,7 +87,7 @@ class AdminTopicListCreateAPIView(ListCreateAPIView):
 
 
 class AdminTopicDetailAPIView(RetrieveUpdateDestroyAPIView):
-    permission_classes = [IsFullAdminOrTeacherReadOnly]
+    permission_classes = [IsTeachingStaffAdminDeletes]
     serializer_class = TopicSerializer
     queryset = Topic.objects.select_related("chapter")
 

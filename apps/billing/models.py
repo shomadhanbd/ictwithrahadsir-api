@@ -32,8 +32,7 @@ class Order(TimestampModel):
         indexes = [
             # `has_order` on every course payload asks exactly this pair.
             models.Index(fields=["user", "course"]),
-            # The admin dashboard's income and order counters all filter on
-            # a status plus a date floor.
+            # Revenue and order counts filter on a status plus a date floor.
             models.Index(fields=["status", "created_at"]),
         ]
 
@@ -65,11 +64,6 @@ class Payment(TimestampModel):
     class Meta:
         ordering = ["-created_at"]
         constraints = [
-            # A mobile-banking TrxID identifies exactly one real transfer, so
-            # it must not be claimed twice -- otherwise a student can reuse a
-            # TrxID they have seen elsewhere and an admin confirming it grants
-            # course access for a transfer that was never made to us.
-            # Blank is excluded because the API allows submitting without one.
             models.UniqueConstraint(
                 fields=["transaction_id"],
                 condition=~models.Q(transaction_id=""),

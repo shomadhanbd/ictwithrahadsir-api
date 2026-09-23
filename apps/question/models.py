@@ -15,9 +15,10 @@ overdue rather than merely pending.
 
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.utils.translation import gettext_lazy as _
 
 from apps.core.models import TimestampModel
-from apps.core.slugs import BanglaSlugField, unique_slug
+from apps.core.slugs import unique_slug
 
 
 class QuestionSource(TimestampModel):
@@ -47,7 +48,7 @@ class QuestionSource(TimestampModel):
     year = models.PositiveSmallIntegerField("Year", null=True, blank=True)
     #: Admission units -- ক, খ, গ. Empty for board and school papers.
     unit = models.CharField("Unit", max_length=20, blank=True)
-    slug = BanglaSlugField("Slug", max_length=200, unique=True, blank=True)
+    slug = models.SlugField(max_length=200, unique=True, blank=True, verbose_name=_("slug"))
     is_active = models.BooleanField("Active", default=True)
 
     class Meta:
@@ -82,7 +83,7 @@ class QuestionSource(TimestampModel):
     def save(self, *args, **kwargs):
         if not self.slug:
             # Built from the label, so two years of the same board do not
-            # collide. Bangla names transliterate; see `apps.core.slugs`.
+            # collide.
             self.slug = unique_slug(self, self.label)
         super().save(*args, **kwargs)
 

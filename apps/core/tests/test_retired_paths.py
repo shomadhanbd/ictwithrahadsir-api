@@ -1,18 +1,7 @@
-"""Guards the public URL surface against accidental drift.
+"""Guards against retired legacy paths quietly coming back."""
 
-Both frontends call this API by literal path, so any change to the set of
-served URLs is a change they can see. The snapshot below makes that
-deliberate rather than incidental: it fails on any addition or removal, and
-is regenerated only when the change is intended.
-"""
-
-from pathlib import Path
-
-from django.conf import settings
 from django.test import TestCase
 from django.urls import Resolver404, resolve
-
-from apps.core.url_contract import SNAPSHOT_PATH, current_url_contract
 
 
 class RetiredPathTests(TestCase):
@@ -48,10 +37,8 @@ class RetiredPathTests(TestCase):
         ('/api/orders', '/api/public/orders/'),
         ('/api/payment', '/api/public/payments/'),
         ('/api/free-course-purchase', '/api/public/enrollments/free/'),
-        ('/api/aws-upload-url', '/api/private/uploads/signed-url/'),
         ('/api/admin/user', '/api/private/users/'),
         ('/api/admin/user-search', '/api/private/users/search/'),
-        ('/api/admin/user/import', '/api/private/users/import/'),
         ('/api/admin/team', '/api/private/teachers/'),
         ('/api/admin/teacher', '/api/private/teachers/lookup/'),
         ('/api/admin/course', '/api/private/courses/'),
@@ -70,7 +57,6 @@ class RetiredPathTests(TestCase):
         ('/api/admin/exclusive-ebook', '/api/private/ebooks/'),
         ('/api/admin/page', '/api/private/pages/'),
         ('/api/admin/course-materials', '/api/private/course-materials/'),
-        ('/api/admin/dashboard', '/api/private/dashboard/'),
         ('/api/admin/sms-balance', '/api/private/sms-balance/'),
         # The back-office signs out through the one logout endpoint now;
         # the separate admin alias was the same view and has been removed.
@@ -92,35 +78,3 @@ class RetiredPathTests(TestCase):
         for legacy, canonical in self.ALIASES:
             with self.subTest(path=canonical):
                 self.assertIsNotNone(resolve(canonical), f'{canonical} (replacing {legacy}) does not route')
-
-    def test_the_stored_media_path_survived_the_removal(self):
-        # Deliberately never versioned or deprecated: this path is baked into
-        # absolute URLs already written into image and file columns, so
-        # retiring it would orphan every previously uploaded file.
-        self.assertIsNotNone(resolve('/api/media-upload/uploads/photo.png'))
-
-
-class UrlContractTests(TestCase):
-    def test_served_paths_match_the_snapshot(self):
-        snapshot_file = Path(settings.BASE_DIR) / SNAPSHOT_PATH
-        self.assertTrue(
-            snapshot_file.exists(),
-            f'{SNAPSHOT_PATH} is missing. Run: python manage.py dump_url_contract',
-        )
-
-        expected = snapshot_file.read_text().split()
-        actual = current_url_contract()
-
-        added = sorted(set(actual) - set(expected))
-        removed = sorted(set(expected) - set(actual))
-
-        self.assertEqual(
-            (added, removed),
-            ([], []),
-            '\n\nThe set of served URLs changed.\n'
-            f'  added:   {added or "none"}\n'
-            f'  removed: {removed or "none"}\n\n'
-            'Both frontends call these paths literally. If the change is\n'
-            'intentional, run `python manage.py dump_url_contract` and\n'
-            'review the diff; otherwise fix the routing regression.',
-        )

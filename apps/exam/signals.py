@@ -1,5 +1,8 @@
 """Keeps `ExamSection.question_count` and `.computed_marks` true.
 
+They move when a pick is added, moved or removed -- and when a picked block
+gains or loses a part, since an MCQ section counts every part of a passage.
+
 A signal rather than a service call, because a pick is written from the admin
 API, the Django admin and the shell, with no single chokepoint to hang one on.
 
@@ -12,6 +15,7 @@ from django.dispatch import receiver
 
 from apps.exam import services
 from apps.exam.models import ExamSection, ExamSectionQuestion
+from apps.question.models import QuestionBlock
 
 
 def _affected_section_ids(instance):
@@ -52,3 +56,15 @@ def remember_section_before_delete(sender, instance, **kwargs):
 def sync_totals_on_delete(sender, instance, **kwargs):
     # After, not in `pre_delete`: the row has to be gone before it is recounted.
     _sync(getattr(instance, "_section_ids", None) or _affected_section_ids(instance))
+
+
+@receiver(post_save, sender=QuestionBlock, dispatch_uid="exam.sync_totals_on_block_parts")
+def sync_totals_on_block_parts(sender, instance, update_fields=None, **kwargs):
+    """A picked block's part count changed (`question.services.sync_question_count`).
+
+    Only the sections this block sits in are recounted -- a handful of rows.
+    """
+    if update_fields is None or "question_count" not in update_fields:
+        return
+    for section in ExamSection.objects.filter(section_questions__block=instance).distinct():
+        services.sync_section_totals(section)

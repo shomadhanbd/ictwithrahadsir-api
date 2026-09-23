@@ -1,9 +1,7 @@
 """Reusable query predicates for the billing models.
 
-Before this existed, `filter(status=Order.Status.PAID, created_at__gte=...)`
-was written out at four separate sites in the dashboard views. Naming the
-predicate once means the `status`/`created_at` index (see `Order.Meta`) has
-one place to be kept in step with the queries that rely on it.
+Naming `paid()` / `since()` once means the `status`/`created_at` index (see
+`Order.Meta`) has one place to be kept in step with the queries that use it.
 """
 
 from django.db import models

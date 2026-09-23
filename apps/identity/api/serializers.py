@@ -5,7 +5,6 @@ from rest_framework import serializers
 from rest_framework.validators import UniqueValidator
 
 from apps.core.api.fields import EmailField, MediaField, PhoneField
-from apps.core.spreadsheets import SpreadsheetField
 from apps.identity.models import User
 from apps.profiles.api.private.serializers import (
     AdminStudentProfileSerializer,
@@ -28,7 +27,7 @@ class NewPasswordSerializer(serializers.Serializer):
 
 
 class UserWriteSerializer(serializers.ModelSerializer):
-    image = MediaField(upload_to="users", required=False)
+    image = MediaField(required=False)
     password = serializers.CharField(write_only=True, required=False, allow_blank=True)
 
     def validate_password(self, value):
@@ -47,7 +46,7 @@ class UserWriteSerializer(serializers.ModelSerializer):
 
 
 class UserSerializer(serializers.ModelSerializer):
-    image = MediaField(upload_to="users", required=False)
+    image = MediaField(required=False)
     role = serializers.CharField(read_only=True)
     student = StudentProfileSerializer(read_only=True, allow_null=True)
 
@@ -164,10 +163,6 @@ class UserRegisterRequestSerializer(NewPasswordSerializer):
         if attrs["phone"] != signed_in_as:
             raise serializers.ValidationError({"phone": ["This number does not match the verified session."]})
         return attrs
-
-
-class UserImportRequestSerializer(serializers.Serializer):
-    file = SpreadsheetField()
 
 
 class UserLoginRequestSerializer(serializers.Serializer):

@@ -64,6 +64,12 @@ class AdminExamSectionQuestionSerializer(MergedAttrsMixin, serializers.ModelSeri
         section = after("section")
         block = after("block")
 
+        # Fixed once placed. The freeze below only sees where a pick is *going*,
+        # so moving one out of a published paper into a draft emptied the
+        # published one; there is no real reason to move a pick anyway.
+        if self.instance is not None and "section" in attrs and attrs["section"] != self.instance.section:
+            raise serializers.ValidationError({"section_id": "A question cannot be moved to another section."})
+
         # A POST here fetches no object, so DRF runs no object permission.
         assert_may_author_exam(self.context["request"], section.exam)
         services.validate_paper_is_editable(section.exam)
@@ -124,6 +130,10 @@ class AdminExamSectionSerializer(MergedAttrsMixin, serializers.ModelSerializer):
         after = self.merged(attrs)
 
         exam = after("exam")
+        # Fixed once created, for the same reason as a pick's section: moving a
+        # section out of a published paper went past the freeze.
+        if self.instance is not None and "exam" in attrs and attrs["exam"] != self.instance.exam:
+            raise serializers.ValidationError({"exam_id": "A section cannot be moved to another exam."})
         assert_may_author_exam(self.context["request"], exam)
         services.validate_paper_is_editable(exam)
 
@@ -284,7 +294,6 @@ class AdminExamSerializer(MergedAttrsMixin, serializers.ModelSerializer):
             "selected_question_count",
             "computed_marks",
         ]
-        read_only_fields = ["slug"]
 
     @extend_schema_field(serializers.ListField(child=serializers.ChoiceField(choices=ExamSection.Type.choices)))
     def get_question_types(self, exam):

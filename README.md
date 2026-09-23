@@ -17,10 +17,7 @@ backend (just set `BACKEND_URL` / `NEXT_PUBLIC_BACKEND_URL` to this API's
   issued on login/registration. The `Bearer` keyword (not DRF's default
   `Token`) is what both frontends send; see
   `apps.core.api.authentication.BearerTokenAuthentication`
-- Storage: local disk by default; flip `USE_S3=True` + AWS/DigitalOcean
-  Spaces credentials to switch to S3-compatible object storage with no code
-  changes (`django-storages`)
-- OTP delivery: pluggable `SmsBackend` (`apps/core/services/`), defaults to a
+- OTP delivery: pluggable `SmsBackend` (`apps/core/sms.py`), defaults to a
   console/log backend so the whole auth flow works without a real SMS
   gateway account
 
@@ -30,7 +27,7 @@ backend (just set `BACKEND_URL` / `NEXT_PUBLIC_BACKEND_URL` to this API's
 apps/
   core/        infrastructure only: DRF plumbing (auth, pagination,
                permissions, throttling, fields, error envelope), slugs,
-               phone parsing, middleware, SMS services, uploads, commands
+               phone parsing, middleware, SMS services
   academic/    Subject, ClassLevel and Group (science/arts/commerce) -- the
                small admin-managed lists the profiles are tagged with
   profiles/    TeacherProfile, StudentProfile and GuardianProfile: who a
@@ -40,16 +37,15 @@ apps/
   courses/     Course, CourseCategory, CoursePrice, Coupon, Routine,
                Section/Content tree, Enrollment, CourseMaterial, and
                CourseTeacher, a teacher's assignment to one course
-  assessment/  Exam, QuestionBank, Question, ExamAttempt -- exam taking,
-               results and ranking
-  billing/     Order, Payment, and the admin dashboard aggregates
-  store/       Product and CartItem, the catalogue and basket
+  question/    the question bank: blocks, stimulus sets, questions, options
+  exam/        exam authoring -- papers assembled from the question bank
+  billing/     Order and Payment
   content/     Notice, static Page, Testimonial, Advertisement, EBook,
                homepage aggregate (`/home`)
-  support/     Contact messages -- the staff inbox behind the contact form
+  demo/        the `seed_demo` command; sits above every domain app
 
 Each app owns one domain and is named after it. Apps depend downward only:
-billing and store depend on courses, courses never depends on them (see
+billing depends on courses, courses never depends on it (see
 apps/courses/selectors.py for the one inverted read).
 
 `profiles` sits *below* `identity`, not above it: it reaches the user only
@@ -59,8 +55,8 @@ That one-way arrow is what keeps the two acyclic -- reversing it is the failure
 mode to watch for, and `python manage.py test apps.core` will not catch it.
 ```
 
-Every `/admin/*` endpoint requires a token belonging to a `staff`, `admin`,
-or `teacher` user (`apps.core.api.permissions.IsAdminRole`). Everything else
+Every `/api/private/*` endpoint requires a token for a role allowed by its
+permission tier (`apps.core.api.permissions`). Everything else
 is public read / authenticated write per-resource, matching how the existing
 frontends already call the API.
 
@@ -75,13 +71,13 @@ create and update, so guards written there do not cover `DELETE`.
 
 Apps depend downward only. `core` is infrastructure and imports no domain app;
 `academic` and `profiles` sit below `identity`, which imports them rather than
-the reverse; `billing` and `store` depend on `courses`, never the other way
-(see `apps/courses/selectors.py` for the one inverted read).
+the reverse; `billing` depends on `courses`, never the other way
+(see `apps/courses/selectors.py` for the one inverted read). `demo` is the
+top: it imports every domain app and nothing imports it.
 
-Three test guards pin the contract and should not be relaxed to make a change
-pass: `test_url_contract` (the served paths), `test_response_shapes` (the
-frozen payload key lists), and `test_query_budget` (the per-endpoint query
-ceilings).
+Two test guards pin the contract and should not be relaxed to make a change
+pass: `test_response_shapes` (the frozen payload key lists) and
+`test_query_budget` (the per-endpoint query ceilings).
 
 ## API documentation
 
@@ -149,13 +145,8 @@ them before running to override the defaults baked into `docker-compose.yml`.
 
 ## Switching on real integrations later
 
-- **Object storage**: set `USE_S3=True` plus `AWS_ACCESS_KEY_ID`,
-  `AWS_SECRET_ACCESS_KEY`, `AWS_STORAGE_BUCKET_NAME`, `AWS_S3_REGION_NAME`,
-  `AWS_S3_ENDPOINT_URL` (DigitalOcean Spaces or S3). No code changes needed —
-  every image/file field already goes through `apps.core.api.fields.MediaField`
-  and the `/aws-upload-url` presigned-upload endpoint.
-- **SMS/OTP gateway**: implement a class in `apps/core/services/` extending
-  `SmsBackend`, register it in `get_sms_backend()`'s `backends` dict, and set
+- **SMS/OTP gateway**: implement a class in `apps/core/sms.py` extending
+  `SmsBackend`, register it in the `BACKENDS` dict, and set
   `SMS_BACKEND=<name>` in `.env`. Until then, OTP codes are logged to the
   server console/log instead of being texted.
 - **Payments**: the platform uses manual mobile-banking confirmation
@@ -175,12 +166,12 @@ them before running to override the defaults baked into `docker-compose.yml`.
   `meta.last_page` and read neither the count nor the contents of
   `meta.links`. Widen it with `page_link_window` if a client ever needs more.
 - Validation errors return `422` with `{message, errors: {field: [msg, ...]}}`.
-- Every image/file field serializes as `{id, link}`; write it as either a
-  multipart file upload or a URL string obtained from `/aws-upload-url`.
+- Every image/file field serializes as `{id, link}` and is written as a URL
+  string. There is no file upload in this version.
 - Multipart admin updates that can't use a real HTTP verb send
   `POST .../{id}?_method=PUT` (or `PATCH`) — handled transparently by
   `apps.core.middleware.MethodOverrideMiddleware`.
 - Routes carry a trailing slash, and `APPEND_SLASH=False` is set. Those two
   together mean a request to a slash-less path **404s rather than being
-  redirected**, so clients must call the paths exactly as
-  `apps/core/url_contract.txt` lists them.
+  redirected**, so clients must call the paths exactly as the OpenAPI
+  schema lists them.

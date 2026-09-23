@@ -1,6 +1,5 @@
 from django.db.models import Q
 
-from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import filters, status
 from rest_framework.generics import (
     ListAPIView,
@@ -9,22 +8,16 @@ from rest_framework.generics import (
 )
 from rest_framework.response import Response
 
-from apps.core.api.permissions import IsFullAdmin, IsTeachingStaff
+from apps.core.api.permissions import IsTeachingStaff
 from apps.core.api.viewsets import UnpaginatedDataListMixin
-from apps.core.spreadsheets import read_records
-from apps.identity.api.base import (
-    SerializerAPIView,
-)
 from apps.identity.api.permissions import CanManageUsers
 from apps.identity.api.serializers import (
     AdminUserSerializer,
-    UserImportRequestSerializer,
     UserOptionSerializer,
 )
 from apps.identity.models import User
 from apps.identity.services import (
     deactivate_user,
-    import_users,
 )
 
 
@@ -86,19 +79,3 @@ class AdminUserSearchAPIView(UnpaginatedDataListMixin, ListAPIView):
 
     def get_list_payload(self, request, *args, **kwargs):
         return self.get_serializer(self.get_queryset(), many=True).data
-
-
-class AdminUserImportAPIView(SerializerAPIView):
-    """PUT /admin/users/import/ -- bulk-create students from a spreadsheet."""
-
-    permission_classes = [IsFullAdmin]
-    serializer_class = UserImportRequestSerializer
-
-    @extend_schema(
-        summary="Bulk-create students from a spreadsheet",
-        request=UserImportRequestSerializer,
-        responses={200: OpenApiResponse(description="`{created, skipped}`")},
-    )
-    def put(self, request):
-        records = read_records(self.validated_data(request)["file"])
-        return Response(import_users(records))

@@ -1,4 +1,4 @@
-"""HTTP layer for orders, payments and the admin dashboard.
+"""HTTP layer for the admin payment screens.
 
 Every handler here does the same three things and nothing else: validate the
 input with a serializer, call one service or selector, render the result.
@@ -12,14 +12,8 @@ from rest_framework.generics import ListAPIView
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.billing import selectors, services
-from apps.billing.api.serializers import (
-    AdminPaymentSerializer,
-    DashboardSerializer,
-    PaymentChartSerializer,
-    PaymentStatusUpdateRequestSerializer,
-    SalesOverviewSerializer,
-)
+from apps.billing import services
+from apps.billing.api.serializers import AdminPaymentSerializer, PaymentStatusUpdateRequestSerializer
 from apps.billing.models import Payment
 from apps.core.api.pagination import LaravelStylePageNumberPagination
 from apps.core.api.permissions import IsFullAdmin
@@ -67,33 +61,3 @@ class AdminPaymentUpdateAPIView(APIView):
 
         payment = services.confirm_payment(payment=payment, **serializer.validated_data)
         return Response(AdminPaymentSerializer(payment).data)
-
-
-class AdminDashboardAPIView(APIView):
-    """Headline counters for the admin panel's landing page."""
-
-    permission_classes = [IsFullAdmin]
-
-    @extend_schema(summary='Dashboard headline counters', responses={200: DashboardSerializer})
-    def get(self, request):
-        return Response(DashboardSerializer(selectors.dashboard_totals()).data)
-
-
-class AdminDashboardSalesOverviewAPIView(APIView):
-    """Paid-order counts per month for the last year."""
-
-    permission_classes = [IsFullAdmin]
-
-    @extend_schema(summary='Paid orders per month', responses={200: SalesOverviewSerializer})
-    def get(self, request):
-        return Response(SalesOverviewSerializer(selectors.monthly_sales()).data)
-
-
-class AdminDashboardPaymentChartAPIView(APIView):
-    """Paid-order income per day for the last 30 days."""
-
-    permission_classes = [IsFullAdmin]
-
-    @extend_schema(summary='Income per day', responses={200: PaymentChartSerializer})
-    def get(self, request):
-        return Response(PaymentChartSerializer(selectors.daily_income()).data)

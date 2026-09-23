@@ -1,10 +1,8 @@
 """Populate the database with realistic demo content.
 
-Everything the two frontends read on their public and admin screens gets a
-row here: the homepage aggregate (`/api/home`), course catalogue with the
-full section/content tree, the MCQ bank and exam results behind the ranking
-pages, the shop, and enough orders spread across the year for the admin
-dashboard's charts to draw something.
+Covers what the public site and admin panel show: pages, the academic
+taxonomy, the course catalogue with its section/content tree, notices,
+students, enrolments, and a year of orders for the dashboard charts.
 
     python manage.py seed_demo            # idempotent top-up
     python manage.py seed_demo --fresh    # wipe demo rows first
@@ -119,9 +117,7 @@ def make_image(name, width, height, label, palette_index=0):
 # Demo content
 # ---------------------------------------------------------------------------
 
-# Slugs are supplied explicitly throughout: the models' `unique_slugify`
-# runs Django's `slugify()`, which strips Bangla entirely and would collapse
-# every row to "item", "item-2", ... — unusable as public URLs.
+# Slugs are supplied explicitly: slugs are English, and these titles are Bangla.
 CATEGORIES = [
     ("এইচএসসি আইসিটি", "hsc-ict", [("এইচএসসি ২০২৬", "hsc-2026"), ("এইচএসসি ২০২৭", "hsc-2027")]),
     ("এসএসসি আইসিটি", "ssc-ict", [("এসএসসি ২০২৬", "ssc-2026")]),
@@ -210,14 +206,8 @@ COURSE_FEATURES = [
 
 #: name, slug -- the education levels, in academic order
 CLASS_LEVELS = [
-    ("ষষ্ঠ শ্রেণি", "class-6"),
-    ("সপ্তম শ্রেণি", "class-7"),
-    ("অষ্টম শ্রেণি", "class-8"),
     ("এসএসসি", "ssc"),
-    ("দাখিল", "dakhil"),
     ("এইচএসসি", "hsc"),
-    ("আলিম", "alim"),
-    ("অ্যাডমিশন", "admission"),
 ]
 
 #: name, slug
@@ -238,9 +228,8 @@ SUBJECTS = [
     ("ওয়েব ডিজাইন", "web-design", "hsc", "science"),
 ]
 
-#: Chapters per subject, and the topics inside each. Bengali names, so the
-#: slugs come out transliterated -- an admin retypes them in Bangla if they
-#: want the readable form.
+#: Chapters per subject, and the topics inside each. The names are Bengali,
+#: so their slugs are just the parent's slug plus a number.
 CHAPTERS = [
     ("সংখ্যা পদ্ধতি ও ডিজিটাল ডিভাইস", ["বাইনারি সংখ্যা", "লজিক গেট"]),
     ("কমিউনিকেশন সিস্টেমস ও নেটওয়ার্কিং", ["ট্রান্সমিশন মিডিয়া", "নেটওয়ার্ক টপোলজি"]),
@@ -249,14 +238,8 @@ CHAPTERS = [
 
 #: One batch per level per year, named `<label>-<year>`.
 BATCH_LABELS = {
-    "class-6": "Class 6",
-    "class-7": "Class 7",
-    "class-8": "Class 8",
     "ssc": "SSC",
-    "dakhil": "Dakhil",
     "hsc": "HSC",
-    "alim": "Alim",
-    "admission": "Admission",
 }
 BATCH_YEARS = (2027, 2028)
 
@@ -444,14 +427,6 @@ STATIC_PAGES = [
     ),
 ]
 
-CONTACT_MESSAGES = [
-    ("কোর্সে ভর্তি হতে চাই", "এইচএসসি ২০২৬ ব্যাচে ভর্তি হতে চাই। পেমেন্ট কীভাবে করব?"),
-    ("ভিডিও চলছে না", "তৃতীয় অধ্যায়ের ২য় ক্লাসের ভিডিও লোড হচ্ছে না। একটু দেখবেন?"),
-    ("পিডিএফ ডাউনলোড", "লেকচার শিট ডাউনলোড করতে পারছি না, বাটনে ক্লিক করলে কিছু হয় না।"),
-    ("রুটিন জানতে চাই", "আগামী সপ্তাহের লাইভ ক্লাসের সময়সূচি কোথায় পাব?"),
-    ("পেমেন্ট কনফার্ম হয়নি", "বিকাশে টাকা পাঠিয়েছি কিন্তু কোর্স এখনো চালু হয়নি।"),
-]
-
 
 class Command(BaseCommand):
     help = "Seed the database with demo content for local development."
@@ -606,8 +581,8 @@ class Command(BaseCommand):
     def _seed_academic(self):
         """Education levels, groups, subjects and batches.
 
-        Slugs are passed rather than generated: transliterating the Bangla
-        names gives "esaesasi" and "bijnana", and these end up in URLs.
+        Slugs are passed rather than generated: the names are Bangla and
+        slugs are English ("ssc", "science").
         """
         levels = {}
         for order, (name, slug) in enumerate(CLASS_LEVELS):
@@ -911,8 +886,6 @@ class Command(BaseCommand):
             )
             order += 1
 
-            # The lesson still exists; the paper behind it does not, until the
-            # replacement for the retired `assessment` app can hold one.
             Content.objects.create(
                 course=course,
                 section=section,
@@ -931,7 +904,7 @@ class Command(BaseCommand):
             )
         self.stdout.write("  course materials")
 
-    # -- shop ---------------------------------------------------------------
+    # -- students -----------------------------------------------------------
 
     def _seed_students(self):
         class_levels = list(ClassLevel.objects.all())

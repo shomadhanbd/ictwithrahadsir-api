@@ -20,7 +20,6 @@ from apps.courses.models import (
     Enrollment,
     Section,
 )
-from apps.courses.services import import_enrollments
 from apps.identity.models import User
 from apps.profiles.models import TeacherProfile
 
@@ -608,32 +607,6 @@ class ContentCompletionRealignmentTests(APITestCase):
         self.assertEqual(other_completion.course_id, self.origin.pk)
 
 
-class ImportEnrollmentsPhoneTests(APITestCase):
-    """A sheet may spell a number any of the ways `core.phones` accepts;
-    stored numbers are canonical, so the lookup has to normalise first."""
-
-    def setUp(self):
-        self.course = Course.objects.create(title='Phones', slug='phones-course')
-        self.student = User.objects.create_user(phone='01810001111', name='Student')
-
-    def test_a_country_code_sheet_still_enrols(self):
-        result = import_enrollments(
-            course=self.course,
-            records=[{'phone': '+8801810001111'}, {'phone': '018-1000-1111'}],
-        )
-        self.assertEqual(result['attached'], 2)
-        self.assertEqual(result['missing'], 0)
-        self.assertTrue(Enrollment.objects.filter(course=self.course, user=self.student).exists())
-
-    def test_an_unknown_number_is_still_counted_missing(self):
-        result = import_enrollments(course=self.course, records=[{'phone': '+8801999999999'}])
-        self.assertEqual(result, {'attached': 0, 'missing': 1})
-
-    def test_a_blank_phone_is_counted_missing(self):
-        result = import_enrollments(course=self.course, records=[{'phone': ''}, {'phone': 'n/a'}])
-        self.assertEqual(result, {'attached': 0, 'missing': 2})
-
-
 class CourseTeacherTests(APITestCase):
     """Assigning a teacher to a course."""
 
@@ -691,3 +664,51 @@ class CourseTeacherTests(APITestCase):
 
         self.assertEqual(response.status_code, 422)
         self.assertIn('user_id', response.json()['errors'])
+
+
+class AdminSlugTests(APITestCase):
+    """The admin panel types slugs; a blank one is still generated."""
+
+    def setUp(self):
+        admin = User.objects.create_user(
+            phone='01710300099',
+            name='Admin',
+            password='Str0ngPass!23',
+            role=User.Role.ADMIN,
+        )
+        self.auth = {'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=admin).key}'}
+
+    def create(self, **body):
+        return self.client.post('/api/private/courses/', {'title': 'এইচএসসি আইসিটি', **body}, **self.auth)
+
+    def test_a_typed_slug_is_stored(self):
+        response = self.create(slug='hsc-ict')
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(Course.objects.get().slug, 'hsc-ict')
+
+    def test_a_blank_slug_is_generated(self):
+        self.assertEqual(self.create().status_code, 201)
+        self.assertEqual(Course.objects.get().slug, 'course')
+
+    def test_a_taken_slug_is_rejected(self):
+        self.create(slug='hsc-ict')
+        response = self.create(slug='hsc-ict')
+
+        self.assertEqual(response.status_code, 422)
+        self.assertIn('slug', response.json()['errors'])
+
+    def test_a_bangla_slug_is_rejected(self):
+        response = self.create(slug='আইসিটি')
+
+        self.assertEqual(response.status_code, 422)
+        self.assertIn('slug', response.json()['errors'])
+
+    def test_the_slug_can_be_changed(self):
+        self.create(slug='hsc-ict')
+        response = self.client.patch(
+            '/api/private/courses/hsc-ict/', {'slug': 'hsc-ict-2026'}, format='json', **self.auth
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Course.objects.get().slug, 'hsc-ict-2026')

@@ -1,4 +1,4 @@
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.generics import ListAPIView
@@ -18,7 +18,6 @@ from apps.core.api.viewsets import (
     SchemaSafeQuerysetMixin,
     SlugOrPkLookupMixin,
 )
-from apps.core.spreadsheets import read_records
 from apps.courses.api.base import (
     BaseCourseEnrollmentAPIView,
 )
@@ -41,7 +40,6 @@ from apps.courses.api.serializers import (
     CourseCategorySerializer,
     CourseMaterialSerializer,
     CoursePriceSerializer,
-    EnrollmentImportRequestSerializer,
     EnrollmentSerializer,
     RoutineSerializer,
 )
@@ -59,7 +57,6 @@ from apps.courses.models import (
 )
 from apps.courses.services import (
     grant_from_price,
-    import_enrollments,
     revoke_course_access,
 )
 from apps.identity.models import User
@@ -279,28 +276,6 @@ class AdminEnrollmentAPIView(BaseCourseEnrollmentAPIView):
 
         removed = bool(course) and revoke_course_access(user_id=user_id, course=course)
         return Response(OkResponseSerializer({'ok': removed}).data)
-
-
-class AdminEnrollmentImportAPIView(APIView):
-    """Bulk-enrol existing students on a course from a spreadsheet of phones."""
-
-    permission_classes = [IsFullAdmin]
-
-    @extend_schema(
-        summary='Bulk-enrol students from a spreadsheet',
-        request=EnrollmentImportRequestSerializer,
-        responses={200: OpenApiResponse(description='`{attached, missing}`')},
-    )
-    def post(self, request, pk):
-        course = Course.objects.filter(pk=pk).first()
-        if not course:
-            raise NotFound('Course not found.')
-
-        serializer = EnrollmentImportRequestSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        records = read_records(serializer.validated_data['file'])
-        return Response(import_enrollments(course=course, records=records))
 
 
 class AdminCourseMaterialViewSet(CourseScopedAdminMixin, AdminModelViewSet):

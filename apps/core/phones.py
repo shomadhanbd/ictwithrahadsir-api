@@ -1,11 +1,4 @@
-"""Phone parsing and validation, via `django-phonenumber-field`.
-
-Lives in `core` rather than `identity` because `profiles` needs it too and
-must not import `identity` -- the dependency runs the other way.
-
-Stored in the local `01XXXXXXXXX` form, not E.164: `phone` is the login
-identifier, and `BulkSmsBdBackend.gateway_number` re-attaches the country code.
-"""
+"""Bangladeshi mobile numbers, stored in the local `01XXXXXXXXX` form."""
 
 from django.conf import settings
 from django.core.exceptions import ValidationError

@@ -1,30 +1,35 @@
 """Which role may reach which admin endpoint.
 
-There used to be one answer for the whole panel: `IsAdminRole` admitted
-admins and teachers alike, on every `/admin/*` route and every method. A
-teacher could open the payments screen, edit any account, and issue discount
-codes; nobody could be given the notices desk without also being given all of
-that.
-
-Three tiers replace it (`apps.core.api.permissions`), and this is the table
-that says what they mean. It is deliberately written as data: a new admin
-endpoint should be added to one of the three lists below, and any endpoint in
-none of them is one whose access nobody has decided.
+The tiers are defined in `apps.core.api.permissions`; this is the table that
+says what they mean. A new admin endpoint must be added to one of the lists
+below -- an endpoint in none of them is one whose access nobody has decided.
 """
+
+from django.urls import get_resolver
+from django.urls.resolvers import URLResolver
 
 from rest_framework.authtoken.models import Token
 
+from apps.academic.models import ClassLevel, Group
 from apps.core.tests.base import ThrottledAPITestCase
 from apps.identity.models import User
+
+
+def served_paths(resolver=None, prefix=''):
+    """Yield the full path expression of every leaf route in the URLconf."""
+    for entry in (resolver or get_resolver()).url_patterns:
+        pattern = prefix + str(entry.pattern)
+        if isinstance(entry, URLResolver):
+            yield from served_paths(entry, pattern)
+        else:
+            yield pattern
+
 
 API = '/api'
 
 #: Admins only: accounts, money, pricing, and who teaches what.
 FULL_ADMIN_ONLY = [
     f'{API}/private/payments/',
-    f'{API}/private/dashboard/',
-    f'{API}/private/dashboard/sales-overview/',
-    f'{API}/private/dashboard/payment-chart/',
     f'{API}/private/prices/',
     f'{API}/private/coupons/',
     f'{API}/private/teachers/',
@@ -32,17 +37,19 @@ FULL_ADMIN_ONLY = [
     f'{API}/private/sms-balance/',
 ]
 
-#: Admins write, teachers read. The academic taxonomy decides who a teacher is
-#: and which class a student is in, so changing it stays a roster decision --
-#: but a teacher naming a subject for an exam section, or filtering the
-#: question bank by chapter, only ever reads it.
-ADMIN_WRITE_TEACHER_READ = [
+#: The curriculum the question bank is filed under. Admins and teachers both
+#: build it; only an admin may delete part of it.
+CURRICULUM = [
     f'{API}/private/subjects/',
     f'{API}/private/class-levels/',
-    f'{API}/private/groups/',
-    f'{API}/private/batches/',
     f'{API}/private/chapters/',
     f'{API}/private/topics/',
+]
+
+#: Admins write, teachers read.
+ADMIN_WRITE_TEACHER_READ = [
+    f'{API}/private/groups/',
+    f'{API}/private/batches/',
 ]
 
 #: Its own case: admins manage anybody, teachers manage students only, and
@@ -71,12 +78,10 @@ TEACHING_STAFF = [
     f'{API}/private/contents/',
     f'{API}/private/course-materials/',
     f'{API}/private/routines/',
-    # Minting a presigned upload URL is back-office write access to the
-    # bucket, so it sits with the other teaching-staff tools.
-    f'{API}/private/uploads/signed-url/',
     # The question bank and the exams built out of it: a teacher cannot
     # assemble a paper from questions they are not allowed to see.
     f'{API}/private/question-blocks/',
+    f'{API}/private/question-counts/refresh/',
     f'{API}/private/questions/',
     f'{API}/private/question-sources/',
     f'{API}/private/question-types/',
@@ -118,6 +123,7 @@ class RoleMatrixTests(ThrottledAPITestCase):
             CONTENT_STAFF,
             TEACHING_STAFF,
             USER_MANAGEMENT,
+            CURRICULUM,
             ADMIN_WRITE_TEACHER_READ,
         ):
             self.assert_reachable(group, User.Role.ADMIN, allowed=True)
@@ -147,11 +153,38 @@ class RoleMatrixTests(ThrottledAPITestCase):
     def test_teacher_reads_the_academic_taxonomy(self):
         """Without this every subject and chapter control in the exam builder
         comes back empty."""
-        self.assert_reachable(ADMIN_WRITE_TEACHER_READ, User.Role.TEACHER, allowed=True)
+        self.assert_reachable(CURRICULUM + ADMIN_WRITE_TEACHER_READ, User.Role.TEACHER, allowed=True)
 
-    def test_teacher_cannot_change_the_academic_taxonomy(self):
-        """Reading it is not managing it: what subjects exist is a roster
-        decision, and the matrix only ever issues GETs."""
+    def test_teacher_builds_the_curriculum(self):
+        """A class level, then a subject in it, a chapter in that, a topic in
+        that -- each one created with a teacher's token."""
+        auth = self.tokens[User.Role.TEACHER]
+
+        def create(path, body):
+            response = self.client.post(f'{API}/private/{path}/', body, format='json', **auth)
+            self.assertEqual(response.status_code, 201, response.content)
+            return response.json()['id']
+
+        group_id = Group.objects.create(name='বিজ্ঞান').pk
+
+        level = create('class-levels', {'name': 'দ্বাদশ'})
+        subject = create('subjects', {'name': 'আইসিটি', 'class_level_id': level, 'group_id': group_id})
+        chapter = create('chapters', {'name': 'সংখ্যা পদ্ধতি', 'subject_id': subject, 'chapter_number': 3})
+        create('topics', {'name': 'বাইনারি', 'chapter_id': chapter})
+
+        renamed = self.client.patch(
+            f'{API}/private/chapters/{chapter}/', {'name': 'Number systems'}, format='json', **auth
+        )
+        self.assertEqual(renamed.status_code, 200)
+
+    def test_only_an_admin_deletes_part_of_the_curriculum(self):
+        level = ClassLevel.objects.create(name='অষ্টম')
+        path = f'{API}/private/class-levels/{level.pk}/'
+
+        self.assertEqual(self.client.delete(path, **self.tokens[User.Role.TEACHER]).status_code, 403)
+        self.assertEqual(self.client.delete(path, **self.tokens[User.Role.ADMIN]).status_code, 204)
+
+    def test_teacher_cannot_change_groups_or_batches(self):
         for path in ADMIN_WRITE_TEACHER_READ:
             with self.subTest(path=path):
                 response = self.client.post(
@@ -163,7 +196,14 @@ class RoleMatrixTests(ThrottledAPITestCase):
                 self.assertEqual(response.status_code, 403, path)
 
     def test_moderator_is_kept_out_of_the_academic_taxonomy(self):
-        self.assert_reachable(ADMIN_WRITE_TEACHER_READ, User.Role.MODERATOR, allowed=False)
+        self.assert_reachable(CURRICULUM + ADMIN_WRITE_TEACHER_READ, User.Role.MODERATOR, allowed=False)
+
+    def test_students_and_moderators_cannot_build_the_curriculum(self):
+        for role in (User.Role.STUDENT, User.Role.MODERATOR):
+            for path in CURRICULUM:
+                with self.subTest(role=role, path=path):
+                    response = self.client.post(path, {'name': 'Nope'}, format='json', **self.tokens[role])
+                    self.assertEqual(response.status_code, 403, path)
 
     def test_teacher_is_kept_out_of_site_content(self):
         self.assert_reachable(CONTENT_STAFF, User.Role.TEACHER, allowed=False)
@@ -194,10 +234,9 @@ class EveryAdminPathHasADecidedTierTests(ThrottledAPITestCase):
     """
 
     #: Paths the matrix cannot GET: writes, detail routes needing a real pk,
-    #: and the two logout/import actions. Each is covered by its own app's
+    #: and the logout action. Each is covered by its own app's
     #: tests instead.
     NOT_GETTABLE = {
-        'api/private/users/import/',
         'api/private/enrollments/',
         'api/private/teachers/lookup/',
     }
@@ -205,12 +244,15 @@ class EveryAdminPathHasADecidedTierTests(ThrottledAPITestCase):
     def test_the_matrix_covers_every_admin_collection(self):
         listed = {
             p.removeprefix(f'{API}/')
-            for p in FULL_ADMIN_ONLY + CONTENT_STAFF + TEACHING_STAFF + USER_MANAGEMENT + ADMIN_WRITE_TEACHER_READ
+            for p in FULL_ADMIN_ONLY
+            + CONTENT_STAFF
+            + TEACHING_STAFF
+            + USER_MANAGEMENT
+            + CURRICULUM
+            + ADMIN_WRITE_TEACHER_READ
         }
 
-        contract = (
-            (__import__('pathlib').Path(__file__).resolve().parent.parent / 'url_contract.txt').read_text().split()
-        )
+        contract = list(served_paths())
 
         # One normal form for both shapes a router can produce: registered
         # with the prefix inline (`api/^private/notices/$`) or mounted under

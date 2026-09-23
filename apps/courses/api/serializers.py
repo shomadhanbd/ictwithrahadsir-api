@@ -5,7 +5,6 @@ from rest_framework import serializers
 from rest_framework.validators import UniqueTogetherValidator
 
 from apps.core.api.fields import MediaField
-from apps.core.spreadsheets import SpreadsheetField
 from apps.courses import selectors as course_selectors
 from apps.courses.models import (
     Content,
@@ -124,7 +123,7 @@ class CouponSerializer(serializers.ModelSerializer):
 
 
 class RoutineSerializer(serializers.ModelSerializer):
-    link = MediaField(upload_to="routine", required=False)
+    link = MediaField(required=False)
     course_id = serializers.PrimaryKeyRelatedField(source="course", queryset=Course.objects.all())
 
     class Meta:
@@ -161,7 +160,7 @@ def build_category_children(categories):
 
 
 class CourseCategorySerializer(serializers.ModelSerializer):
-    image = MediaField(upload_to="course-category", required=False)
+    image = MediaField(required=False)
     course_category_id = serializers.PrimaryKeyRelatedField(
         source="category", queryset=CourseCategory.objects.all(), required=False, allow_null=True
     )
@@ -170,7 +169,7 @@ class CourseCategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = CourseCategory
         fields = ["id", "title", "slug", "image", "course_category_id", "order", "children"]
-        read_only_fields = ["id", "slug"]
+        read_only_fields = ["id"]
 
     def get_children(self, obj) -> list:
         batched = self.context.get("category_children")
@@ -186,7 +185,7 @@ class CourseCategoryBadgeSerializer(serializers.ModelSerializer):
     standalone `CourseCategorySerializer` used for `/course-category` and
     the homepage's `courseCategories`, which also carries `children`/`order`."""
 
-    image = MediaField(upload_to="course-category", required=False)
+    image = MediaField(required=False)
 
     class Meta:
         model = CourseCategory
@@ -353,7 +352,7 @@ class AdminContentSerializer(serializers.ModelSerializer):
     it attaches.
     """
 
-    pdf_file = MediaField(upload_to="pdf", required=False)
+    pdf_file = MediaField(required=False)
     course_id = serializers.PrimaryKeyRelatedField(source="course", queryset=Course.objects.all())
     section_id = serializers.PrimaryKeyRelatedField(source="section", queryset=Section.objects.all())
 
@@ -382,7 +381,7 @@ class AdminContentSerializer(serializers.ModelSerializer):
             "live_url",
             "live_scheduled_at",
         ]
-        read_only_fields = ["id", "slug"]
+        read_only_fields = ["id"]
 
 
 def build_course_stats(courses, request=None):
@@ -619,7 +618,7 @@ class CourseDetailSerializer(CourseListSerializer):
 
 
 class AdminCourseSerializer(serializers.ModelSerializer):
-    image = MediaField(upload_to="course", required=False)
+    image = MediaField(required=False)
     categories = serializers.PrimaryKeyRelatedField(many=True, queryset=CourseCategory.objects.all(), required=False)
 
     class Meta:
@@ -641,7 +640,7 @@ class AdminCourseSerializer(serializers.ModelSerializer):
             "image",
             "categories",
         ]
-        read_only_fields = ["id", "slug"]
+        read_only_fields = ["id"]
 
 
 class AdminSectionSerializer(serializers.ModelSerializer):
@@ -653,7 +652,7 @@ class AdminSectionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Section
         fields = ["id", "course_id", "section_id", "title", "slug", "order", "active"]
-        read_only_fields = ["id", "slug"]
+        read_only_fields = ["id"]
 
 
 class EnrollmentSerializer(serializers.ModelSerializer):
@@ -686,7 +685,7 @@ class EnrollmentSerializer(serializers.ModelSerializer):
 
 
 class CourseMaterialSerializer(serializers.ModelSerializer):
-    file = MediaField(upload_to="material", required=False)
+    file = MediaField(required=False)
     course_id = serializers.PrimaryKeyRelatedField(
         source="course", queryset=Course.objects.all(), required=False, allow_null=True
     )
@@ -695,17 +694,6 @@ class CourseMaterialSerializer(serializers.ModelSerializer):
         model = CourseMaterial
         fields = ["id", "title", "type", "course_id", "file", "created_at"]
         read_only_fields = ["id", "created_at"]
-
-
-class EnrollmentImportRequestSerializer(serializers.Serializer):
-    """The spreadsheet behind `POST /admin/courses/<pk>/enrollments/import`.
-
-    Uses the shared field so this upload gets the same extension and size
-    checks the student importer has always had -- this endpoint previously
-    took `request.FILES` raw and parsed whatever arrived straight into memory.
-    """
-
-    file = SpreadsheetField(error_messages={'required': 'An Excel file is required.'})
 
 
 class CourseProgressSerializer(serializers.Serializer):

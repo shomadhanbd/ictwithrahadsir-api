@@ -146,9 +146,7 @@ class ExamAuthoringTests(ExamTestCase):
         self.assertEqual(body["scope"], "standalone")
         self.assertEqual(body["max_attempts"], 1)
 
-    def test_a_bangla_title_is_slugged_by_transliteration(self):
-        """Django's `slugify` strips Bengali vowel marks, so a blank slug goes
-        through `apps.core.slugs` instead."""
+    def test_a_bangla_title_still_gets_a_slug(self):
         slug = self.post().json()["slug"]
 
         self.assertTrue(slug)
@@ -1715,3 +1713,124 @@ class ExamListQueryBudgetTests(ExamTestCase):
         # token, role groups, exam, sections, picks
         with self.assertNumQueries(5):
             self.client.get(detail("exam", exam.pk), **self.auth)
+
+
+class PaperIntegrityTests(ExamTestCase):
+    """A paper's contents cannot be changed around its back -- from the exam
+    side by moving things out of it, or from the question bank by editing a
+    question already on it."""
+
+    QUESTIONS_URL = reverse("api:question:admin_question_list")
+
+    def placed(self, block, *, published=False, **section_overrides):
+        section = self.section(**{"marks": 1, **section_overrides})
+        pick = ExamSectionQuestion.objects.create(section=section, block=block, marks=1)
+        if published:
+            Exam.objects.filter(pk=section.exam_id).update(status=Exam.Status.PUBLISHED)
+        return section, pick
+
+    def question_detail(self, question):
+        return reverse("api:question:admin_question_detail", args=[question.pk])
+
+    # -- 1: nothing moves out of a paper ---------------------------------------
+
+    def test_a_pick_cannot_move_to_another_section(self):
+        section, pick = self.placed(self.mcq_block(), published=True)
+        elsewhere = self.section(title="Other")
+        response = self.client.patch(
+            detail("exam_section_question", pick.pk),
+            {"section_id": elsewhere.pk},
+            content_type="application/json",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("section_id", response.json()["errors"])
+        self.assertTrue(section.section_questions.filter(pk=pick.pk).exists())
+
+    def test_a_section_cannot_move_to_another_exam(self):
+        section, _ = self.placed(self.mcq_block(), published=True)
+        response = self.client.patch(
+            detail("exam_section", section.pk),
+            {"exam_id": self.exam(title="Draft").pk},
+            content_type="application/json",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("exam_id", response.json()["errors"])
+
+    # -- 2: a placed question keeps what its paper accepted ----------------------
+
+    def test_a_placed_block_keeps_its_subject(self):
+        block = self.mcq_block()
+        self.placed(block)
+        response = self.client.patch(
+            block_detail(block.pk), {"subject_id": self.physics.pk}, content_type="application/json", **self.auth
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("subject_id", response.json()["errors"])
+
+    def test_a_placed_question_keeps_its_type(self):
+        block = self.mcq_block()
+        self.placed(block)
+        response = self.client.patch(
+            self.question_detail(block.standalone_question),
+            {"question_type": "cq", "options": []},
+            content_type="application/json",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("question_type", response.json()["errors"])
+
+    def test_a_part_of_another_type_cannot_join_a_placed_passage(self):
+        passage = self.mcq_passage(parts=2)
+        self.placed(passage)
+        response = self.client.post(
+            self.QUESTIONS_URL,
+            {"question_set_id": passage.question_set.pk, "question_type": "cq", "prompt_content": "?"},
+            content_type="application/json",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 422)
+
+    def test_a_published_paper_keeps_its_parts(self):
+        passage = self.mcq_passage(parts=2)
+        self.placed(passage, published=True)
+        added = self.client.post(
+            self.QUESTIONS_URL,
+            {
+                "question_set_id": passage.question_set.pk,
+                "question_type": "mcq",
+                "prompt_content": "?",
+                "options": [{"content": "a", "is_correct": True, "position": 0}],
+            },
+            content_type="application/json",
+            **self.auth,
+        )
+        removed = self.client.delete(self.question_detail(passage.question_set.questions.first()), **self.auth)
+        self.assertEqual((added.status_code, removed.status_code), (422, 422))
+        self.assertEqual(passage.question_set.questions.count(), 2)
+
+    def test_wording_stays_editable_on_a_published_paper(self):
+        """A typo on a live paper has to be fixable."""
+        block = self.mcq_block()
+        block.standalone_question.options.create(content="4", is_correct=True, position=0)
+        self.placed(block, published=True)
+        response = self.client.patch(
+            self.question_detail(block.standalone_question),
+            {"prompt_content": "2 + 2 = ? (fixed)"},
+            content_type="application/json",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+
+    # -- 3: a section counts the parts its blocks have now -----------------------
+
+    def test_a_new_part_is_counted_on_a_draft_paper(self):
+        passage = self.mcq_passage(parts=2)
+        section, _ = self.placed(passage)
+        section.refresh_from_db()
+        self.assertEqual(section.question_count, 2)
+
+        Question.objects.create(question_set=passage.question_set, question_type=Question.Type.MCQ, prompt_content="?")
+        section.refresh_from_db()
+        self.assertEqual(section.question_count, 3)

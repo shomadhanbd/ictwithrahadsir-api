@@ -1,11 +1,5 @@
 # Shared by every environment. Pinned exactly (==) on purpose.
-#
-# The S3 stack (boto3/botocore/s3transfer/django-storages/jmespath)
-# lives here rather than in production.txt because USE_S3 is a runtime
-# toggle that any environment may switch on.
 asgiref==3.12.1
-boto3==1.43.52
-botocore==1.43.52
 certifi==2026.6.17
 charset-normalizer==3.4.9
 dj-database-url==3.1.2
@@ -13,7 +7,6 @@ Django==6.1.1
 django-cors-headers==4.9.0
 django-environ==0.14.0
 django-filter==26.1
-django-storages==1.14.6
 djangorestframework==3.18.1
 # OpenAPI schema + Swagger UI. In base rather than local because the
 # docs endpoints are served in every environment.
@@ -22,10 +15,7 @@ inflection==0.5.1
 jsonschema==4.26.0
 PyYAML==6.0.3
 uritemplate==4.2.0
-et_xmlfile==2.0.0
 idna==3.18
-jmespath==1.1.0
-openpyxl==3.1.5
 packaging==26.2
 # Phone parsing/validation (Google's libphonenumber). `apps.identity.phones`
 # uses it to refuse a number that is not a real Bangladeshi mobile.
@@ -34,7 +24,6 @@ phonenumbers==9.0.38
 pillow==12.3.0
 python-dateutil==2.9.0.post0
 requests==2.34.2
-s3transfer==0.19.1
 six==1.17.0
 sqlparse==0.5.5
 urllib3==2.7.0

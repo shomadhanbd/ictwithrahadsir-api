@@ -13,9 +13,10 @@ on a lesson. Nothing is shared with it and nothing was carried over.
 
 from django.conf import settings
 from django.db import models
+from django.utils.translation import gettext_lazy as _
 
 from apps.core.models import TimestampModel
-from apps.core.slugs import BanglaSlugField, unique_slug
+from apps.core.slugs import unique_slug
 from apps.question.models import Question
 
 
@@ -36,7 +37,7 @@ class Exam(TimestampModel):
         BATCH = "batch", "Batch"
 
     title = models.CharField("Title", max_length=200)
-    slug = BanglaSlugField("Slug", max_length=220, unique=True, blank=True)
+    slug = models.SlugField(max_length=220, unique=True, blank=True, verbose_name=_("slug"))
     description = models.TextField("Description", blank=True)
     instructions = models.TextField("Instructions", blank=True)
 
@@ -118,7 +119,6 @@ class Exam(TimestampModel):
 
     def save(self, *args, **kwargs):
         if not self.slug:
-            # Bangla titles transliterate; see `apps.core.slugs`.
             self.slug = unique_slug(self, self.title)
         super().save(*args, **kwargs)
 

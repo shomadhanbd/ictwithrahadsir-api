@@ -33,7 +33,6 @@ services:
       SECURE_SSL_REDIRECT: "False"
       DATABASE_URL: postgres://ictwithrahadsir:ictwithrahadsir@db:5432/ictwithrahadsir
       CORS_ALLOW_ALL_ORIGINS: ${CORS_ALLOW_ALL_ORIGINS:-True}
-      USE_S3: ${USE_S3:-False}
       SMS_BACKEND: ${SMS_BACKEND:-console}
     depends_on:
       - db

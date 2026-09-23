@@ -24,7 +24,7 @@ class ClassLevelSerializer(serializers.ModelSerializer):
             "is_active",
             "order",
         ]
-        read_only_fields = ["slug"]
+        read_only_fields = ["slug", "question_count", "subject_count"]
 
 
 class GroupSerializer(serializers.ModelSerializer):
@@ -40,7 +40,7 @@ class GroupSerializer(serializers.ModelSerializer):
             "is_active",
             "order",
         ]
-        read_only_fields = ["slug"]
+        read_only_fields = ["slug", "question_count"]
 
 
 class SubjectSerializer(serializers.ModelSerializer):
@@ -64,12 +64,21 @@ class SubjectSerializer(serializers.ModelSerializer):
             "is_active",
             "order",
         ]
-        read_only_fields = ["slug"]
+        read_only_fields = ["slug", "question_count", "chapter_count"]
 
 
 class ChapterSerializer(serializers.ModelSerializer):
     subject_id = serializers.PrimaryKeyRelatedField(source="subject", queryset=Subject.objects.all())
     subject_name = serializers.CharField(source="subject.name", read_only=True)
+
+    def validate_subject_id(self, subject):
+        # A question carries its subject as well as its chapter, so moving a
+        # chapter that holds questions would leave them saying two things.
+        # `question_blocks` is the question app's reverse relation, read by
+        # name so this app does not import the one above it.
+        if self.instance is not None and subject != self.instance.subject and self.instance.question_blocks.exists():
+            raise serializers.ValidationError("This chapter has questions, so it cannot move to another subject.")
+        return subject
 
     class Meta:
         model = Chapter
@@ -84,17 +93,23 @@ class ChapterSerializer(serializers.ModelSerializer):
             "is_locked",
             "is_active",
         ]
-        read_only_fields = ["slug"]
+        read_only_fields = ["slug", "question_count"]
 
 
 class TopicSerializer(serializers.ModelSerializer):
     chapter_id = serializers.PrimaryKeyRelatedField(source="chapter", queryset=Chapter.objects.all())
     chapter_name = serializers.CharField(source="chapter.name", read_only=True)
 
+    def validate_chapter_id(self, chapter):
+        # A question's topics must be of its chapter; see the chapter's rule.
+        if self.instance is not None and chapter != self.instance.chapter and self.instance.question_blocks.exists():
+            raise serializers.ValidationError("Questions are tagged with this topic, so it cannot move chapter.")
+        return chapter
+
     class Meta:
         model = Topic
-        fields = ["id", "name", "slug", "chapter_id", "chapter_name", "is_active"]
-        read_only_fields = ["slug"]
+        fields = ["id", "name", "slug", "chapter_id", "chapter_name", "question_count", "is_active"]
+        read_only_fields = ["slug", "question_count"]
 
 
 class BatchSerializer(serializers.ModelSerializer):

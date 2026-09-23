@@ -1,8 +1,8 @@
 """Course-side operations other apps are allowed to call.
 
 Granting access to a course is a `courses` concern, but it is triggered
-from several places -- an admin attaching a student, a bulk import, a free
-claim, and a confirmed payment over in `billing`. Those four sites each
+from several places -- an admin attaching a student, a free claim, and a
+confirmed payment over in `billing`. Those sites each
 wrote `Enrollment` directly, which is how `billing` ended up reaching into
 another app's tables.
 
@@ -11,13 +11,9 @@ dependency direction explicit: billing depends on courses, never the
 reverse.
 """
 
-from django.db import transaction
 from django.utils import timezone
 
-from apps.core.phones import normalize_phone
-from apps.core.spreadsheets import text
 from apps.courses.models import CoursePrice, Enrollment
-from apps.identity.models import User
 
 
 def grant_course_access(*, user, course, payment_type, valid_till=None):
@@ -52,38 +48,3 @@ def revoke_course_access(*, user_id, course) -> bool:
     """Remove an enrolment. Returns whether anything was removed."""
     deleted, _ = Enrollment.objects.filter(course=course, user_id=user_id).delete()
     return deleted > 0
-
-
-@transaction.atomic
-def import_enrollments(*, course, records) -> dict:
-    """Bulk-enrol existing students on a course from parsed spreadsheet rows.
-
-    Returns `{attached, missing}`. A phone that matches no account is counted
-    as missing rather than creating one -- this screen attaches people who
-    have already registered, and silently inventing accounts from a
-    spreadsheet typo is not a thing an admin can undo.
-
-    The roster is loaded once instead of one `User` lookup per row. The
-    sibling importer in `identity` already did this; this one did not, so a
-    sheet of 500 students cost 500 extra queries and, with no transaction
-    around it, a failure halfway left half the class enrolled.
-    """
-    # Normalised before the lookup: stored numbers are canonical
-    # `01XXXXXXXXX`, so a sheet written as +8801... would match nothing and
-    # every row would be counted missing. The sibling importer in
-    # `identity` already did this; this one did not.
-    phones = [normalize_phone(text(record, 'phone')) for record in records]
-    known = User.objects.filter(phone__in={phone for phone in phones if phone})
-    users_by_phone = {user.phone: user for user in known}
-
-    attached, missing = 0, 0
-    for phone in phones:
-        user = users_by_phone.get(phone)
-        if not user:
-            missing += 1
-            continue
-
-        grant_course_access(user=user, course=course, payment_type=Enrollment.PaymentType.FREE)
-        attached += 1
-
-    return {'attached': attached, 'missing': missing}

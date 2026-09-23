@@ -1,8 +1,7 @@
 """Behaviour of the shared DRF/model plumbing in `apps.core`.
 
-Covers the two pieces that were rewritten for cost rather than for
-behaviour -- slug allocation and the pagination link window -- because in
-both cases "still correct" is the property that had to survive.
+Covers slug allocation and the pagination link window, both rewritten for
+cost rather than behaviour.
 """
 
 from django.test import TestCase
@@ -10,7 +9,7 @@ from django.test import TestCase
 from rest_framework.test import APITestCase
 
 from apps.content.models import Notice
-from apps.core.slugs import ascii_slug, unique_slug
+from apps.core.slugs import unique_slug
 from apps.courses.models import Course
 
 
@@ -55,15 +54,9 @@ class UniqueSlugTests(TestCase):
         Course.objects.create(title="Announcement")
         self.assertEqual(Notice.objects.create(title="Announcement").slug, "announcement")
 
-    def test_a_bangla_title_still_transliterates(self):
-        course = Course.objects.create(title="পদার্থবিজ্ঞান")
-        self.assertTrue(course.slug)
-        self.assertEqual(course.slug, ascii_slug("পদার্থবিজ্ঞান"))
-
-    def test_two_bangla_titles_that_transliterate_alike_stay_unique(self):
-        first = Course.objects.create(title="রসায়ন")
-        second = Course.objects.create(title="রসায়ন")
-        self.assertNotEqual(first.slug, second.slug)
+    def test_a_title_with_no_english_falls_back_to_the_model_name(self):
+        slugs = [Course.objects.create(title="রসায়ন").slug for _ in range(2)]
+        self.assertEqual(slugs, ["course", "course-2"])
 
     def test_unique_slug_respects_an_explicit_field_name(self):
         course = Course(title="Explicit")

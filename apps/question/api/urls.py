@@ -8,6 +8,7 @@ from apps.question.api.private.views import (
     AdminQuestionSourceDetailAPIView,
     AdminQuestionSourceListCreateAPIView,
     AdminQuestionTypeListAPIView,
+    AdminRefreshQuestionCountsAPIView,
 )
 
 app_name = 'question'
@@ -20,6 +21,11 @@ admin_patterns = [
         name='admin_question_block_detail',
     ),
     path('questions/', AdminQuestionListCreateAPIView.as_view(), name='admin_question_list'),
+    path(
+        'question-counts/refresh/',
+        AdminRefreshQuestionCountsAPIView.as_view(),
+        name='admin_question_counts_refresh',
+    ),
     path('questions/<int:pk>/', AdminQuestionDetailAPIView.as_view(), name='admin_question_detail'),
     path('question-sources/', AdminQuestionSourceListCreateAPIView.as_view(), name='admin_question_source_list'),
     path('question-types/', AdminQuestionTypeListAPIView.as_view(), name='admin_question_type_list'),

@@ -110,7 +110,7 @@ class QueryBudgetTests(APITestCase):
             Notice.objects.create(title=f"Notice {i}").categories.add(notice_category)
 
     def authenticate(self):
-        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.token.key}")
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.token.key}")
 
     # -- course list --------------------------------------------------------
 
@@ -182,7 +182,7 @@ class QueryBudgetTests(APITestCase):
         re-running this at twice the size proves.
         """
         admin = User.objects.create_user(phone="01899999999", name="Admin", role=User.Role.ADMIN)
-        self.client.credentials(HTTP_AUTHORIZATION=f"Token {Token.objects.create(user=admin).key}")
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {Token.objects.create(user=admin).key}")
         with self.assertNumQueries(4):
             response = self.client.get("/api/private/contents/?per_page=50")
         self.assertEqual(len(response.data["data"]), 50)

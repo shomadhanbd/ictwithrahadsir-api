@@ -1,13 +1,16 @@
 """The question bank: ownership, ordering, authoring rules and the admin API."""
 
+from io import StringIO
+
 from django.core.exceptions import ValidationError
+from django.core.management import call_command
 from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.urls import reverse
 
 from rest_framework.authtoken.models import Token
 
-from apps.academic.models import Chapter, ClassLevel, Group, Subject
+from apps.academic.models import Chapter, ClassLevel, Group, Subject, Topic
 from apps.identity.models import User
 from apps.question import services
 from apps.question.models import Question, QuestionBlock, QuestionOption, QuestionSet, QuestionSource
@@ -713,8 +716,8 @@ class ProvenanceTests(QuestionTestCase):
         self.assertEqual(response.status_code, 201)
 
     def test_a_source_is_slugged_from_its_whole_label(self):
-        """Bangla names transliterate, and the year is part of the slug -- two
-        years of one board must not collide."""
+        """The year is part of the slug -- two years of one board must not
+        collide."""
         unit = QuestionSource.objects.create(
             name="ঢাকা বিশ্ববিদ্যালয়", kind=QuestionSource.Kind.UNIVERSITY, unit="ka", year=2021
         )
@@ -948,3 +951,107 @@ class PermissionTests(QuestionTestCase):
         forgets `permission_classes` would serve the answer key to anyone."""
         for url in self._urls():
             self.assertEqual(self.client.get(url).status_code, 401, url)
+
+
+class RefreshQuestionCountTests(QuestionTestCase):
+    """`question_count` on the curriculum is recounted on demand, not on write."""
+
+    URL = reverse("api:question:admin_question_counts_refresh")
+
+    def setUp(self):
+        super().setUp()
+        self.binary = Topic.objects.create(name="Binary", chapter=self.chapter)
+        self.block().topics.add(self.binary)
+        group = self.block(kind=QuestionBlock.Kind.GROUP)
+        stimulus = QuestionSet.objects.create(block=group, stimulus_content="A stimulus")
+        for label in ("ক", "খ"):
+            Question.objects.create(
+                question_set=stimulus, question_type=Question.Type.CQ, label=label, prompt_content="?"
+            )
+
+    def counts(self):
+        rows = (self.hsc, self.science, self.ict, self.chapter, self.binary)
+        for row in rows:
+            row.refresh_from_db()
+        return [row.question_count for row in rows]
+
+    def test_adding_a_question_does_not_count_it_yet(self):
+        self.assertEqual(self.counts(), [0, 0, 0, 0, 0])
+
+    def test_the_refresh_counts_each_block_once(self):
+        response = self.client.post(self.URL, **self.auth)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"ok": True})
+        # Two blocks: a standalone question and a stimulus with two parts.
+        self.assertEqual(self.counts(), [2, 2, 2, 2, 1])
+
+    def test_the_refresh_counts_subjects_and_chapters_too(self):
+        Chapter.objects.create(name="Networking", subject=self.ict, chapter_number=2)
+        self.client.post(self.URL, **self.auth)
+        self.hsc.refresh_from_db()
+        self.ict.refresh_from_db()
+        self.assertEqual((self.hsc.subject_count, self.ict.chapter_count), (1, 2))
+
+    def test_the_command_does_the_same(self):
+        call_command("refresh_question_counts", stdout=StringIO())
+        self.assertEqual(self.counts(), [2, 2, 2, 2, 1])
+
+    def test_teaching_staff_only(self):
+        teacher = User.objects.create_user(phone="01700002222", name="Teacher", role=User.Role.TEACHER)
+        student = User.objects.create_user(phone="01700003333", name="Student")
+        for user, expected in ((teacher, 200), (student, 403)):
+            auth = {"HTTP_AUTHORIZATION": f"Bearer {Token.objects.create(user=user).key}"}
+            with self.subTest(user=user.name):
+                self.assertEqual(self.client.post(self.URL, **auth).status_code, expected)
+
+
+class NoTopicFilterTests(QuestionTestCase):
+    """`?no_topic=true` lists a chapter's questions that carry no topic."""
+
+    def test_only_untagged_blocks_are_listed_and_each_once(self):
+        binary = Topic.objects.create(name="Binary", chapter=self.chapter)
+        gates = Topic.objects.create(name="Gates", chapter=self.chapter)
+        tagged = self.block()
+        tagged.topics.add(binary, gates)
+        untagged = self.block()
+
+        body = self.client.get(BLOCKS_URL, {"chapter": self.chapter.pk, "no_topic": "true"}, **self.auth).json()
+        self.assertEqual([row["id"] for row in body["data"]], [untagged.pk])
+
+        body = self.client.get(BLOCKS_URL, {"chapter": self.chapter.pk, "no_topic": "false"}, **self.auth).json()
+        self.assertEqual([row["id"] for row in body["data"]], [tagged.pk])
+
+
+class BlockTopicTests(QuestionTestCase):
+    """A block's topics are topics of its chapter."""
+
+    def test_a_topic_from_another_chapter_is_refused(self):
+        physics = Subject.objects.create(name="Physics", class_level=self.hsc, group=self.science, slug="phy")
+        optics = Topic.objects.create(name="Optics", chapter=Chapter.objects.create(name="Light", subject=physics))
+        response = self.client.post(
+            BLOCKS_URL,
+            {"subject_id": self.ict.pk, "chapter_id": self.chapter.pk, "topic_ids": [optics.pk]},
+            content_type="application/json",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("topic_ids", response.json()["errors"])
+
+    def test_a_topic_of_its_own_chapter_is_accepted(self):
+        binary = Topic.objects.create(name="Binary", chapter=self.chapter)
+        response = self.client.post(
+            BLOCKS_URL,
+            {"subject_id": self.ict.pk, "chapter_id": self.chapter.pk, "topic_ids": [binary.pk]},
+            content_type="application/json",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+
+    def test_moving_to_another_chapter_needs_its_topics_to_follow(self):
+        block = self.block()
+        block.topics.add(Topic.objects.create(name="Binary", chapter=self.chapter))
+        other = Chapter.objects.create(name="Networking", subject=self.ict, chapter_number=2)
+        response = self.client.patch(
+            detail("question_block", block.pk), {"chapter_id": other.pk}, content_type="application/json", **self.auth
+        )
+        self.assertEqual(response.status_code, 422)

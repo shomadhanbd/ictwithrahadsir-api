@@ -13,7 +13,6 @@ from apps.courses.api.private.views import (
     AdminCourseTeacherViewSet,
     AdminCourseViewSet,
     AdminEnrollmentAPIView,
-    AdminEnrollmentImportAPIView,
     AdminRoutineViewSet,
     AdminSectionViewSet,
 )
@@ -43,11 +42,6 @@ urlpatterns = [
         'courses/<int:pk>/enrollments/',
         AdminCourseEnrolledUserListAPIView.as_view(),
         name='admin_course_users',
-    ),
-    path(
-        'courses/<int:pk>/enrollments/import/',
-        AdminEnrollmentImportAPIView.as_view(),
-        name='admin_course_user_import',
     ),
     # One resource, a method per action: POST attaches, PATCH amends, DELETE
     # removes. Replaces the three POST-only endpoints the legacy API called

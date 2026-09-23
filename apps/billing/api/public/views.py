@@ -1,4 +1,4 @@
-"""HTTP layer for orders, payments and the admin dashboard.
+"""HTTP layer for orders and payments.
 
 Every handler here does the same three things and nothing else: validate the
 input with a serializer, call one service or selector, render the result.

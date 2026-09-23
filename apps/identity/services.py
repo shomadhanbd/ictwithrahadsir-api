@@ -1,18 +1,11 @@
-from collections import Counter
-
 from django.conf import settings
-from django.contrib.auth.password_validation import validate_password
-from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
-from django.db.models.functions import Lower
 from django.utils import timezone
 
 from rest_framework.authtoken.models import Token
 from rest_framework.exceptions import Throttled, ValidationError
 
-from apps.core.phones import normalize_phone
-from apps.core.services.factory import get_sms_backend
-from apps.core.spreadsheets import text
+from apps.core.sms import get_sms_backend
 from apps.identity.models import OTP, User
 from apps.profiles.models import GuardianProfile, StudentProfile
 
@@ -167,87 +160,3 @@ def reset_password(*, phone: str, code: str, password: str) -> User:
     user.set_password(password)
     user.save(update_fields=["password"])
     return user
-
-
-# -- bulk import -------------------------------------------------------------
-
-
-#: Header spellings accepted for each column. The `user_*` forms are what the
-#: admin panel's own export writes, so an exported sheet can be filled in and
-#: sent straight back.
-COLUMN_ALIASES = {
-    "phone": ("phone", "user_phone"),
-    "email": ("email", "user_email"),
-    "name": ("name", "user_name"),
-    "password": ("password", "user_password"),
-    "institution": ("institution", "user_institution"),
-}
-
-
-def _cell(record: dict, column: str) -> str:
-    return next((value for key in COLUMN_ALIASES[column] if (value := text(record, key))), "")
-
-
-def _import_rows(records: list[dict]) -> list[dict]:
-    return [
-        {
-            "phone": normalize_phone(_cell(record, "phone")),
-            "email": _cell(record, "email").lower() or None,
-            "name": _cell(record, "name"),
-            "password": _cell(record, "password"),
-            "institution": _cell(record, "institution"),
-        }
-        for record in records
-    ]
-
-
-def _rejection(row: dict, taken_phones: set, taken_emails: set) -> str | None:
-    """Why this row cannot become an account, or None if it can."""
-    if not row["phone"]:
-        return "invalid_phone"
-    if not row["name"]:
-        # A nameless account never reaches the roster; see `registered()`.
-        return "missing_name"
-    if row["phone"] in taken_phones or (row["email"] and row["email"] in taken_emails):
-        return "already_on_file"
-    if not row["password"]:
-        # This path issues no OTP, so the sheet has to supply the way in.
-        return "missing_password"
-    try:
-        validate_password(row["password"])
-    except DjangoValidationError:
-        return "weak_password"
-    return None
-
-
-@transaction.atomic
-def import_users(records: list[dict]) -> dict:
-    """Create a student per row, reporting why any row was skipped."""
-    rows = _import_rows(records)
-
-    taken_phones = set(
-        User.objects.filter(phone__in={row["phone"] for row in rows if row["phone"]}).values_list("phone", flat=True)
-    )
-    taken_emails = set(
-        User.objects.annotate(canonical_email=Lower("email"))
-        .filter(canonical_email__in={row["email"] for row in rows if row["email"]})
-        .values_list("canonical_email", flat=True)
-    )
-
-    created, reasons = 0, Counter()
-    for row in rows:
-        if reason := _rejection(row, taken_phones, taken_emails):
-            reasons[reason] += 1
-            continue
-
-        institution, password = row.pop("institution"), row.pop("password")
-        user = User.objects.create_user(**row, password=password, role=User.Role.STUDENT)
-        profile = StudentProfile.objects.create(user=user, institution=institution)
-        GuardianProfile.objects.create(student=profile)
-
-        taken_phones.add(row["phone"])
-        if row["email"]:
-            taken_emails.add(row["email"])
-        created += 1
-
-    return {"created": created, "skipped": sum(reasons.values()), "skipped_reasons": dict(reasons)}

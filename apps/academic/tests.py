@@ -1,5 +1,6 @@
 """The academic taxonomy: slugs, uniqueness, and what the admin panel asks for."""
 
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.urls import reverse
@@ -37,12 +38,14 @@ class AcademicTestCase(TestCase):
 
 
 class SlugTests(AcademicTestCase):
-    def test_a_bangla_name_still_gets_an_ascii_slug(self):
-        """Django's `slugify` drops non-ASCII, so a Bangla name would otherwise
-        slug to nothing at all."""
+    def test_a_bangla_name_still_gets_an_english_slug(self):
         level = ClassLevel.objects.create(name="আলিম")
-        self.assertTrue(level.slug)
-        self.assertTrue(level.slug.isascii())
+        self.assertEqual(level.slug, "classlevel")
+
+    def test_a_typed_bangla_slug_is_rejected(self):
+        with self.assertRaises(ValidationError) as caught:
+            Group(name="বিজ্ঞান", slug="বিজ্ঞান").full_clean()
+        self.assertIn("slug", caught.exception.message_dict)
 
     def test_a_subject_slug_carries_its_level_and_group(self):
         """The name alone repeats on every level and group, so a name-only slug
@@ -305,63 +308,6 @@ class DetailRouteTests(AcademicTestCase):
             self.assertEqual(self.client.get(detail(resource, pk)).status_code, 401, resource)
 
 
-class UnicodeSlugTests(AcademicTestCase):
-    """Slugs are typed by hand so they can hold real Bangla. They are never
-    *generated* as unicode -- Django's slugify strips Bengali vowel marks."""
-
-    def test_a_typed_bangla_slug_is_stored_verbatim(self):
-        group = Group.objects.create(name="ব্যবসায় শিক্ষা", slug="ব্যবসায়-শিক্ষা")
-        group.refresh_from_db()
-        self.assertEqual(group.slug, "ব্যবসায়-শিক্ষা")
-
-    def test_a_blank_slug_falls_back_to_ascii_not_the_mangled_form(self):
-        from django.utils.text import slugify
-
-        name = "কারিগরি"
-        group = Group.objects.create(name=name)
-
-        self.assertTrue(group.slug.isascii(), group.slug)
-        # What auto-generating unicode would have produced instead: slugify
-        # strips Bengali vowel marks, so the "readable" slug is misspelt.
-        self.assertNotEqual(group.slug, slugify(name, allow_unicode=True))
-
-    def test_the_form_accepts_bangla_and_still_rejects_junk(self):
-        """`allow_unicode=True` alone is not enough: Django's validator is
-        `^[-\\w]+\\Z` and `\\w` excludes the combining vowel marks every real
-        Bangla word carries, so বিজ্ঞান was rejected while কম was not."""
-        from django.forms import modelform_factory
-
-        form_class = modelform_factory(Group, fields="__all__")
-
-        def accepts(slug):
-            form = form_class(
-                data={
-                    "name": f"Probe {slug}",
-                    "slug": slug,
-                    "subject_count": 0,
-                    "question_count": 0,
-                    "chapter_count": 0,
-                    "is_active": True,
-                    "order": 0,
-                }
-            )
-            form.is_valid()
-            return "slug" not in form.errors
-
-        self.assertTrue(accepts("বিজ্ঞান"))
-        self.assertTrue(accepts("আলিম-২০২৭"))
-        self.assertTrue(accepts("ict-hsc-science"))
-        self.assertFalse(accepts("has space"))
-        self.assertFalse(accepts("bad/slash"))
-
-    def test_a_typed_slug_survives_a_round_trip_through_the_api(self):
-        level = ClassLevel.objects.create(name="আলিম", slug="আলিম")
-
-        body = self.client.get(detail("class_level", level.pk), **self.auth).json()
-
-        self.assertEqual(body["slug"], "আলিম")
-
-
 class ChapterTests(AcademicTestCase):
     def setUp(self):
         super().setUp()
@@ -498,3 +444,50 @@ class NewDetailRouteTests(AcademicTestCase):
         forgets `permission_classes` is world-readable."""
         for resource, pk in self._rows():
             self.assertEqual(self.client.get(detail(resource, pk)).status_code, 401, resource)
+
+
+class CurriculumIntegrityTests(AcademicTestCase):
+    """A chapter or topic that questions use stays where they filed it, and
+    `question_count` belongs to "Refresh questions", not to the API."""
+
+    def setUp(self):
+        super().setUp()
+        from apps.question.models import QuestionBlock
+
+        self.ict = Subject.objects.create(name="ICT", class_level=self.hsc, group=self.science, slug="ict")
+        self.physics = Subject.objects.create(name="Physics", class_level=self.hsc, group=self.science, slug="phy")
+        self.chapter = Chapter.objects.create(name="Numbers", subject=self.ict)
+        self.topic = Topic.objects.create(name="Binary", chapter=self.chapter)
+        self.block = QuestionBlock.objects.create(subject=self.ict, chapter=self.chapter)
+
+    def patch(self, resource, pk, body):
+        return self.client.patch(detail(resource, pk), body, content_type="application/json", **self.auth)
+
+    def test_a_chapter_with_questions_keeps_its_subject(self):
+        response = self.patch("chapter", self.chapter.pk, {"subject_id": self.physics.pk})
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("subject_id", response.json()["errors"])
+
+    def test_an_empty_chapter_may_move(self):
+        empty = Chapter.objects.create(name="Empty", subject=self.ict)
+        self.assertEqual(self.patch("chapter", empty.pk, {"subject_id": self.physics.pk}).status_code, 200)
+
+    def test_a_tagged_topic_keeps_its_chapter(self):
+        self.block.topics.add(self.topic)
+        other = Chapter.objects.create(name="Other", subject=self.ict)
+        response = self.patch("topic", self.topic.pk, {"chapter_id": other.pk})
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("chapter_id", response.json()["errors"])
+
+    def test_recounted_columns_are_read_only(self):
+        response = self.patch("class_level", self.hsc.pk, {"subject_count": 99})
+        self.assertEqual(response.json()["subject_count"], 0)
+        response = self.patch("subject", self.ict.pk, {"chapter_count": 99})
+        self.assertEqual(response.json()["chapter_count"], 0)
+
+    def test_question_count_is_read_only(self):
+        for resource, pk in (("class_level", self.hsc.pk), ("subject", self.ict.pk), ("chapter", self.chapter.pk)):
+            with self.subTest(resource=resource):
+                response = self.patch(resource, pk, {"question_count": 999})
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.json()["question_count"], 0)

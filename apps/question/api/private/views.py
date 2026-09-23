@@ -12,15 +12,18 @@ questions are not. Answer keys stay out of *public* payloads through the
 serializer split in `serializers.py`, which is unaffected by this tier.
 """
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import F, Prefetch
 
 from drf_spectacular.utils import extend_schema
+from rest_framework.exceptions import ValidationError
 from rest_framework.generics import ListCreateAPIView, RetrieveUpdateDestroyAPIView
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.core.api.permissions import IsTeachingStaff
-from apps.question import types
+from apps.core.api.responses import OkResponseSerializer
+from apps.question import services, types
 from apps.question.api.private.filters import QuestionBlockFilter
 from apps.question.api.private.serializers import (
     AdminQuestionBlockSerializer,
@@ -28,6 +31,7 @@ from apps.question.api.private.serializers import (
     QuestionKindSerializer,
     QuestionSourceSerializer,
 )
+from apps.question.counts import refresh_question_counts
 from apps.question.models import Question, QuestionBlock, QuestionSource
 
 
@@ -91,6 +95,17 @@ class AdminQuestionDetailAPIView(RetrieveUpdateDestroyAPIView):
     serializer_class = AdminQuestionSerializer
     queryset = Question.objects.prefetch_related("options")
 
+    def perform_destroy(self, instance):
+        # `destroy()` runs no serializer, so the published-paper guard is
+        # checked here -- and converted, or it would escape as a 500.
+        try:
+            services.validate_parts_change(
+                services.owning_block(block=instance.block, question_set=instance.question_set)
+            )
+        except DjangoValidationError as exc:
+            raise ValidationError(exc.message_dict)
+        instance.delete()
+
 
 class AdminQuestionSourceListCreateAPIView(ListCreateAPIView):
     permission_classes = [IsTeachingStaff]
@@ -119,3 +134,18 @@ class AdminQuestionTypeListAPIView(APIView):
     @extend_schema(summary="Question types", responses={200: QuestionKindSerializer(many=True)})
     def get(self, request):
         return Response({"data": QuestionKindSerializer(list(types.REGISTRY.values()), many=True).data})
+
+
+class AdminRefreshQuestionCountsAPIView(APIView):
+    """Recount the curriculum's counters (see `apps.question.counts`).
+
+    The Question Bank's "Refresh questions" button. Counts are not kept up to
+    date on each write, so this is how they catch up after questions are added.
+    """
+
+    permission_classes = [IsTeachingStaff]
+
+    @extend_schema(summary="Refresh question counts", request=None, responses={200: OkResponseSerializer})
+    def post(self, request):
+        refresh_question_counts()
+        return Response(OkResponseSerializer({"ok": True}).data)

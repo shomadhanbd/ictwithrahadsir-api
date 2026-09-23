@@ -1,13 +1,9 @@
 class MethodOverrideMiddleware:
-    """The admin panel sends multipart update requests as
-    `POST /admin/<resource>/{id}?_method=PUT` (a Laravel convention, since
-    PHP can't parse multipart bodies on PUT/PATCH). Rewriting
-    `request.method` here -- before DRF's dispatch() picks a handler --
-    lets the same DRF ModelViewSet routes serve both a real PUT/PATCH and
-    this override style with no extra view code.
+    """Treat `POST ...?_method=PUT|PATCH|DELETE` as that method.
 
-    Only reads the query string, never the request body, so it can't
-    interfere with downstream multipart parsing."""
+    The admin panel sends multipart updates this way. Only the query string
+    is read, so the body is left for normal parsing.
+    """
 
     OVERRIDABLE = {"PUT", "PATCH", "DELETE"}
 
