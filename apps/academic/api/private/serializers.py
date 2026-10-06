@@ -7,7 +7,6 @@ from apps.core.api.serializers.fields import LiveCount
 
 
 class ClassLevelSerializer(serializers.ModelSerializer):
-    group_count = LiveCount()
     subject_count = LiveCount()
     chapter_count = LiveCount()
 
@@ -17,7 +16,6 @@ class ClassLevelSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "slug",
-            "group_count",
             "subject_count",
             "question_count",
             "chapter_count",
@@ -75,10 +73,6 @@ class ChapterSerializer(serializers.ModelSerializer):
     subject_id = serializers.PrimaryKeyRelatedField(source="subject", queryset=Subject.objects.all())
     subject_name = serializers.CharField(source="subject.name", read_only=True)
 
-    def validate_subject_id(self, subject):
-        validate_chapter_subject_change(self.instance, subject)
-        return subject
-
     class Meta:
         model = Chapter
         fields = [
@@ -94,19 +88,23 @@ class ChapterSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["question_count"]
 
+    def validate_subject_id(self, subject):
+        validate_chapter_subject_change(self.instance, subject)
+        return subject
+
 
 class TopicSerializer(serializers.ModelSerializer):
     chapter_id = serializers.PrimaryKeyRelatedField(source="chapter", queryset=Chapter.objects.all())
     chapter_name = serializers.CharField(source="chapter.name", read_only=True)
 
-    def validate_chapter_id(self, chapter):
-        validate_topic_chapter_change(self.instance, chapter)
-        return chapter
-
     class Meta:
         model = Topic
         fields = ["id", "name", "slug", "chapter_id", "chapter_name", "question_count", "is_active", "order"]
         read_only_fields = ["question_count"]
+
+    def validate_chapter_id(self, chapter):
+        validate_topic_chapter_change(self.instance, chapter)
+        return chapter
 
     def create(self, validated_data):
         return services.create_topic(**validated_data)

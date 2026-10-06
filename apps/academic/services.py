@@ -1,7 +1,11 @@
+from django.db.models import Max
+
 from apps.academic.models import Topic
-from apps.academic.selectors import next_topic_order
 
 
 def create_topic(**data) -> Topic:
-    data.setdefault("order", next_topic_order(data["chapter"]))
+    """Adds a topic; without an explicit `order` it goes last in its chapter."""
+    if "order" not in data:
+        last = Topic.objects.filter(chapter=data["chapter"]).aggregate(last=Max("order"))["last"]
+        data["order"] = 0 if last is None else last + 1
     return Topic.objects.create(**data)

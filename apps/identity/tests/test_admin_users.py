@@ -7,6 +7,7 @@ from django.urls import reverse
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APITestCase
 
+from apps.academic.models import ClassLevel
 from apps.billing.models import Payment, Product
 from apps.core.testing import bearer, make_user, next_slug
 from apps.courses.models import Course, CourseTeacher, Enrollment
@@ -492,7 +493,20 @@ class AdminUserTests(APITestCase):
         self.assertEqual(response.json()["student"], {**block, "class_level_id": None, "group_id": None})
         profile = StudentProfile.objects.get(user=target)
         self.assertEqual(profile.address, "House 42, Road 7, Banani, Dhaka 1213")
-        self.assertEqual(profile.guardian.name, "Abdul Karim")
+        self.assertEqual(profile.guardian_name, "Abdul Karim")
+
+    def test_the_admin_may_place_a_student_in_a_retired_class(self):
+        target = User.objects.create_user(phone="01977000777", name="Student")
+        retired = ClassLevel.objects.create(slug=next_slug("classlevel"), name="Old SSC", is_active=False)
+
+        response = self.client.patch(
+            reverse("api:identity:admin_user_detail", args=[target.pk]),
+            {"student": {"class_level_id": retired.pk}},
+            **self.auth,
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(StudentProfile.objects.get(user=target).class_level_id, retired.pk)
 
     def test_a_user_without_a_profile_serializes_student_as_null(self):
         target = User.objects.create_user(phone="01977000888", name="Teacher", role=User.Role.TEACHER)

@@ -3,19 +3,19 @@
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
-from apps.academic.managers import ActiveQuerySet, ClassLevelQuerySet, GroupQuerySet, SubjectQuerySet
+from apps.academic.managers import ActiveQuerySet, SubjectParentQuerySet, SubjectQuerySet
+from apps.core.models import OrderedModel
 
 
-class ClassLevel(models.Model):
+class ClassLevel(OrderedModel):
     """An education level: class 6, SSC, Dakhil, HSC, Alim, Admission."""
 
     name = models.CharField("Name", max_length=100, unique=True)
     slug = models.SlugField(max_length=120, unique=True, verbose_name=_("slug"))
     question_count = models.PositiveIntegerField("Question Count", default=0)
     is_active = models.BooleanField("Active", default=True)
-    order = models.PositiveIntegerField("Order", default=0)
 
-    objects = ClassLevelQuerySet.as_manager()
+    objects = SubjectParentQuerySet.as_manager()
 
     class Meta:
         ordering = ["order", "name"]
@@ -26,25 +26,26 @@ class ClassLevel(models.Model):
         return self.name
 
 
-class Group(models.Model):
+class Group(OrderedModel):
     """A branch of study: Science, Arts, Commerce, General."""
 
     name = models.CharField("Name", max_length=100, unique=True)
     slug = models.SlugField(max_length=120, unique=True, verbose_name=_("slug"))
     question_count = models.PositiveIntegerField("Question Count", default=0)
     is_active = models.BooleanField("Active", default=True)
-    order = models.PositiveIntegerField("Order", default=0)
 
-    objects = GroupQuerySet.as_manager()
+    objects = SubjectParentQuerySet.as_manager()
 
     class Meta:
         ordering = ["order", "name"]
+        verbose_name = "Group"
+        verbose_name_plural = "Groups"
 
     def __str__(self):
         return self.name
 
 
-class Subject(models.Model):
+class Subject(OrderedModel):
     """One subject at one level for one group; the name repeats across levels."""
 
     name = models.CharField("Name", max_length=100)
@@ -55,7 +56,6 @@ class Subject(models.Model):
     group = models.ForeignKey(Group, on_delete=models.PROTECT, related_name="subjects")
     question_count = models.PositiveIntegerField("Question Count", default=0)
     is_active = models.BooleanField("Active", default=True)
-    order = models.PositiveIntegerField("Order", default=0)
 
     objects = SubjectQuerySet.as_manager()
 
@@ -99,13 +99,12 @@ class Chapter(models.Model):
         return f"{self.chapter_number}. {self.name} ({self.subject})"
 
 
-class Topic(models.Model):
+class Topic(OrderedModel):
     chapter = models.ForeignKey(Chapter, on_delete=models.PROTECT, related_name="topics", verbose_name="Chapter")
     name = models.CharField("Name", max_length=200)
     slug = models.SlugField(max_length=220, unique=True, verbose_name=_("slug"))
     question_count = models.PositiveIntegerField("Question Count", default=0)
     is_active = models.BooleanField("Active", default=True)
-    order = models.PositiveIntegerField("Order", default=0)
 
     objects = ActiveQuerySet.as_manager()
 
@@ -118,7 +117,7 @@ class Topic(models.Model):
         return f"{self.name} ({self.chapter})"
 
 
-class Batch(models.Model):
+class Batch(OrderedModel):
     """A cohort taking one education level, e.g. "SSC-2027"."""
 
     name = models.CharField("Name", max_length=100)
@@ -127,7 +126,6 @@ class Batch(models.Model):
         ClassLevel, on_delete=models.PROTECT, related_name="batches", verbose_name="Education Level"
     )
     is_active = models.BooleanField("Active", default=True)
-    order = models.PositiveIntegerField("Order", default=0)
 
     objects = ActiveQuerySet.as_manager()
 

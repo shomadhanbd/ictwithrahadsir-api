@@ -31,11 +31,6 @@ class SuperuserAccountTests(APITestCase):
         self.assertEqual(self.client.delete(url, **self.admin_auth).status_code, 403)
         self.assert_root_phone_unchanged()
 
-    def test_the_teachers_api_refuses_to_link_a_superuser(self):
-        response = self.client.post(TEACHERS_URL, {"user_id": self.root.pk}, format="json", **self.admin_auth)
-        self.assertEqual(response.status_code, 403)
-        self.assertFalse(TeacherProfile.objects.exists())
-
     def test_the_teachers_api_refuses_to_edit_a_linked_superuser(self):
         profile = TeacherProfile.objects.create(user=self.root)
         url = reverse("api:profiles:admin_teacher_detail", args=[profile.pk])
@@ -55,3 +50,21 @@ class SuperuserAccountTests(APITestCase):
         with self.assertRaises(PermissionDenied):
             profile_admin.save_model(request, TeacherProfile(user=self.root), form=None, change=False)
         self.assertFalse(TeacherProfile.objects.exists())
+
+    def test_the_teachers_api_refuses_to_delete_a_linked_superuser(self):
+        profile = TeacherProfile.objects.create(user=self.root)
+        url = reverse("api:profiles:admin_teacher_detail", args=[profile.pk])
+        self.assertEqual(self.client.delete(url, **self.admin_auth).status_code, 403)
+        self.assertTrue(TeacherProfile.objects.filter(pk=profile.pk).exists())
+        self.assertEqual(User.objects.get(pk=self.root.pk).role, User.Role.ADMIN)
+
+    def test_the_django_teacher_admin_refuses_to_delete_too(self):
+        request = RequestFactory().post("/")
+        request.user = make_user(role=User.Role.ADMIN)
+        profile_admin = admin.site._registry[TeacherProfile]
+        profile = TeacherProfile.objects.create(user=self.root)
+        with self.assertRaises(PermissionDenied):
+            profile_admin.delete_model(request, profile)
+        with self.assertRaises(PermissionDenied):
+            profile_admin.delete_queryset(request, TeacherProfile.objects.all())
+        self.assertTrue(TeacherProfile.objects.filter(pk=profile.pk).exists())

@@ -8,7 +8,7 @@ from apps.identity import services
 from apps.identity.api.serializers import UserWriteSerializer
 from apps.identity.models import User
 from apps.profiles.api.serializers import StudentProfileSerializer
-from apps.profiles.validators import student_audience_errors
+from apps.profiles.validators import clean_student_audience
 
 
 class NewPasswordSerializer(serializers.Serializer):
@@ -74,10 +74,7 @@ class UserRegisterRequestSerializer(NewPasswordSerializer):
         signed_in_as = getattr(self.context["request"].user, "phone", None)
         if attrs["phone"] != signed_in_as:
             raise serializers.ValidationError({"phone": ["This number does not match the verified session."]})
-        errors = student_audience_errors(class_level=attrs.get("class_level"), group=attrs.get("group"))
-        if errors:
-            raise serializers.ValidationError(errors)
-        return attrs
+        return clean_student_audience(attrs)
 
 
 class UserLoginRequestSerializer(serializers.Serializer):

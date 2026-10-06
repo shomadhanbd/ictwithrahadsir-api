@@ -87,7 +87,7 @@ class Migration(migrations.Migration):
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
                 ('created_at', models.DateTimeField(auto_now_add=True)),
                 ('updated_at', models.DateTimeField(auto_now=True)),
-                ('order', models.PositiveIntegerField(default=0)),
+                ('order', models.PositiveIntegerField(default=0, verbose_name='Order')),
                 ('title', models.CharField(max_length=150)),
                 ('slug', models.SlugField(max_length=220, unique=True, verbose_name='slug')),
                 ('notice_category', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, related_name='children', to='content.noticecategory')),

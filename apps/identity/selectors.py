@@ -18,7 +18,7 @@ def users_visible_to(viewer, users):
 
 def roster(viewer, *, role=None, status=None):
     """The admin user list; `status` defaults to active, and `"all"` skips a filter."""
-    users = User.objects.registered().prefetch_related("groups").select_related("student__guardian")
+    users = User.objects.registered().prefetch_related("groups").select_related("student")
     users = users_visible_to(viewer, users)
     if role and role != ANY:
         users = users.filter(groups__name=role)
@@ -30,7 +30,7 @@ def roster(viewer, *, role=None, status=None):
 
 
 def account_detail_queryset(viewer):
-    return users_visible_to(viewer, User.objects.prefetch_related("groups").select_related("student__guardian"))
+    return users_visible_to(viewer, User.objects.prefetch_related("groups").select_related("student"))
 
 
 def search_students(viewer, term, *, limit):

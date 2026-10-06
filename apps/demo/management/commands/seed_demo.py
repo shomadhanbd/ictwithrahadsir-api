@@ -46,7 +46,7 @@ from apps.courses.models import (
     Routine,
     Section,
 )
-from apps.profiles.models import GuardianProfile, StudentProfile, TeacherProfile
+from apps.profiles.models import StudentProfile, TeacherProfile
 
 User = get_user_model()
 
@@ -917,19 +917,15 @@ class Command(BaseCommand):
                     date_joined=joined,
                     image=make_image(f"avatar-{index}", 300, 300, f"U{index + 1}", index),
                 )
-                profile = StudentProfile.objects.create(
+                StudentProfile.objects.create(
                     user=student,
                     institution=INSTITUTIONS[index % len(INSTITUTIONS)],
                     educational_session=self.rng.choice(["২০২৪-২৫", "২০২৫-২৬", "২০২৬-২৭"]),
                     address=self.rng.choice(ADDRESSES),
                     class_level=self.rng.choice(class_levels) if class_levels else None,
                     group=self.rng.choice(groups) if groups else None,
-                )
-                GuardianProfile.objects.create(
-                    student=profile,
-                    name=f"{name.split()[-1]} সাহেব",
-                    phone=f"0191000{index + 1:04d}",
-                    relation="অভিভাবক",
+                    guardian_name=f"{name.split()[-1]} সাহেব",
+                    guardian_phone=f"0191000{index + 1:04d}",
                 )
             students.append(student)
         self.stdout.write("  students")

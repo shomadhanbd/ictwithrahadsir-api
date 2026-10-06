@@ -40,6 +40,8 @@ class Migration(migrations.Migration):
             ],
             options={
                 'ordering': ['order', 'name'],
+                'verbose_name': 'Group',
+                'verbose_name_plural': 'Groups',
             },
         ),
         migrations.CreateModel(

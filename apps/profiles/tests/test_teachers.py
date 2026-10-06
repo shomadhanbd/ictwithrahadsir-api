@@ -8,6 +8,7 @@ from apps.academic.models import ClassLevel, Group, Subject
 from apps.core.testing import bearer, next_slug
 from apps.courses.models import Course, CourseTeacher
 from apps.profiles.models import TeacherProfile
+from apps.profiles.services import ensure_teacher_role
 
 User = get_user_model()
 
@@ -47,6 +48,14 @@ class TeacherRosterTests(TestCase):
         self.assertEqual(list(body.keys()), ["data"])
         self.assertEqual(len(body["data"]), 1)
 
+    def test_the_lookup_carries_only_what_the_picker_shows(self):
+        """No phone, email or bio in a dropdown."""
+        row = self.client.get(LOOKUP_URL, **self.auth).json()["data"][0]
+        self.assertEqual(
+            row,
+            {"id": self.teacher.pk, "user_id": self.teacher_user.pk, "name": "Rahad Sir", "designation": "Founder"},
+        )
+
     def test_the_roster_is_admin_only(self):
         student = User.objects.create_user(phone="01810003333", name="Student")
         auth = bearer(student)
@@ -68,6 +77,9 @@ class TeacherWriteTests(TestCase):
             group=Group.objects.create(slug=next_slug("group"), name="Science"),
         )
 
+    def _detail(self, profile):
+        return reverse("api:profiles:admin_teacher_detail", args=[profile.pk])
+
     def _post(self, **overrides):
         payload = {"name": "New Teacher", "phone": "01710004444", **overrides}
         return self.client.post(LIST_URL, payload, content_type="application/json", **self.auth)
@@ -86,10 +98,55 @@ class TeacherWriteTests(TestCase):
         self.assertEqual(User.objects.get(phone="01710004444").role, User.Role.TEACHER)
 
     def test_a_new_account_needs_a_phone(self):
-        """A new account needs a phone; `user_id` alone links an existing one."""
         response = self.client.post(LIST_URL, {"name": "Nameless"}, content_type="application/json", **self.auth)
         self.assertEqual(response.status_code, 422)
         self.assertIn("phone", response.json()["errors"])
+
+    def test_a_new_account_needs_a_name(self):
+        response = self.client.post(
+            LIST_URL, {"phone": "01710004444"}, content_type="application/json", **self.auth
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("name", response.json()["errors"])
+        self.assertFalse(User.objects.filter(phone="01710004444").exists())
+
+    def test_an_edit_writes_the_account_and_the_profile_together(self):
+        profile = TeacherProfile.objects.get(pk=self._post().json()["id"])
+
+        response = self.client.patch(
+            self._detail(profile),
+            {"name": "Renamed", "designation": "Head Teacher"},
+            content_type="application/json",
+            **self.auth,
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        profile.refresh_from_db()
+        profile.user.refresh_from_db()
+        self.assertEqual((profile.user.name, profile.designation), ("Renamed", "Head Teacher"))
+
+    def test_an_edit_without_subject_ids_keeps_the_subjects(self):
+        profile = TeacherProfile.objects.get(pk=self._post(subject_ids=[self.ict.pk]).json()["id"])
+
+        self.client.patch(
+            self._detail(profile), {"designation": "Head Teacher"}, content_type="application/json", **self.auth
+        )
+
+        self.assertEqual(list(profile.subjects.values_list("pk", flat=True)), [self.ict.pk])
+
+    def test_an_empty_subject_ids_clears_the_subjects(self):
+        profile = TeacherProfile.objects.get(pk=self._post(subject_ids=[self.ict.pk]).json()["id"])
+
+        self.client.patch(self._detail(profile), {"subject_ids": []}, content_type="application/json", **self.auth)
+
+        self.assertFalse(profile.subjects.exists())
+
+    def test_an_admin_given_a_teacher_profile_stays_an_admin(self):
+        admin = User.objects.create_user(phone="01700009999", name="Admin Teacher", role=User.Role.ADMIN)
+
+        ensure_teacher_role(TeacherProfile.objects.create(user=admin))
+
+        self.assertEqual(User.objects.get(pk=admin.pk).role, User.Role.ADMIN)
 
     def test_subjects_and_classes_round_trip(self):
         response = self._post(subject_ids=[self.ict.pk], level_ids=[self.hsc.pk])
@@ -99,30 +156,11 @@ class TeacherWriteTests(TestCase):
         profile = TeacherProfile.objects.get(user__phone="01710004444")
         self.assertEqual(list(profile.levels.values_list("name", flat=True)), ["HSC"])
 
-    def test_one_account_cannot_hold_two_roster_entries(self):
-        """A second roster entry for one account is a validation error, not a database error."""
-        existing = User.objects.create_user(phone="01710005555", name="Taken", role=User.Role.TEACHER)
-        TeacherProfile.objects.create(user=existing)
-
-        response = self.client.post(LIST_URL, {"user_id": existing.pk}, content_type="application/json", **self.auth)
-
-        self.assertEqual(response.status_code, 422)
-        self.assertIn("user_id", response.json()["errors"])
-
     def test_a_phone_another_account_uses_is_a_field_error_not_a_500(self):
         User.objects.create_user(phone="01710007777", name="Someone")
         response = self._post(phone="01710007777")
         self.assertEqual(response.status_code, 422)
         self.assertIn("phone", response.json()["errors"])
-
-    def test_naming_an_admin_as_a_teacher_does_not_demote_them(self):
-        """`set_role` makes its argument the *only* role."""
-        admin = User.objects.create_user(phone="01700009999", name="Boss", role=User.Role.ADMIN)
-
-        response = self.client.post(LIST_URL, {"user_id": admin.pk}, content_type="application/json", **self.auth)
-
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(User.objects.get(pk=admin.pk).role, User.Role.ADMIN)
 
     def test_a_teacher_without_a_password_cannot_sign_in(self):
         """An empty stored password does not count as usable."""
@@ -153,36 +191,31 @@ class TeacherWriteTests(TestCase):
             ["id", "name", "designation", "description", "type", "order", "image"],
         )
 
+    def test_an_email_another_account_uses_is_a_field_error(self):
+        User.objects.create_user(phone="01710004444", name="Someone", email="taken@example.com")
+        response = self.client.post(
+            LIST_URL,
+            {"name": "New Teacher", "phone": "01710005555", "email": "Taken@Example.com"},
+            content_type="application/json",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 422, response.content)
+        self.assertEqual(response.json()["errors"], {"email": ["Another account already uses this email."]})
 
-class TeacherAccountChangeTests(TestCase):
-    """Course access follows the roster entry, not the account it used to point at."""
+
+class TeacherDeleteTests(TestCase):
+    """Removing a teacher ends their teaching; their account stays, without a role."""
 
     def setUp(self):
         admin = User.objects.create_user(phone="01700001112", name="Admin", role=User.Role.ADMIN)
         self.auth = bearer(admin)
-        self.old = User.objects.create_user(phone="01710006001", name="Old account", role=User.Role.TEACHER)
+        self.old = User.objects.create_user(phone="01710006001", name="Teacher", role=User.Role.TEACHER)
         self.profile = TeacherProfile.objects.create(user=self.old)
-        self.course = Course.objects.create(title="ICT", slug="ict-relink")
+        self.course = Course.objects.create(title="ICT", slug="ict-teacher")
         CourseTeacher.objects.create(course=self.course, user=self.old)
 
     def detail(self):
         return reverse("api:profiles:admin_teacher_detail", args=[self.profile.pk])
-
-    def test_relinking_moves_the_courses_and_ends_the_old_accounts_access(self):
-        new = User.objects.create_user(phone="01710006002", name="New account", role=User.Role.TEACHER)
-
-        response = self.client.patch(self.detail(), {"user_id": new.pk}, content_type="application/json", **self.auth)
-
-        self.assertEqual(response.status_code, 200, response.content)
-        self.assertEqual(list(CourseTeacher.objects.values_list("user_id", flat=True)), [new.pk])
-        self.assertEqual(User.objects.get(pk=new.pk).role, User.Role.TEACHER)
-        self.assertIsNone(User.objects.get(pk=self.old.pk).role)
-
-    def test_relinking_to_someone_already_on_the_course_keeps_one_assignment(self):
-        new = User.objects.create_user(phone="01710006003", name="Co-teacher", role=User.Role.TEACHER)
-        CourseTeacher.objects.create(course=self.course, user=new)
-        self.client.patch(self.detail(), {"user_id": new.pk}, content_type="application/json", **self.auth)
-        self.assertEqual(list(CourseTeacher.objects.values_list("user_id", flat=True)), [new.pk])
 
     def test_deleting_the_profile_ends_the_accounts_teaching(self):
         response = self.client.delete(self.detail(), **self.auth)
@@ -190,15 +223,3 @@ class TeacherAccountChangeTests(TestCase):
         self.assertEqual(response.status_code, 204)
         self.assertFalse(CourseTeacher.objects.exists())
         self.assertIsNone(User.objects.get(pk=self.old.pk).role)
-
-    def test_a_student_account_is_not_turned_into_a_teacher(self):
-        student = User.objects.create_user(phone="01810006004", name="Student", role=User.Role.STUDENT)
-
-        response = self.client.patch(
-            self.detail(), {"user_id": student.pk}, content_type="application/json", **self.auth
-        )
-
-        self.assertEqual(response.status_code, 422)
-        self.assertIn("user_id", response.json()["errors"])
-        self.assertEqual(User.objects.get(pk=student.pk).role, User.Role.STUDENT)
-        self.assertEqual(TeacherProfile.objects.get(pk=self.profile.pk).user_id, self.old.pk)

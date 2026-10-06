@@ -7,12 +7,9 @@ from apps.profiles.validators import clean_student_audience
 
 
 class StudentProfileSerializer(serializers.ModelSerializer):
-    """The nested `student` block on every user payload, with the guardian flattened in."""
+    """The nested `student` block on every user payload."""
 
-    GUARDIAN_FIELDS = ("guardian_name", "guardian_phone")
-
-    guardian_name = serializers.CharField(source="guardian.name", required=False, allow_blank=True, default="")
-    guardian_phone = PhoneField(source="guardian.phone", required=False, allow_blank=True, default="")
+    guardian_phone = PhoneField(required=False, allow_blank=True)
     class_level_id = serializers.PrimaryKeyRelatedField(
         source="class_level", queryset=ClassLevel.objects.active(), required=False, allow_null=True
     )
@@ -42,14 +39,6 @@ class StudentProfileSerializer(serializers.ModelSerializer):
             return self.instance
         user = getattr(self.parent, "instance", None)
         return getattr(user, "student", None) if user is not None else None
-
-    def to_representation(self, instance):
-        data = super().to_representation(instance)
-        # A missing guardian row reads as None, not the field default.
-        for field in self.GUARDIAN_FIELDS:
-            if data.get(field) is None:
-                data[field] = ""
-        return data
 
 
 class AdminStudentProfileSerializer(StudentProfileSerializer):

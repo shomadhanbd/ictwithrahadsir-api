@@ -11,7 +11,7 @@ class TimestampModel(models.Model):
 
 
 class OrderedModel(models.Model):
-    order = models.PositiveIntegerField(default=0)
+    order = models.PositiveIntegerField("Order", default=0)
 
     class Meta:
         abstract = True

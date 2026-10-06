@@ -8,6 +8,6 @@ class CoursesConfig(AppConfig):
     def ready(self):
         from apps.core import providers
         from apps.courses import signals  # noqa: F401
-        from apps.courses.services import hand_over_teaching
+        from apps.courses.services import end_teaching
 
-        providers.register("profiles.hand_over_teaching", hand_over_teaching)
+        providers.register("profiles.end_teaching", end_teaching)

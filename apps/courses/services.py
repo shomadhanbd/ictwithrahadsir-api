@@ -65,14 +65,9 @@ def uncomplete_lesson(*, user, course, content_id) -> None:
     ).delete()
 
 
-def hand_over_teaching(previous, successor) -> None:
-    """Moves `previous`'s course assignments to `successor`, or ends them when there is none."""
-    assignments = CourseTeacher.objects.filter(user=previous)
-    if successor is None:
-        assignments.delete()
-        return
-    assignments.filter(course__in=CourseTeacher.objects.filter(user=successor).values("course")).delete()
-    assignments.update(user=successor)
+def end_teaching(user) -> None:
+    """Removes every course assignment of an account that is no longer a teacher's."""
+    CourseTeacher.objects.filter(user=user).delete()
 
 
 def add_course_teacher(*, course, user):
