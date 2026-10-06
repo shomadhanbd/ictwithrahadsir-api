@@ -1,21 +1,6 @@
-"""Admin CRUD for the question bank.
+from django.db import transaction
+from django.shortcuts import get_object_or_404
 
-Every class declares `permission_classes`: the project default is
-`IsAuthenticatedOrReadOnly`, so one that leaves it off is world-readable -- and
-these payloads carry the answer key.
-
-The tier is **teaching staff**, not full admin: a teacher cannot build an exam
-out of questions they are not allowed to see. The bank is therefore shared
-property -- any teacher may edit any other teacher's question, and there is no
-`updated_by` to say who did. Exams are owned (`exam.Exam.created_by`);
-questions are not. Answer keys stay out of *public* payloads through the
-serializer split in `serializers.py`, which is unaffected by this tier.
-"""
-
-from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models import F, Prefetch
-
-from drf_spectacular.utils import extend_schema
 from rest_framework.exceptions import ValidationError
 from rest_framework.generics import ListCreateAPIView, RetrieveUpdateDestroyAPIView
 from rest_framework.response import Response
@@ -23,61 +8,35 @@ from rest_framework.views import APIView
 
 from apps.core.api.permissions import IsTeachingStaff
 from apps.core.api.responses import OkResponseSerializer
-from apps.question import services, types
+from apps.question import kinds, selectors, services
 from apps.question.api.private.filters import QuestionBlockFilter
 from apps.question.api.private.serializers import (
     AdminQuestionBlockSerializer,
     AdminQuestionSerializer,
+    QuestionBlockSaveRequestSerializer,
     QuestionKindSerializer,
     QuestionSourceSerializer,
 )
-from apps.question.counts import refresh_question_counts
 from apps.question.models import Question, QuestionBlock, QuestionSource
-
-
-def block_queryset():
-    """A page of blocks in a fixed number of queries, questions correctly ordered.
-
-    The ordered `Prefetch` is not decoration: without it a grouped block returns
-    its questions in whatever order the database chose, so a creative question's
-    ক/খ/গ/ঘ arrive shuffled.
-    """
-    questions = Question.objects.order_by("order_in_set", "id").prefetch_related("options")
-    return (
-        QuestionBlock.objects.select_related("subject", "chapter")
-        .prefetch_related(
-            "topics",
-            "sources",
-            Prefetch("question_set__questions", queryset=questions),
-            Prefetch("standalone_question", queryset=questions),
-        )
-        #: `chapter` is nullable, and where NULLs sort is backend-dependent.
-        .order_by(F("chapter__chapter_number").asc(nulls_last=True), "order_in_chapter", "id")
-    )
 
 
 class AdminQuestionBlockListCreateAPIView(ListCreateAPIView):
     permission_classes = [IsTeachingStaff]
     serializer_class = AdminQuestionBlockSerializer
-    queryset = block_queryset()
-    #: A grouped block's questions hang off its set, so searching only the
-    #: stimulus and the standalone prompt missed every question inside a group
-    #: -- the majority of the bank. DRF adds the `DISTINCT` the join needs.
+    queryset = selectors.admin_blocks()
     search_fields = [
         "question_set__stimulus_content",
         "question_set__questions__prompt_content",
         "standalone_question__prompt_content",
         "sources__name",
     ]
-    #: A FilterSet rather than `filterset_fields`: the provenance params have to
-    #: share one JOIN or they match different papers. See `filters.py`.
     filterset_class = QuestionBlockFilter
 
 
 class AdminQuestionBlockDetailAPIView(RetrieveUpdateDestroyAPIView):
     permission_classes = [IsTeachingStaff]
     serializer_class = AdminQuestionBlockSerializer
-    queryset = block_queryset()
+    queryset = selectors.admin_blocks()
 
 
 class AdminQuestionListCreateAPIView(ListCreateAPIView):
@@ -85,8 +44,6 @@ class AdminQuestionListCreateAPIView(ListCreateAPIView):
     serializer_class = AdminQuestionSerializer
     queryset = Question.objects.prefetch_related("options")
     search_fields = ["prompt_content", "explanation"]
-    #: No `select_mode`: it moved into `metadata`, and a JSON payload is not
-    #: something to filter on -- `__contains` is unsupported on SQLite.
     filterset_fields = ["question_type", "block", "question_set"]
 
 
@@ -96,15 +53,56 @@ class AdminQuestionDetailAPIView(RetrieveUpdateDestroyAPIView):
     queryset = Question.objects.prefetch_related("options")
 
     def perform_destroy(self, instance):
-        # `destroy()` runs no serializer, so the published-paper guard is
-        # checked here -- and converted, or it would escape as a 500.
-        try:
-            services.validate_parts_change(
-                services.owning_block(block=instance.block, question_set=instance.question_set)
+        services.delete_question(instance)
+
+
+class AdminQuestionBlockSaveAPIView(APIView):
+    """Saves a block with its questions in one transaction: a part the rules refuse (options on a published
+    paper, an exam that is not the caller's) leaves nothing half-saved, the block included."""
+
+    permission_classes = [IsTeachingStaff]
+
+    def post(self, request):
+        body = QuestionBlockSaveRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        data = body.validated_data
+        context = {"request": request}
+        with transaction.atomic():
+            existing = get_object_or_404(QuestionBlock, pk=data["block_id"]) if data.get("block_id") else None
+            block_form = AdminQuestionBlockSerializer(
+                existing, data=data["block"], partial=existing is not None, context=context
             )
-        except DjangoValidationError as exc:
-            raise ValidationError(exc.message_dict)
-        instance.delete()
+            block_form.is_valid(raise_exception=True)
+            block = block_form.save()
+            owner = (
+                {"question_set_id": block.question_set.pk}
+                if block.kind == QuestionBlock.Kind.GROUP
+                else {"block_id": block.pk}
+            )
+            parts = selectors.block_questions_by_id(block)
+            for index, payload in enumerate(data["questions"]):
+                question = parts.get(payload.get("id")) if payload.get("id") else None
+                if payload.get("id") and question is None:
+                    raise ValidationError({"questions": [f"Part {index + 1} is not a part of this question."]})
+                form = AdminQuestionSerializer(
+                    question, data={**payload, **owner}, partial=question is not None, context=context
+                )
+                if not form.is_valid():
+                    raise ValidationError(_numbered(form.errors, index))
+                form.save()
+            for question_id in data["removed_question_ids"]:
+                if question_id in parts:
+                    services.delete_question(parts[question_id])
+        block = selectors.admin_blocks().get(pk=block.pk)
+        return Response(AdminQuestionBlockSerializer(block, context=context).data)
+
+
+def _numbered(errors, index) -> dict:
+    """A part's field errors, each said of "Part N" so the dialog can show which part was refused."""
+    return {
+        field: [f"Part {index + 1}: {message}" for message in (messages if isinstance(messages, list) else [messages])]
+        for field, messages in errors.items()
+    }
 
 
 class AdminQuestionSourceListCreateAPIView(ListCreateAPIView):
@@ -122,30 +120,18 @@ class AdminQuestionSourceDetailAPIView(RetrieveUpdateDestroyAPIView):
 
 
 class AdminQuestionTypeListAPIView(APIView):
-    """The question types this bank knows about, and what each can do.
-
-    Unpaginated `{"data": [...]}`: it is a fixed handful of rows describing the
-    code, not a table that grows.
-    """
+    """The question types this bank knows about, and what each can do."""
 
     permission_classes = [IsTeachingStaff]
     serializer_class = QuestionKindSerializer
 
-    @extend_schema(summary="Question types", responses={200: QuestionKindSerializer(many=True)})
     def get(self, request):
-        return Response({"data": QuestionKindSerializer(list(types.REGISTRY.values()), many=True).data})
+        return Response({"data": QuestionKindSerializer(list(kinds.REGISTRY.values()), many=True).data})
 
 
 class AdminRefreshQuestionCountsAPIView(APIView):
-    """Recount the curriculum's counters (see `apps.question.counts`).
-
-    The Question Bank's "Refresh questions" button. Counts are not kept up to
-    date on each write, so this is how they catch up after questions are added.
-    """
-
     permission_classes = [IsTeachingStaff]
 
-    @extend_schema(summary="Refresh question counts", request=None, responses={200: OkResponseSerializer})
     def post(self, request):
-        refresh_question_counts()
+        services.refresh_curriculum_question_counts()
         return Response(OkResponseSerializer({"ok": True}).data)

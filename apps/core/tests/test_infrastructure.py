@@ -1,8 +1,4 @@
-"""Behaviour of the shared DRF/model plumbing in `apps.core`.
-
-Covers slug allocation and the pagination link window, both rewritten for
-cost rather than behaviour.
-"""
+"""Behaviour of the shared DRF/model plumbing in `apps.core`."""
 
 from django.test import TestCase
 
@@ -10,12 +6,13 @@ from rest_framework.test import APITestCase
 
 from apps.content.models import Notice
 from apps.core.slugs import unique_slug
+from apps.core.testing import bearer, make_user
 from apps.courses.models import Course
+from apps.identity.models import User
 
 
 class UniqueSlugTests(TestCase):
-    """Slug allocation is now one query per save rather than one per
-    collision; it still has to hand out the same slugs."""
+    """Slug allocation takes one query per save and still hands out unique slugs."""
 
     def test_first_use_of_a_title_gets_the_bare_slug(self):
         self.assertEqual(Course.objects.create(title="Physics First").slug, "physics-first")
@@ -58,6 +55,24 @@ class UniqueSlugTests(TestCase):
         slugs = [Course.objects.create(title="রসায়ন").slug for _ in range(2)]
         self.assertEqual(slugs, ["course", "course-2"])
 
+    def test_an_all_digit_title_does_not_get_a_slug_that_reads_as_a_pk(self):
+        """`/private/courses/2027/` would open whichever course has pk 2027."""
+        slugs = [Course.objects.create(title="2027").slug for _ in range(2)]
+        self.assertEqual(slugs, ["course-2027", "course-2027-2"])
+
+    def test_an_all_digit_title_opens_its_own_course(self):
+        decoy = Course.objects.create(title="Decoy")
+        Course.objects.filter(pk=decoy.pk).update(id=2027)
+        course = Course.objects.create(title="2027")
+        response = self.client.get(f"/api/private/courses/{course.slug}/", **bearer(make_user(role=User.Role.ADMIN)))
+        self.assertEqual(response.json()["id"], course.pk)
+
+    def test_an_all_digit_slug_is_refused_from_the_api(self):
+        auth = bearer(make_user(role=User.Role.ADMIN))
+        response = self.client.post("/api/private/courses/", {"title": "ICT", "slug": "2027"}, format="json", **auth)
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("slug", response.json()["errors"])
+
     def test_unique_slug_respects_an_explicit_field_name(self):
         course = Course(title="Explicit")
         self.assertEqual(unique_slug(course, "Explicit", slug_field="slug"), "explicit")
@@ -69,7 +84,7 @@ class PaginationLinkWindowTests(APITestCase):
     @classmethod
     def setUpTestData(cls):
         for i in range(200):
-            Course.objects.create(title=f"Course {i}", active=True)
+            Course.objects.create(title=f"Course {i}", status='published')
 
     def labels(self, response):
         return [link["label"] for link in response.data["meta"]["links"]]

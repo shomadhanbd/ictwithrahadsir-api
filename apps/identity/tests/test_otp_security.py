@@ -1,3 +1,5 @@
+from unittest import mock
+
 from django.conf import settings
 from django.utils import timezone
 
@@ -5,6 +7,7 @@ from apps.identity.models import OTP, User
 from apps.identity.tests.base import (
     FORGET_PASSWORD_URL,
     GET_OTP_URL,
+    PASSWORD_RESET_CHECK_URL,
     PASSWORD_RESET_URL,
     VERIFY_OTP_URL,
     FixedOtpCodeTestCase,
@@ -70,6 +73,22 @@ class OtpBruteForceTests(FixedOtpCodeTestCase):
         newest = OTP.objects.filter(phone=self.phone).order_by("-created_at").first()
         self.assertEqual(newest.attempts, 2)
 
+    def test_the_cap_holds_when_guesses_race(self):
+        """A guess that read the row before others used up the attempts is still refused."""
+        stale = OTP.objects.filter(phone=self.phone).latest("created_at")
+        OTP.objects.filter(pk=stale.pk).update(attempts=settings.OTP_MAX_ATTEMPTS)
+
+        with mock.patch.object(type(OTP.objects), "latest_for", return_value=stale):
+            self.assertEqual(self._guess(stale.code).status_code, 422)
+        stale.refresh_from_db()
+        self.assertIsNone(stale.consumed_at)
+        self.assertEqual(stale.attempts, settings.OTP_MAX_ATTEMPTS)
+
+    def test_a_right_guess_is_not_counted_as_a_failed_one(self):
+        self._guess()
+        self.assertEqual(self._guess(latest_code(self.phone)).status_code, 200)
+        self.assertEqual(OTP.objects.filter(phone=self.phone).latest("created_at").attempts, 1)
+
     def test_expired_code_is_refused(self):
         stale = timezone.now() - timezone.timedelta(seconds=settings.OTP_TTL_SECONDS + 1)
         OTP.objects.filter(phone=self.phone).update(created_at=stale)
@@ -123,13 +142,7 @@ class OtpPurposeTests(FixedOtpCodeTestCase):
 
 
 class OtpHourlyCapTests(FixedOtpCodeTestCase):
-    """The limits that protect the SMS bill.
-
-    The resend cooldown alone only stops double-taps -- a script pausing 61
-    seconds between calls could send codes forever at our expense. These caps
-    count rows in the database rather than hits in the cache, so flushing
-    Redis does not hand an attacker a fresh allowance.
-    """
+    """The limits that protect the SMS bill."""
 
     phone = "01810002200"
 
@@ -137,10 +150,7 @@ class OtpHourlyCapTests(FixedOtpCodeTestCase):
         return self.client.get(GET_OTP_URL, {"phone": phone or self.phone})
 
     def lapse_cooldown(self, phone=None):
-        """Age every code past the cooldown.
-
-        Leaves the hourly cap as the only thing that can still refuse a send.
-        """
+        """Age every code past the cooldown."""
         stale = timezone.now() - timezone.timedelta(seconds=settings.OTP_RESEND_COOLDOWN_SECONDS + 1)
         rows = OTP.objects.all() if phone is None else OTP.objects.filter(phone=phone)
         rows.update(created_at=stale)
@@ -176,12 +186,7 @@ class OtpHourlyCapTests(FixedOtpCodeTestCase):
         )
 
     def test_the_cap_is_per_number_not_global(self):
-        """Each number carries its own allowance.
-
-        There is no longer a per-IP companion to this cap, so a script walking
-        a range of numbers is held off only by the cache-backed `auth_burst`
-        and `auth_sustained` throttles in REST_FRAMEWORK.
-        """
+        """Each number carries its own allowance."""
         for _ in range(settings.OTP_RATE_LIMIT_PER_PHONE_PER_HOUR):
             self.send()
             self.lapse_cooldown()
@@ -208,11 +213,7 @@ class OtpHourlyCapTests(FixedOtpCodeTestCase):
 
 
 class DemoAccountTests(FixedOtpCodeTestCase):
-    """The reviewer escape hatch, which is off unless DEMO_PHONE is set.
-
-    App-store and payment-gateway reviewers cannot receive a Bangladeshi SMS,
-    so one configured number skips the send and takes a fixed code instead.
-    """
+    """The reviewer escape hatch, which is off unless DEMO_PHONE is set."""
 
     phone = "01810000000"
 
@@ -245,3 +246,18 @@ class DemoAccountTests(FixedOtpCodeTestCase):
             self.client.get(GET_OTP_URL, {"phone": other})
             response = self.client.post(VERIFY_OTP_URL, {"phone": other, "otp": "000000"})
         self.assertEqual(response.status_code, 422)
+
+    def test_the_demo_code_does_not_reset_the_demo_password(self):
+        """Anyone knows the reviewer's code; it must not let them lock the reviewer out."""
+        User.objects.create_user(phone=self.phone, name="Reviewer", password="Str0ngPass!23")
+        body = {
+            "phone": self.phone,
+            "otp": "000000",
+            "password": "N3wStr0ng!pass",
+            "password_confirmation": "N3wStr0ng!pass",
+        }
+        with self.settings(DEMO_PHONE=self.phone, DEMO_OTP_CODE="000000"):
+            check = self.client.post(PASSWORD_RESET_CHECK_URL, {"phone": self.phone, "otp": "000000"})
+            reset = self.client.post(PASSWORD_RESET_URL, body)
+        self.assertEqual((check.status_code, reset.status_code), (422, 422))
+        self.assertTrue(User.objects.get(phone=self.phone).check_password("Str0ngPass!23"))

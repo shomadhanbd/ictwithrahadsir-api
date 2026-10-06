@@ -1,21 +1,14 @@
-"""Who a person is, separately from how they sign in.
-
-Every link to the user is `settings.AUTH_USER_MODEL`, so this module imports
-nothing from `identity`: the dependency runs `identity -> profiles`, never back.
-"""
+"""Who a person is, separately from how they sign in; identity depends on profiles, never back."""
 
 from django.conf import settings
 from django.db import models
 
 from apps.core.phones import normalize_phone, validate_phone
+from apps.profiles.managers import TeacherProfileQuerySet
 
 
 class TeacherProfile(models.Model):
-    """Teacher-only fields. A missing row means "not a teacher".
-
-    Name, email, phone and photo belong to the `User`; this holds only what is
-    true of the person as a teacher.
-    """
+    """Teacher-only fields; name, phone and photo live on the `User`."""
 
     class Type(models.TextChoices):
         PERMANENT = "permanent", "Permanent Teacher"
@@ -27,12 +20,11 @@ class TeacherProfile(models.Model):
     experience = models.CharField("Experience", max_length=255, blank=True)
     institute = models.CharField("Institution", max_length=255, blank=True)
     type = models.CharField(max_length=20, choices=Type.choices, default=Type.PERMANENT)
-    #: Independent sets: "Physics and ICT, to both SSC and HSC". Saying
-    #: "Physics at HSC but Math only at SSC" would need a through-model.
     subjects = models.ManyToManyField("academic.Subject", related_name="teachers", blank=True)
     levels = models.ManyToManyField("academic.ClassLevel", related_name="teachers", blank=True)
-    #: Position in the public roster. `Course.instructors` orders separately.
     order = models.PositiveIntegerField("Order", default=0)
+
+    objects = TeacherProfileQuerySet.as_manager()
 
     class Meta:
         verbose_name = "Teacher Profile"
@@ -44,7 +36,7 @@ class TeacherProfile(models.Model):
 
 
 class StudentProfile(models.Model):
-    """Student-only fields. A missing row means "not a student"."""
+    """Student-only fields."""
 
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="student")
     class_level = models.ForeignKey(
@@ -66,11 +58,7 @@ class StudentProfile(models.Model):
 
 
 class GuardianProfile(models.Model):
-    """The student's guardian. Not a login.
-
-    Every student gets one, blank if unknown: the API reads `guardian_name` and
-    `guardian_phone` through this relation.
-    """
+    """The student's guardian (not a login); every student has one, blank if unknown."""
 
     student = models.OneToOneField(StudentProfile, on_delete=models.CASCADE, related_name="guardian")
     name = models.CharField("Guardian's Name", max_length=150, blank=True)

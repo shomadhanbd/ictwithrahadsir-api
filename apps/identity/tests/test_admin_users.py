@@ -1,11 +1,15 @@
 from unittest import mock
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from rest_framework.authtoken.models import Token
 
-from apps.billing.models import Order
+from apps.billing.models import Payment, Product
+from apps.core.testing import bearer, make_user
 from apps.core.tests.base import ThrottledAPITestCase
+from apps.courses.models import Course, CourseTeacher, Enrollment
 from apps.identity.models import OTP, User
 from apps.identity.tests.base import (
     ADMIN_USER_SEARCH_URL,
@@ -13,6 +17,7 @@ from apps.identity.tests.base import (
     LOGIN_URL,
 )
 from apps.profiles.models import StudentProfile
+from apps.profiles.services import ensure_student_profile
 
 
 class AdminRoleEscalationTests(ThrottledAPITestCase):
@@ -24,7 +29,7 @@ class AdminRoleEscalationTests(ThrottledAPITestCase):
             password="Str0ngPass!23",
             role=User.Role.TEACHER,
         )
-        self.auth = {"HTTP_AUTHORIZATION": f"Bearer {Token.objects.create(user=self.teacher).key}"}
+        self.auth = bearer(self.teacher)
         self.admin = User.objects.create_user(
             phone="01710000010",
             name="Admin",
@@ -88,7 +93,7 @@ class AdminRoleEscalationTests(ThrottledAPITestCase):
         self.assertTrue(self.admin.check_password("Str0ngPass!23"))
 
     def test_admin_can_still_create_an_admin(self):
-        admin_auth = {"HTTP_AUTHORIZATION": f"Bearer {Token.objects.create(user=self.admin).key}"}
+        admin_auth = bearer(self.admin)
         response = self.client.post(
             ADMIN_USER_URL,
             {"name": "Second Admin", "phone": "01810004321", "role": "admin", "password": "Str0ngPass!23"},
@@ -116,6 +121,62 @@ class AdminRoleEscalationTests(ThrottledAPITestCase):
         self.assertTrue(student.is_active)
 
 
+class TeacherUserScopeTests(ThrottledAPITestCase):
+    def setUp(self):
+        super().setUp()
+        self.teacher = make_user(role=User.Role.TEACHER)
+        self.auth = bearer(self.teacher)
+        course = Course.objects.create(title="ICT", slug="ict-scope")
+        CourseTeacher.objects.create(course=course, user=self.teacher)
+        self.mine = make_user(name="Mine")
+        Enrollment.objects.create(course=course, user=self.mine)
+        self.other = make_user(name="Other")
+        self.admin = make_user(role=User.Role.ADMIN)
+
+    def detail(self, user):
+        return reverse('api:identity:admin_user_detail', args=[user.pk])
+
+    def test_a_teacher_sees_only_their_own_students(self):
+        listed = {u["id"] for u in self.client.get(ADMIN_USER_URL, **self.auth).json()["data"]}
+        self.assertEqual(listed, {self.mine.pk})
+        self.assertEqual(self.client.get(self.detail(self.mine), **self.auth).status_code, 200)
+        self.assertEqual(self.client.get(self.detail(self.other), **self.auth).status_code, 404)
+        self.assertEqual(self.client.get(self.detail(self.admin), **self.auth).status_code, 404)
+
+    def test_a_teacher_cannot_change_even_their_own_students_account(self):
+        for body in ({"password": "Tak30v3r!pass"}, {"phone": "01810009999"}, {"name": "Renamed"}):
+            with self.subTest(body=body):
+                response = self.client.patch(self.detail(self.mine), body, format="json", **self.auth)
+                self.assertEqual(response.status_code, 403)
+        self.mine.refresh_from_db()
+        self.assertEqual(self.mine.name, "Mine")
+        self.assertFalse(self.mine.has_usable_password())
+
+    def search(self, term, auth=None):
+        response = self.client.get(ADMIN_USER_SEARCH_URL, {"search": term}, **(auth or self.auth))
+        return {u["id"] for u in response.json()["data"]}
+
+    def test_a_teacher_searches_only_their_own_students(self):
+        self.assertEqual(self.search(""), {self.mine.pk})
+        self.assertEqual(self.search("0199"), {self.mine.pk})
+        self.assertEqual(self.search("Other"), set())
+
+    def test_a_teacher_finds_any_student_by_full_phone_number(self):
+        """So a new student can still be enrolled."""
+        self.assertEqual(self.search(self.other.phone), {self.other.pk})
+        self.assertEqual(self.search(f"+88{self.other.phone}"), {self.other.pk})
+
+    def test_an_admin_searches_every_student(self):
+        self.assertTrue({self.mine.pk, self.other.pk} <= self.search("", bearer(self.admin)))
+
+    def test_an_admin_still_sees_and_edits_everyone(self):
+        admin_auth = bearer(self.admin)
+        listed = {u["id"] for u in self.client.get(ADMIN_USER_URL, {"role": "all"}, **admin_auth).json()["data"]}
+        self.assertTrue({self.mine.pk, self.other.pk, self.admin.pk} <= listed)
+        response = self.client.patch(self.detail(self.other), {"name": "Edited"}, format="json", **admin_auth)
+        self.assertEqual(response.status_code, 200)
+
+
 class AdminUserDeletionTests(ThrottledAPITestCase):
     def setUp(self):
         super().setUp()
@@ -126,14 +187,14 @@ class AdminUserDeletionTests(ThrottledAPITestCase):
             role=User.Role.ADMIN,
             is_staff=True,
         )
-        self.admin_auth = {"HTTP_AUTHORIZATION": f"Bearer {Token.objects.create(user=self.admin).key}"}
+        self.admin_auth = bearer(self.admin)
         self.teacher = User.objects.create_user(
             phone="01710000022",
             name="Teacher",
             password="Str0ngPass!23",
             role=User.Role.TEACHER,
         )
-        self.teacher_auth = {"HTTP_AUTHORIZATION": f"Bearer {Token.objects.create(user=self.teacher).key}"}
+        self.teacher_auth = bearer(self.teacher)
         self.student = User.objects.create_user(phone="01810007777", name="Student", password="Str0ngPass!23")
 
     def _delete(self, target, auth):
@@ -150,14 +211,15 @@ class AdminUserDeletionTests(ThrottledAPITestCase):
         self.assertTrue(self.student.is_active)
 
     def test_admin_delete_deactivates_and_keeps_the_payment_record(self):
-        order = Order.objects.create(user=self.student, amount=500, total=500)
+        product = Product.objects.create(title='Paid Bundle', price=500, base_price=500)
+        payment = Payment.objects.create(user=self.student, product=product, amount=500)
 
         self.assertEqual(self._delete(self.student, self.admin_auth).status_code, 204)
 
         self.student.refresh_from_db()
         self.assertFalse(self.student.is_active)
         self.assertTrue(User.objects.filter(pk=self.student.pk).exists())
-        self.assertTrue(Order.objects.filter(pk=order.pk).exists())
+        self.assertTrue(Payment.objects.filter(pk=payment.pk).exists())
 
     def test_delete_revokes_the_accounts_tokens(self):
         key = Token.objects.create(user=self.student).key
@@ -195,16 +257,11 @@ class AdminUserTests(ThrottledAPITestCase):
             role=User.Role.ADMIN,
             is_staff=True,
         )
-        self.auth = {"HTTP_AUTHORIZATION": f"Bearer {Token.objects.create(user=self.admin).key}"}
+        self.auth = bearer(self.admin)
         self.student = User.objects.create_user(phone="01810005555", name="Rahim Uddin", password="Str0ngPass!23")
 
     def test_the_roster_lists_every_role(self):
-        """The Users page is the whole registered roster, not the students.
-
-        Teachers went missing from it once, because they were seeded with
-        `is_active=False` to mean "roster entry, does not sign in" -- the same
-        flag `deactivate_user` sets, and the list defaults to active only.
-        """
+        """The Users page is the whole registered roster, not the students."""
         for phone, name, role in [
             ("01710009001", "Teacher", User.Role.TEACHER),
             ("01710009002", "Moderator", User.Role.MODERATOR),
@@ -217,7 +274,7 @@ class AdminUserTests(ThrottledAPITestCase):
         self.assertEqual(roles, {"admin", "moderator", "teacher", "student"})
 
     def test_admin_endpoints_reject_students(self):
-        student_auth = {"HTTP_AUTHORIZATION": f"Bearer {Token.objects.create(user=self.student).key}"}
+        student_auth = bearer(self.student)
         self.assertEqual(self.client.get(ADMIN_USER_URL, **student_auth).status_code, 403)
 
     def test_admin_user_list_is_paginated(self):
@@ -300,10 +357,7 @@ class AdminUserTests(ThrottledAPITestCase):
         self.assertIsNone(User.objects.get(phone="01977000444").email)
 
     def test_the_phone_cannot_be_cleared(self):
-        """The phone is the only login identifier and the column is NOT NULL.
-
-        There is no longer an "either/or" with the email to fall back on.
-        """
+        """The phone is the only login identifier and the column is NOT NULL."""
         target = User.objects.create_user(phone="01977000555", email="keeps@example.com", name="Both")
         response = self.client.patch(
             reverse("api:identity:admin_user_detail", args=[target.pk]),
@@ -343,11 +397,7 @@ class AdminUserTests(ThrottledAPITestCase):
         self.assertIn("01810009998", [row["phone"] for row in body["data"]])
 
     def test_updating_the_student_block_is_reflected_in_the_response(self):
-        """The response must show the new values, not the cached ones.
-
-        The user is fetched with `select_related("student")`, so the profile
-        row is already cached by the time it is written to.
-        """
+        """The response must show the new values, not the cached ones."""
         target = User.objects.create_user(phone="01977000777", name="Student")
         StudentProfile.objects.create(user=target, institution="Old College")
 
@@ -362,11 +412,7 @@ class AdminUserTests(ThrottledAPITestCase):
         self.assertEqual(StudentProfile.objects.get(user=target).institution, "New College")
 
     def test_creating_an_account_without_a_password_is_refused(self):
-        """No OTP is issued on this path, so the password is the only way in.
-
-        An account made without one could not sign in at all until it went
-        through the login-code flow to set one.
-        """
+        """No OTP is issued on this path, so the password is the only way in."""
         for password in ({}, {"password": ""}):
             with self.subTest(password=password):
                 response = self.client.post(
@@ -393,9 +439,7 @@ class AdminUserTests(ThrottledAPITestCase):
         self.assertTrue(target.check_password("Str0ngPass!23"))
 
     def test_creating_a_student_sends_no_otp(self):
-        """An OTP proves a stranger holds the number they typed in. An admin
-        entering a student on their behalf has already vouched for it, so no
-        code is issued and no SMS is paid for."""
+        """An admin-created account sends no OTP."""
         with mock.patch("apps.identity.services.get_sms_backend") as sms:
             response = self.client.post(
                 ADMIN_USER_URL,
@@ -413,8 +457,7 @@ class AdminUserTests(ThrottledAPITestCase):
         sms.assert_not_called()
 
     def test_an_admin_made_student_can_sign_in_without_verifying(self):
-        """The account is usable the moment it is made: no OTP stands between
-        the student and their first login."""
+        """An admin-created account can log in straight away."""
         self.client.post(
             ADMIN_USER_URL,
             {"name": "Admin Made", "phone": "01812340000", "role": "student", "password": "Str0ngPass!23"},
@@ -427,11 +470,7 @@ class AdminUserTests(ThrottledAPITestCase):
         self.assertTrue(response.json()["token"])
 
     def test_the_whole_student_block_round_trips(self):
-        """The roster's block, which carries the academic placement too.
-
-        `/me` and the login response deliberately do not: those go through
-        `StudentProfileSerializer`, whose key list both frontends read.
-        """
+        """The roster's block, which carries the academic placement too."""
         target = User.objects.create_user(phone="01977000999", name="Student")
         block = {
             "guardian_name": "Abdul Karim",
@@ -462,8 +501,7 @@ class AdminUserTests(ThrottledAPITestCase):
         self.assertIsNone(response.json()["student"])
 
     def test_creating_an_account_without_a_name_is_refused(self):
-        """It would be indistinguishable from an abandoned sign-up, and
-        `registered()` would keep it off the roster."""
+        """An admin-created account is registered, not a half-finished sign-up."""
         response = self.client.post(
             ADMIN_USER_URL,
             {"phone": "01810006677", "role": "student"},
@@ -487,3 +525,23 @@ class AdminUserTests(ThrottledAPITestCase):
         self.assertEqual(response.status_code, 201)
         created = User.objects.get(phone="01810006666")
         self.assertTrue(created.check_password("Str0ngPass!23"))
+
+
+class AdminUserListQueryTests(ThrottledAPITestCase):
+    """The user list reads each student's guardian in the same query, however many students there are."""
+
+    def setUp(self):
+        super().setUp()
+        self.auth = bearer(make_user(role=User.Role.ADMIN))
+
+    def queries_for(self, students):
+        for _ in range(students):
+            ensure_student_profile(make_user())
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(ADMIN_USER_URL, {"per_page": 50}, **self.auth)
+        self.assertEqual(response.status_code, 200)
+        return len(queries)
+
+    def test_the_query_count_does_not_grow_with_the_page(self):
+        few = self.queries_for(2)
+        self.assertEqual(self.queries_for(20), few)

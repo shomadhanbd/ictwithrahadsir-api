@@ -2,6 +2,7 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 
 from apps.core.admin import ReadOnlyAdmin
+from apps.core.api.permissions import may_change_account
 from apps.identity.models import OTP, User
 from apps.profiles.models import StudentProfile, TeacherProfile
 
@@ -75,6 +76,19 @@ class UserAdmin(DjangoUserAdmin):
 
     def get_queryset(self, request):
         return super().get_queryset(request).prefetch_related('groups')
+
+    def get_readonly_fields(self, request, obj=None):
+        """Only a superuser grants superuser or loose permissions; an admin's group already holds every permission."""
+        fields = super().get_readonly_fields(request, obj)
+        if request.user.is_superuser:
+            return fields
+        return (*fields, 'is_superuser', 'user_permissions')
+
+    def has_change_permission(self, request, obj=None):
+        return may_change_account(request.user, obj) and super().has_change_permission(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        return may_change_account(request.user, obj) and super().has_delete_permission(request, obj)
 
 
 @admin.register(OTP)

@@ -1,11 +1,13 @@
 from rest_framework import serializers
 
 from apps.content.models import Advertisement, EBook, Notice, NoticeCategory, Page, Testimonial
-from apps.core.api.fields import MediaField
-from apps.profiles.api.private.serializers import TeacherSerializer
+from apps.core.api.fields import HtmlField, MediaField
+from apps.core.api.serializers import NonNumericSlugMixin
+from apps.core.html import clean_html
+from apps.profiles.api.public.serializers import TeacherSerializer
 
 
-class NoticeCategorySerializer(serializers.ModelSerializer):
+class NoticeCategorySerializer(NonNumericSlugMixin, serializers.ModelSerializer):
     notice_category_id = serializers.PrimaryKeyRelatedField(
         source="notice_category", queryset=NoticeCategory.objects.all(), required=False, allow_null=True
     )
@@ -18,6 +20,7 @@ class NoticeCategorySerializer(serializers.ModelSerializer):
 
 class NoticeSerializer(serializers.ModelSerializer):
     image = MediaField(required=False)
+    body = HtmlField()
     categories = serializers.PrimaryKeyRelatedField(many=True, queryset=NoticeCategory.objects.all(), required=False)
 
     class Meta:
@@ -64,7 +67,15 @@ class PageSerializer(serializers.ModelSerializer):
     class Meta:
         model = Page
         fields = ["id", "key", "slug", "value_type", "value", "image", "video", "created_at", "updated_at"]
-        read_only_fields = ["id", "key", "slug", "created_at", "updated_at"]
+        # A page's type is fixed when it is seeded: changing it would let raw markup in as "image" and then
+        # be served as HTML, and would drop the home banner or counters out of `/home`.
+        read_only_fields = ["id", "key", "slug", "value_type", "created_at", "updated_at"]
+
+    def validate(self, attrs):
+        value_type = getattr(self.instance, "value_type", Page.ValueType.HTML)
+        if value_type == Page.ValueType.HTML and attrs.get("value"):
+            attrs["value"] = clean_html(attrs["value"])
+        return attrs
 
 
 class HomeCounterSerializer(serializers.ModelSerializer):
@@ -85,20 +96,19 @@ class HomeBannerSerializer(serializers.ModelSerializer):
 
 
 class HomeSerializer(serializers.Serializer):
-    """The landing page's eight payloads in one response.
+    """The landing page's seven payloads in one response.
 
-    Fed by `apps.content.selectors.homepage_content`. The serializers for
-    courses and categories are imported inside the methods: `courses` imports
+    Fed by `apps.content.selectors.homepage_content`. The course serializer
+    is imported inside the method: `courses` imports
     `content`, so pulling it in at module scope would close an import cycle.
     The roster's serializer needs no such dodge -- `profiles` is a lower layer.
 
     `suceesstorycounter` is spelled exactly like that on purpose -- the
     misspelling is what both frontends read, and is pinned by
-    `apps/core/test_response_shapes.py`.
+    `apps/core/tests/test_response_shapes.py`.
     """
 
     courses = serializers.SerializerMethodField()
-    courseCategories = serializers.SerializerMethodField()
     advertisement = serializers.SerializerMethodField()
     testimonials = serializers.SerializerMethodField()
     counters = serializers.SerializerMethodField()
@@ -107,29 +117,14 @@ class HomeSerializer(serializers.Serializer):
     bannerImage = serializers.SerializerMethodField()
 
     def get_courses(self, data) -> list:
-        from apps.courses.api.serializers import CourseListSerializer, build_course_stats
+        from apps.courses.api.public.serializers import CourseListSerializer
+        from apps.courses.selectors import course_card_stats
 
         request = self.context.get('request')
-        courses = data['courses']
+        courses = list(data['courses'])
+        user = request.user if request else None
         return CourseListSerializer(
-            courses,
-            many=True,
-            # The per-course aggregates are batched for the whole page; without
-            # this the homepage costs several queries per course.
-            context={'request': request, 'course_stats': build_course_stats(courses, request)},
-        ).data
-
-    def get_courseCategories(self, data) -> list:
-        from apps.courses.api.serializers import (
-            CourseCategorySerializer,
-            build_category_children,
-        )
-
-        categories = data['categories']
-        return CourseCategorySerializer(
-            categories,
-            many=True,
-            context={'category_children': build_category_children(categories)},
+            courses, many=True, context={'request': request, 'course_stats': course_card_stats(courses, user)}
         ).data
 
     def get_advertisement(self, data) -> list:

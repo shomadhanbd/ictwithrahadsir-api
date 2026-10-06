@@ -1,13 +1,11 @@
 from django.db import IntegrityError
 
-from rest_framework.authtoken.models import Token
-
 from apps.core.phones import normalize_phone
+from apps.core.testing import bearer
 from apps.core.tests.base import ThrottledAPITestCase
 from apps.identity.models import OTP, User
 from apps.identity.tests.base import (
     ADMIN_USER_URL,
-    CHECK_PHONE_URL,
     GET_OTP_URL,
     LOGIN_URL,
     VERIFY_OTP_URL,
@@ -41,11 +39,7 @@ class NormalizeFunctionTests(ThrottledAPITestCase):
         self.assertEqual(normalize_phone(""), "")
 
     def test_a_number_from_another_country_is_refused(self):
-        """A valid GB mobile is not a valid account here.
-
-        Dropping its country code would turn it into a different, possibly
-        real, Bangladeshi number.
-        """
+        """A valid GB mobile is not a valid account here."""
         self.assertIsNone(normalize_phone("+44 7700 900123"))
 
     def test_a_string_that_is_not_a_number_at_all_is_refused(self):
@@ -58,10 +52,7 @@ class NormalizeFunctionTests(ThrottledAPITestCase):
         self.assertIsNone(normalize_phone("018100011110"))
 
     def test_an_unassigned_operator_prefix_is_refused(self):
-        """Bangladeshi mobiles run 013-019.
-
-        `012` is not one of them, and the hand-rolled normaliser accepted it.
-        """
+        """Bangladeshi mobiles run 013-019."""
         self.assertIsNone(normalize_phone("01210001111"))
 
     def test_every_live_operator_prefix_is_accepted(self):
@@ -91,11 +82,6 @@ class AuthEndpointNormalizationTests(FixedOtpCodeTestCase):
             response = self.client.post(LOGIN_URL, {"phone": spelling, "password": "Str0ngPass!23"})
             self.assertEqual(response.status_code, 200, spelling)
 
-    def test_phone_check_finds_the_account_from_any_spelling(self):
-        for spelling in SPELLINGS:
-            body = self.client.get(CHECK_PHONE_URL, {"phone": spelling}).json()
-            self.assertTrue(body["exists"], spelling)
-
     def test_a_code_requested_one_way_verifies_the_other(self):
         self.client.get(GET_OTP_URL, {"phone": "+8801810001111"})
         self.assertEqual(OTP.objects.filter(phone=CANONICAL).count(), 1)
@@ -110,7 +96,7 @@ class AuthEndpointNormalizationTests(FixedOtpCodeTestCase):
         self.assertEqual(OTP.objects.count(), 1)
 
     def test_punctuation_only_is_a_bad_request(self):
-        response = self.client.get(CHECK_PHONE_URL, {"phone": "---"})
+        response = self.client.get(GET_OTP_URL, {"phone": "---"})
         self.assertEqual(response.status_code, 422)
         self.assertIn("phone", response.json()["errors"])
 
@@ -125,7 +111,7 @@ class AdminCreateNormalizationTests(ThrottledAPITestCase):
             role=User.Role.ADMIN,
             is_staff=True,
         )
-        self.auth = {"HTTP_AUTHORIZATION": f"Bearer {Token.objects.create(user=self.admin).key}"}
+        self.auth = bearer(self.admin)
 
     def test_admin_created_users_are_normalised(self):
         response = self.client.post(

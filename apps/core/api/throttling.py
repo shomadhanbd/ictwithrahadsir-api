@@ -1,25 +1,38 @@
-"""Rate limits for the unauthenticated auth endpoints, keyed on client IP.
+"""Rate limits; the rates live in `REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"]`."""
 
-Each endpoint gets a burst limit (fast scripted attacks) and a sustained
-hourly one (slow attacks). Rates are set in `REST_FRAMEWORK` settings.
-"""
-
-from rest_framework.throttling import AnonRateThrottle
+from rest_framework.throttling import SimpleRateThrottle
 
 
-class LoginBurstThrottle(AnonRateThrottle):
+class ClientIpRateThrottle(SimpleRateThrottle):
+    """Per client IP, signed in or not, so a token of one's own buys no extra guesses."""
+
+    def get_cache_key(self, request, view):
+        return self.cache_format % {'scope': self.scope, 'ident': self.get_ident(request)}
+
+
+class LoginBurstThrottle(ClientIpRateThrottle):
     scope = 'login_burst'
 
 
-class LoginSustainedThrottle(AnonRateThrottle):
+class LoginSustainedThrottle(ClientIpRateThrottle):
     scope = 'login_sustained'
 
 
-class AuthBurstThrottle(AnonRateThrottle):
+class AuthBurstThrottle(ClientIpRateThrottle):
     """Registration and password reset."""
 
     scope = 'auth_burst'
 
 
-class AuthSustainedThrottle(AnonRateThrottle):
+class AuthSustainedThrottle(ClientIpRateThrottle):
     scope = 'auth_sustained'
+
+
+class PracticeThrottle(SimpleRateThrottle):
+    """Free practice: per user when signed in, else per IP."""
+
+    scope = 'practice'
+
+    def get_cache_key(self, request, view):
+        ident = request.user.pk if request.user and request.user.is_authenticated else self.get_ident(request)
+        return self.cache_format % {'scope': self.scope, 'ident': ident}

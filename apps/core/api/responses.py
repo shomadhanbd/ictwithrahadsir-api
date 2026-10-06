@@ -1,5 +1,3 @@
-"""Acknowledgement payloads returned by more than one app."""
-
 from rest_framework import serializers
 
 
@@ -10,7 +8,6 @@ class OkResponseSerializer(serializers.Serializer):
 
 
 class MessageResponseSerializer(serializers.Serializer):
-    """`{"message": "..."}` -- the same shape as an error, so clients tell them
-    apart by status code."""
+    """Same shape as an error; clients tell them apart by status code."""
 
     message = serializers.CharField()

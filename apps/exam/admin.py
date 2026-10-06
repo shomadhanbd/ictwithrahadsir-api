@@ -1,6 +1,29 @@
+import copy
+
+from django import forms
 from django.contrib import admin
 
 from apps.exam.models import Exam, ExamSection, ExamSectionQuestion
+from apps.exam.validators import validate_attempted_edit, validate_publish, validate_published_edit
+
+
+class ExamAdminForm(forms.ModelForm):
+    """Holds the admin site to the same publishing and locking rules as the API."""
+
+    def clean(self):
+        data = super().clean()
+        exam = self.instance
+        if not exam.pk:
+            return data
+        changed = {field: data[field] for field in self.changed_data if field in data}
+        validate_attempted_edit(instance=exam, attrs=changed)
+        validate_published_edit(instance=exam, attrs=changed)
+        if data.get("status") == Exam.Status.PUBLISHED and exam.status != Exam.Status.PUBLISHED:
+            prospective = copy.copy(exam)
+            for field, value in changed.items():
+                setattr(prospective, field, value)
+            validate_publish(exam=prospective, sections=exam.sections.all())
+        return data
 
 
 class ExamSectionInline(admin.TabularInline):
@@ -18,8 +41,8 @@ class ExamSectionQuestionInline(admin.TabularInline):
 
 @admin.register(Exam)
 class ExamAdmin(admin.ModelAdmin):
+    form = ExamAdminForm
     list_display = ('title', 'status', 'scope', 'total_marks', 'created_by')
-    list_editable = ('status',)
     list_filter = ('status', 'scope')
     search_fields = ('title', 'slug')
     autocomplete_fields = ('batch',)
@@ -35,8 +58,6 @@ class ExamSectionAdmin(admin.ModelAdmin):
     list_display = ('title', 'exam', 'question_type', 'subject', 'marks', 'pass_marks', 'question_count', 'order')
     list_editable = ('order',)
     list_filter = ('question_type',)
-    # Safe to edit here now that `ExamSection.clean()` runs the same rules the
-    # serializer does -- before that, every section rule was bypassable here.
     search_fields = ('title', 'exam__title')
     autocomplete_fields = ('subject',)
     raw_id_fields = ('exam',)

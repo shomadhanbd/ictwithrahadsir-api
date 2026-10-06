@@ -14,8 +14,7 @@ class TimestampedAdmin(admin.ModelAdmin):
 
 
 class ReadOnlyAdmin(admin.ModelAdmin):
-    """For rows written by the application (attempts, completions, OTPs),
-    never by hand."""
+    """For rows only the application writes (attempts, completions, OTPs)."""
 
     def has_add_permission(self, request):
         return False

@@ -4,6 +4,8 @@ from django.utils import timezone
 
 from apps.identity.models import OTP
 
+OTP_RATE_WINDOW_SECONDS = 3600  # the window `seconds_until_resend` caps sends over
+
 
 class Command(BaseCommand):
     help = 'Delete one-time codes older than a retention window.'
@@ -13,7 +15,7 @@ class Command(BaseCommand):
             '--days',
             type=int,
             default=None,
-            help='Keep rows newer than this many days (default: the OTP TTL).',
+            help='Keep rows newer than this many days; never less than one hour (or the OTP TTL if longer).',
         )
         parser.add_argument(
             '--dry-run',
@@ -22,14 +24,13 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        # The hourly per-phone cap counts the last hour's rows, so no window may be shorter than that.
+        floor = timezone.timedelta(seconds=max(settings.OTP_TTL_SECONDS, OTP_RATE_WINDOW_SECONDS))
         days = options['days']
-        if days is not None:
-            age, window = timezone.timedelta(days=days), f'{days} day(s)'
-        else:
-            seconds = settings.OTP_TTL_SECONDS
-            age, window = timezone.timedelta(seconds=seconds), f'{seconds}s (OTP_TTL_SECONDS)'
+        age = max(timezone.timedelta(days=days), floor) if days is not None else floor
+        window = f'{int(age.total_seconds())}s'
 
-        stale = OTP.objects.filter(created_at__lt=timezone.now() - age)
+        stale = OTP.objects.older_than(timezone.now() - age)
         total = OTP.objects.count()
 
         if options['dry_run']:

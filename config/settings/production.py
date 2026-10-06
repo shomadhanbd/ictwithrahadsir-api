@@ -1,42 +1,83 @@
 """Production settings. Default for `wsgi.py` / `asgi.py`.
 
-Set DJANGO_SETTINGS_MODULE=config.settings.production explicitly for
-`manage.py` too when running migrations or collectstatic in a container --
-otherwise manage.py falls back to the local module.
+`manage.py` defaults to `local`, so set DJANGO_SETTINGS_MODULE=config.settings.production
+when running migrations, collectstatic or cron commands on the server.
 """
 
+from django.core.exceptions import ImproperlyConfigured
+
 from config.settings.base import *  # noqa: F403
-from config.settings.base import env
+from config.settings.base import REST_FRAMEWORK, env
 
 DEBUG = False
 
-# No default: a production boot with an unset ALLOWED_HOSTS should fail
-# loudly rather than silently serve every Host header.
+
+def _required(name):
+    value = env(name, default="")
+    if not value:
+        raise ImproperlyConfigured(f"Set {name}: production has no fallback for it.")
+    return value
+
+
+def _required_https(name):
+    value = _required(name)
+    if not value.startswith("https://"):
+        raise ImproperlyConfigured(f"{name} must be a public https:// URL, not {value!r}.")
+    return value
+
+
+# Required settings: each one fails the boot instead of falling back to a dev default.
+
+SECRET_KEY = _required("SECRET_KEY")
+if SECRET_KEY.startswith(("django-insecure", "change-me")):
+    raise ImproperlyConfigured("SECRET_KEY is still a placeholder.")
+
+DATABASES = {"default": env.db_url_config(_required("DATABASE_URL"))}
+# Reuse connections across requests instead of opening one per request.
+DATABASES["default"].update(CONN_MAX_AGE=60, CONN_HEALTH_CHECKS=True)
+if "sqlite" in DATABASES["default"]["ENGINE"]:
+    raise ImproperlyConfigured("DATABASE_URL must point at Postgres, not SQLite.")
+
+# Throttle counters and OTP state must be shared by every worker.
+CACHES = {"default": env.cache_url_config(_required("CACHE_URL"))}
+if "locmem" in CACHES["default"]["BACKEND"]:
+    raise ImproperlyConfigured("CACHE_URL must be a shared cache such as redis://, not locmem.")
+
+# The console backend writes OTP codes to the log.
+SMS_BACKEND = _required("SMS_BACKEND")
+if SMS_BACKEND != "bulksmsbd":
+    raise ImproperlyConfigured("SMS_BACKEND must be bulksmsbd in production.")
+
+API_BASE_URL = _required_https("API_BASE_URL")
+FRONTEND_URL = _required_https("FRONTEND_URL")
+
+SSLCOMMERZ_STORE_ID = _required("SSLCOMMERZ_STORE_ID")
+SSLCOMMERZ_STORE_PASSWORD = _required("SSLCOMMERZ_STORE_PASSWORD")
+SSLCOMMERZ_SUCCESS_REDIRECT = _required_https("SSLCOMMERZ_SUCCESS_REDIRECT")
+SSLCOMMERZ_FAIL_REDIRECT = _required_https("SSLCOMMERZ_FAIL_REDIRECT")
+SSLCOMMERZ_CANCEL_REDIRECT = _required_https("SSLCOMMERZ_CANCEL_REDIRECT")
+
+# No default, so a missing value fails loudly.
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS")
 
-# Never blanket-allow cross-origin in production; base.py reads the
-# CORS_ALLOWED_ORIGINS / CORS_ALLOWED_ORIGIN_REGEXES allowlists from env.
-CORS_ALLOW_ALL_ORIGINS = False
-
-# ---------------------------------------------------------------------------
-# Transport security
-#
-# None of these existed before the settings split. They assume TLS is
-# terminated at a proxy that sets X-Forwarded-Proto; set
-# SECURE_SSL_REDIRECT=False if you terminate TLS elsewhere.
-# ---------------------------------------------------------------------------
+# Transport security: assumes TLS ends at a proxy that sets X-Forwarded-Proto.
 
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 SECURE_SSL_REDIRECT = env.bool("SECURE_SSL_REDIRECT", default=True)
+REST_FRAMEWORK = {**REST_FRAMEWORK, "NUM_PROXIES": env.int("NUM_PROXIES", default=1)}
 
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
 
-# Start low and raise once you are confident: HSTS is hard to undo because
-# browsers cache the policy for its full duration.
+# Browsers cache HSTS for its full duration, so raise it only once HTTPS is stable.
 SECURE_HSTS_SECONDS = env.int("SECURE_HSTS_SECONDS", default=3600)
-SECURE_HSTS_INCLUDE_SUBDOMAINS = env.bool("SECURE_HSTS_INCLUDE_SUBDOMAINS", default=False)
-SECURE_HSTS_PRELOAD = env.bool("SECURE_HSTS_PRELOAD", default=False)
 
-SECURE_CONTENT_TYPE_NOSNIFF = True
-X_FRAME_OPTIONS = "DENY"
+# Log to stdout: several gunicorn workers can't share one rotating file.
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {"verbose": {"format": "{asctime} {levelname} {name} {message}", "style": "{"}},
+    "handlers": {"console": {"class": "logging.StreamHandler", "formatter": "verbose"}},
+    "root": {"handlers": ["console"], "level": "INFO"},
+    "loggers": {"django.request": {"handlers": ["console"], "level": "ERROR", "propagate": False}},
+}

@@ -1,9 +1,5 @@
 class MethodOverrideMiddleware:
-    """Treat `POST ...?_method=PUT|PATCH|DELETE` as that method.
-
-    The admin panel sends multipart updates this way. Only the query string
-    is read, so the body is left for normal parsing.
-    """
+    """Treats `POST ...?_method=PUT|PATCH|DELETE` as that method; the admin panel sends multipart updates so."""
 
     OVERRIDABLE = {"PUT", "PATCH", "DELETE"}
 

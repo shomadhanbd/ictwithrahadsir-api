@@ -3,15 +3,12 @@ from rest_framework.response import Response
 
 
 class LaravelStylePageNumberPagination(PageNumberPagination):
-    """Laravel's `{data, links, meta}` paginator envelope, which both
-    frontends parse. `per_page` may be raised to 200."""
+    """Laravel's `{data, links, meta}` envelope; `per_page` may be raised to 200."""
 
     page_size = 15
     page_size_query_param = "per_page"
     max_page_size = 200
 
-    #: Numbered links either side of the current page in `meta.links`, so the
-    #: list stays small however many pages there are.
     page_link_window = 5
 
     def get_paginated_response(self, data):
@@ -57,8 +54,7 @@ class LaravelStylePageNumberPagination(PageNumberPagination):
         return self.request.build_absolute_uri(f"{self.request.path}?{query.urlencode()}")
 
     def _windowed_page_numbers(self, current, last):
-        """The first and last page plus `page_link_window` either side of the
-        current one, with `None` marking each gap."""
+        """First, last and `page_link_window` pages either side of the current one; `None` marks a gap."""
         window = self.page_link_window
         wanted = {1, last} | {p for p in range(current - window, current + window + 1) if 1 <= p <= last}
 

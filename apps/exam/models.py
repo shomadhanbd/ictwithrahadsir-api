@@ -1,31 +1,14 @@
-"""Exam authoring: a paper assembled out of the question bank.
-
-An exam is ordered `ExamSection`s, each holding `question.QuestionBlock`s. A
-block is already "one item" -- a standalone question, or a stimulus (উদ্দীপক)
-with its ক/খ/গ/ঘ parts -- so a 30-block MCQ section and a 7-block CQ section are
-the same shape.
-
-**Authoring only.** Nothing here records an attempt, an answer or a mark earned.
-
-It replaces the retired `assessment` app, which stored a paper as flat columns
-on a lesson. Nothing is shared with it and nothing was carried over.
-"""
-
 from django.conf import settings
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
-from apps.core.models import TimestampModel
-from apps.core.slugs import unique_slug
+from apps.core.models import NameSlugMixin, TimestampModel
+from apps.exam.managers import ExamAttemptQuerySet, ExamQuerySet
 from apps.question.models import Question
 
 
-class Exam(TimestampModel):
-    """One paper: its configuration, and the sections it is made of.
-
-    Carries no "paper type" of its own -- what a paper contains is the set of
-    its sections' types, declared where the sections are.
-    """
+class Exam(NameSlugMixin, TimestampModel):
+    """One paper: its configuration, and the sections it is made of."""
 
     class Status(models.TextChoices):
         DRAFT = "draft", "Draft"
@@ -35,6 +18,7 @@ class Exam(TimestampModel):
     class Scope(models.TextChoices):
         STANDALONE = "standalone", "Standalone"
         BATCH = "batch", "Batch"
+        COURSE = "course", "Course"
 
     title = models.CharField("Title", max_length=200)
     slug = models.SlugField(max_length=220, unique=True, blank=True, verbose_name=_("slug"))
@@ -52,7 +36,6 @@ class Exam(TimestampModel):
         editable=False,
     )
 
-    # -- scope: the discriminator plus one nullable column per scope ---------
     scope = models.CharField(max_length=20, choices=Scope.choices, default=Scope.STANDALONE)
     batch = models.ForeignKey(
         "academic.Batch",
@@ -61,7 +44,13 @@ class Exam(TimestampModel):
         blank=True,
         related_name="exams",
     )
-    # -- configuration ------------------------------------------------------
+    lesson = models.OneToOneField(
+        "courses.Content",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="exam",
+    )
     total_marks = models.DecimalField("Total Marks", max_digits=6, decimal_places=2, default=100)
     pass_marks = models.DecimalField("Pass Marks", max_digits=6, decimal_places=2, null=True, blank=True)
     duration_minutes = models.PositiveSmallIntegerField("Duration", null=True, blank=True)
@@ -70,6 +59,8 @@ class Exam(TimestampModel):
     result_publish_time = models.DateTimeField("Results At", null=True, blank=True)
 
     max_attempts = models.PositiveSmallIntegerField("Max Attempts", default=1)
+
+    objects = ExamQuerySet.as_manager()
 
     class Meta:
         ordering = ["-created_at", "id"]
@@ -89,6 +80,11 @@ class Exam(TimestampModel):
                 name="exam_ends_after_it_starts",
             ),
             models.CheckConstraint(condition=models.Q(max_attempts__gte=1), name="exam_allows_one_attempt"),
+            models.CheckConstraint(
+                condition=(models.Q(scope="course") & models.Q(lesson__isnull=False))
+                | (~models.Q(scope="course") & models.Q(lesson__isnull=True)),
+                name="exam_course_scope_has_lesson",
+            ),
         ]
         indexes = [
             models.Index(fields=["status", "start_time"]),
@@ -99,11 +95,13 @@ class Exam(TimestampModel):
     def __str__(self):
         return self.title
 
-    def clean(self):
-        # Imported here, not at module scope: `services` imports this module.
-        from apps.exam import services
+    def slug_base(self):
+        return self.title
 
-        services.validate_exam(
+    def clean(self):
+        from apps.exam import validators  # validators import this module
+
+        validators.validate_exam(
             total_marks=self.total_marks,
             pass_marks=self.pass_marks,
             max_attempts=self.max_attempts,
@@ -112,15 +110,11 @@ class Exam(TimestampModel):
             end_time=self.end_time,
             result_publish_time=self.result_publish_time,
         )
-        services.validate_exam_scope(
+        validators.validate_exam_scope(
             scope=self.scope,
             batch=self.batch if self.batch_id else None,
+            lesson=self.lesson if self.lesson_id else None,
         )
-
-    def save(self, *args, **kwargs):
-        if not self.slug:
-            self.slug = unique_slug(self, self.title)
-        super().save(*args, **kwargs)
 
 
 class ExamSection(TimestampModel):
@@ -154,7 +148,7 @@ class ExamSection(TimestampModel):
         blank=True,
     )
 
-    #: Denormalized, maintained by `apps.exam.signals`.
+    # Kept up to date by `apps.exam.signals`.
     question_count = models.PositiveSmallIntegerField("Question Count", default=0)
     computed_marks = models.DecimalField("Computed Marks", max_digits=7, decimal_places=2, default=0)
 
@@ -164,8 +158,6 @@ class ExamSection(TimestampModel):
         verbose_name_plural = "Exam Sections"
         constraints = [
             models.UniqueConstraint(fields=["exam", "title"], name="unique_section_title_per_exam"),
-            # The `__isnull` branch is not decoration: `NULL <= x` is NULL and
-            # a CHECK passes on NULL, so spelling it out says what is meant.
             models.CheckConstraint(
                 condition=(
                     models.Q(negative_marks__isnull=True)
@@ -190,16 +182,13 @@ class ExamSection(TimestampModel):
         return f"{self.title} ({self.get_question_type_display()})"
 
     def clean(self):
-        # Imported here, not at module scope: `services` imports this module.
-        from apps.exam import services
+        from apps.exam import validators  # validators import this module
 
         if self.exam_id is None:
-            # A blank admin inline row has no exam to check against yet.
             return
 
-        # The admin is the one door the API's freeze does not cover.
-        services.validate_paper_is_editable(self.exam)
-        services.validate_section(
+        validators.validate_paper_is_editable(self.exam)
+        validators.validate_section(
             exam=self.exam,
             question_type=self.question_type,
             subject=self.subject if self.subject_id else None,
@@ -215,35 +204,24 @@ class ExamSection(TimestampModel):
 
     @property
     def answers_required(self):
-        """How many of the offered questions actually count.
-
-        A section with no "answer any N of M" rule requires all of them.
-        """
+        """How many of the offered questions actually count."""
         return self.required_question_count or self.question_count
 
     @property
     def target_marks(self):
-        """What this section's questions should add up to.
-
-        `required_question_count` is the whole reason this is not just
-        `computed_marks`: an "answer any 7 of 11" section offers 110 marks of
-        questions and is worth 70.
-        """
+        """What this section's questions should add up to."""
         if self.required_question_count:
             return self.required_question_count * self.marks_per_question
         return self.computed_marks
 
 
 class ExamSectionQuestion(TimestampModel):
-    """One block placed in one section, at a mark and a position.
-
-    The through model for `ExamSection.blocks`. It exists because the paper's
-    order and each question's price live on the *placement*, not on the block.
-    """
+    """One block placed in one section, at a mark and a position."""
 
     section = models.ForeignKey(ExamSection, on_delete=models.CASCADE, related_name="section_questions")
     block = models.ForeignKey("question.QuestionBlock", on_delete=models.PROTECT, related_name="exam_usages")
-    marks = models.DecimalField("Marks", max_digits=4, decimal_places=2, default=1)
+    # A passage of many MCQs costs its question count at the rate, so this outgrows two integer digits.
+    marks = models.DecimalField("Marks", max_digits=6, decimal_places=2, default=1)
     order = models.PositiveSmallIntegerField("Order", default=0)
 
     class Meta:
@@ -261,15 +239,93 @@ class ExamSectionQuestion(TimestampModel):
 
     @classmethod
     def from_db(cls, db, field_names, values, *, fetch_mode=None):
-        """Remember which section this pick was loaded from.
-
-        A pick moved to another section leaves the old section's counters one
-        too high, and `post_save` only ever sees the new one.
-
-        `fetch_mode` is passed straight through: Django 6.1 hands it to every
-        `from_db`, and an override that swallows it is an error in 7.0.
-        """
+        """Remembers the section this pick was loaded from, for the total signals."""
         instance = super().from_db(db, field_names, values, fetch_mode=fetch_mode)
         if "section_id" in field_names:
             instance._section_on_load = instance.section_id
         return instance
+
+    def clean(self):
+        from apps.exam import validators  # validators import this module
+
+        if self.section_id is None or self.block_id is None:
+            return
+        validators.validate_paper_is_editable(self.section.exam)
+        validators.validate_section_blocks(section=self.section, blocks=[self.block])
+        validators.validate_pick_marks(section=self.section, block=self.block, marks=self.marks)
+
+
+class ExamAttempt(TimestampModel):
+    """One student's sitting of one exam."""
+
+    class Status(models.TextChoices):
+        IN_PROGRESS = "in_progress", "In progress"
+        SUBMITTED = "submitted", "Submitted"
+
+    exam = models.ForeignKey(Exam, on_delete=models.PROTECT, related_name="attempts")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="exam_attempts")
+    number = models.PositiveSmallIntegerField(default=1)
+    seed = models.BigIntegerField()
+    started_at = models.DateTimeField()
+    # The duration from the start, capped by the exam's end time.
+    deadline = models.DateTimeField(null=True, blank=True)
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.IN_PROGRESS)
+
+    score = models.DecimalField(max_digits=7, decimal_places=2, null=True, blank=True)
+    correct = models.PositiveSmallIntegerField(default=0)
+    wrong = models.PositiveSmallIntegerField(default=0)
+    skipped = models.PositiveSmallIntegerField(default=0)
+    # The first submitted attempt; the one that is ranked.
+    is_official = models.BooleanField(default=False)
+    # Section rates frozen at the start: {section_id: {"positive": .., "negative": ..}}.
+    marking = models.JSONField(default=dict)
+
+    objects = ExamAttemptQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["-started_at", "-id"]
+        constraints = [
+            models.UniqueConstraint(fields=["exam", "user", "number"], name="unique_attempt_number"),
+            # The ranked attempt is the first submitted one; the database holds that whatever path submits.
+            models.UniqueConstraint(
+                fields=["exam", "user"], condition=models.Q(is_official=True), name="one_official_attempt_per_exam"
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["exam", "is_official", "score"]),
+            models.Index(fields=["user", "exam"]),
+            models.Index(fields=["status", "deadline"]),  # the every-minute finalize_exam_attempts query
+        ]
+
+    def __str__(self):
+        return f"{self.user} on {self.exam} (#{self.number})"
+
+    @property
+    def time_taken(self):
+        if not self.submitted_at:
+            return None
+        return self.submitted_at - self.started_at
+
+    @property
+    def time_taken_seconds(self) -> int | None:
+        return int(self.time_taken.total_seconds()) if self.time_taken else None
+
+
+class ExamAnswer(TimestampModel):
+    """What a student chose for one question of one attempt."""
+
+    attempt = models.ForeignKey(ExamAttempt, on_delete=models.CASCADE, related_name="answers")
+    section_question = models.ForeignKey(ExamSectionQuestion, on_delete=models.PROTECT, related_name="answers")
+    question = models.ForeignKey(Question, on_delete=models.PROTECT, related_name="exam_answers")
+    selected_option_ids = models.JSONField(default=list)
+    is_correct = models.BooleanField(null=True, blank=True)
+    marks_awarded = models.DecimalField(max_digits=6, decimal_places=2, default=0)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["attempt", "question"], name="unique_answer_per_question"),
+        ]
+
+    def __str__(self):
+        return f"{self.attempt} — Q{self.question_id}"

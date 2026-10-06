@@ -27,3 +27,9 @@ def validate_phone(value: str | None) -> None:
     """Field validator, so the admin reports a bad number as a field error."""
     if value and normalize_phone(value) is None:
         raise ValidationError(INVALID_MESSAGE, code="invalid_phone")
+
+
+def masked_phone(phone: str | None) -> str:
+    """Enough of a number to tell messages apart in a log, without writing students' numbers into it."""
+    phone = str(phone or "")
+    return f"{phone[:3]}{'*' * max(len(phone) - 5, 0)}{phone[-2:]}" if len(phone) > 5 else "***"

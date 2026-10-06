@@ -10,5 +10,25 @@ class Role(models.TextChoices):
     STUDENT = "student", "Student"
 
 
-#: Roles that reach the Django admin site. See `User.is_staff`.
 BACK_OFFICE_ROLES = {Role.ADMIN, Role.MODERATOR}
+TEACHER_CREATABLE_ROLES = {Role.STUDENT}
+MODERATOR_APP_LABELS = ("content",)
+
+
+def has_any_role(user, *roles) -> bool:
+    # Not `is_staff`: that is also true for moderators.
+    if not (user and user.is_authenticated):
+        return False
+    return bool(user.is_superuser or user.role in roles)
+
+
+def is_full_admin(user) -> bool:
+    return has_any_role(user, Role.ADMIN)
+
+
+def is_content_staff(user) -> bool:
+    return has_any_role(user, Role.ADMIN, Role.MODERATOR)
+
+
+def is_teaching_staff(user) -> bool:
+    return has_any_role(user, Role.ADMIN, Role.TEACHER)

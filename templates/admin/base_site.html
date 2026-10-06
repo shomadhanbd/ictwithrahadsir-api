@@ -1,28 +1,7 @@
-{% extends "admin/base.html" %}
+{% extends "admin/base_site.html" %}
 {% load static %}
 
-{#
-  Django's own `admin/base_site.html`, plus one stylesheet. Copied rather than
-  extended because a template cannot extend the name it overrides -- keep the
-  blocks below in step with Django's copy when upgrading.
-#}
-
-{% block title %}{% if subtitle %}{{ subtitle }} | {% endif %}{{ title }} | {{ site_title|default:_('Django site admin') }}{% endblock %}
-
-{#
-  Appended to `responsive`, not `extrastyle`: the override has to come after
-  `responsive.css` to beat its media queries on source order alone, and
-  `extrastyle` is emitted before it.
-#}
+{# In `responsive`, not `extrastyle`: the overrides must load after responsive.css to win. #}
 {% block responsive %}{{ block.super }}
   <link rel="stylesheet" href="{% static 'core/admin-overrides.css' %}">
 {% endblock %}
-
-{% block branding %}
-<div id="site-name"><a href="{% url 'admin:index' %}">{{ site_header|default:_('Django administration') }}</a></div>
-{% if user.is_anonymous %}
-  {% include "admin/color_theme_toggle.html" %}
-{% endif %}
-{% endblock %}
-
-{% block nav-global %}{% endblock %}

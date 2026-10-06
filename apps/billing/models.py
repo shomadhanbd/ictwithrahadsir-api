@@ -1,40 +1,35 @@
-from datetime import datetime, time, timedelta
+from datetime import datetime, time
 
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
-from apps.billing.managers import OrderQuerySet, PaymentQuerySet
+from apps.billing.managers import PaymentQuerySet, ProductQuerySet
+from apps.billing.utils import generate_transaction_id
 from apps.core.models import TimestampModel
 from apps.core.slugs import unique_slug
-from apps.courses.models import Coupon, Course, CoursePrice
+from apps.courses.models import Course
 
 
 class Product(TimestampModel):
-    """A one-time purchase that unlocks one or more courses, live or recorded.
+    title = models.CharField("Title", max_length=255)
+    description = models.TextField("Description", blank=True)
+    product_id = models.SlugField("Product ID", max_length=280, unique=True, blank=True)
+    courses = models.ManyToManyField(Course, related_name="products", verbose_name="Courses")
+    price = models.PositiveIntegerField("Price")
+    base_price = models.PositiveIntegerField("Base Price")
+    # After this, students pay `base_price`; null keeps the discount running.
+    discount_ends_at = models.DateTimeField("Discount Ends At", null=True, blank=True)
+    access_days = models.PositiveIntegerField("Access Days", null=True, blank=True)
+    access_ends_on = models.DateField("Access Ends On", null=True, blank=True)
+    is_active = models.BooleanField("Active", default=True)
 
-    Priced like a `CoursePrice`: `discount` is the amount *off*, live until
-    `discount_till`. Access lasts `access_days` from purchase, or until
-    `access_ends_on` -- at most one of them; neither means lifetime.
-    """
-
-    title = models.CharField(max_length=255)
-    slug = models.SlugField(max_length=280, unique=True, blank=True)
-    description = models.TextField(blank=True)
-    thumbnail = models.URLField(max_length=500, blank=True)
-    #: What buying it unlocks.
-    courses = models.ManyToManyField(Course, related_name="products")
-    amount = models.DecimalField(max_digits=10, decimal_places=2)
-    discount = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
-    discount_till = models.DateTimeField(null=True, blank=True)
-    #: Days of access from purchase, e.g. 365 for a recorded course.
-    access_days = models.PositiveIntegerField(null=True, blank=True)
-    #: The last day of access, e.g. when a live batch ends.
-    access_ends_on = models.DateField(null=True, blank=True)
-    active = models.BooleanField(default=True)
+    objects = ProductQuerySet.as_manager()
 
     class Meta:
-        ordering = ["-created_at"]
+        ordering = ["id"]
+        verbose_name = "Product"
+        verbose_name_plural = "Products"
         constraints = [
             models.CheckConstraint(
                 condition=models.Q(access_days__isnull=True) | models.Q(access_ends_on__isnull=True),
@@ -45,149 +40,90 @@ class Product(TimestampModel):
     def __str__(self):
         return self.title
 
-    def access_until(self):
-        """When access bought now ends; None for lifetime."""
-        if self.access_ends_on:
-            # The whole of the last day, in the site's time zone.
-            return timezone.make_aware(datetime.combine(self.access_ends_on, time.max))
-        if self.access_days:
-            return timezone.now() + timedelta(days=self.access_days)
-        return None
+    @property
+    def access_ends_at(self):
+        """The end of `access_ends_on`, in the site's time zone."""
+        if self.access_ends_on is None:
+            return None
+        return timezone.make_aware(datetime.combine(self.access_ends_on, time.max))
+
+    @property
+    def discount_active(self) -> bool:
+        if self.base_price <= self.price:
+            return False
+        return self.discount_ends_at is None or self.discount_ends_at > timezone.now()
+
+    @property
+    def current_price(self) -> int:
+        return self.price if self.discount_active else max(self.price, self.base_price)
 
     def save(self, *args, **kwargs):
-        if not self.slug:
-            self.slug = unique_slug(self, self.title)
+        if not self.product_id:
+            self.product_id = unique_slug(self, self.title, slug_field="product_id")
         super().save(*args, **kwargs)
 
 
-class ProductCoupon(TimestampModel):
-    """A code that takes money off one product.
-
-    Uses are not counted on the row: they are the paid orders carrying this
-    product and code, so there is no counter to drift.
-    """
-
-    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="coupons")
-    code = models.CharField(max_length=50)
-    #: The same choices as a course coupon's, so the schema keeps one enum.
-    discount_type = models.CharField(
-        max_length=20, choices=Coupon.DiscountType.choices, default=Coupon.DiscountType.PERCENT
-    )
-    discount = models.DecimalField(max_digits=10, decimal_places=2)
-    valid_till = models.DateTimeField(null=True, blank=True)
-    #: Blank for unlimited.
-    usage_limit = models.PositiveIntegerField(null=True, blank=True)
-    active = models.BooleanField(default=True)
-
-    class Meta:
-        ordering = ["-created_at"]
-        constraints = [models.UniqueConstraint(fields=["product", "code"], name="unique_coupon_code_per_product")]
-
-    def __str__(self):
-        return f"{self.code} ({self.product})"
-
-
-class Order(TimestampModel):
-    class Status(models.TextChoices):
-        PENDING = "pending", "Pending"
-        PAID = "paid", "Paid"
-        FAILED = "failed", "Failed"
-        CANCELLED = "cancelled", "Cancelled"
-
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="orders")
-    course = models.ForeignKey(Course, on_delete=models.SET_NULL, null=True, blank=True, related_name="orders")
-    price = models.ForeignKey(CoursePrice, on_delete=models.SET_NULL, null=True, blank=True, related_name="orders")
-    #: PROTECT: a product somebody paid for is retired with `active`, not deleted.
-    product = models.ForeignKey(Product, on_delete=models.PROTECT, null=True, blank=True, related_name="orders")
-    #: Always 1: an order is one course or one product.
-    quantity = models.PositiveIntegerField(default=1)
-    item_title = models.CharField(max_length=255, blank=True)
-    price_title = models.CharField(max_length=150, blank=True)
-    #: The code as applied, whichever kind of coupon it was; blank for none.
-    coupon_code = models.CharField(max_length=50, blank=True)
-    coupon_discount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    #: Both are what the student pays, after every discount.
-    amount = models.DecimalField(max_digits=10, decimal_places=2)
-    total = models.DecimalField(max_digits=10, decimal_places=2)
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
-
-    objects = OrderQuerySet.as_manager()
-
-    class Meta:
-        ordering = ["-created_at"]
-        indexes = [
-            # `has_order` on every course payload asks exactly this pair.
-            models.Index(fields=["user", "course"]),
-            # "My products", and whether a product is already owned.
-            models.Index(fields=["user", "product"]),
-            # Revenue and order counts filter on a status plus a date floor.
-            models.Index(fields=["status", "created_at"]),
-        ]
-        constraints = [
-            models.CheckConstraint(
-                condition=~models.Q(course__isnull=False, product__isnull=False),
-                name="order_is_one_course_or_one_product",
-            )
-        ]
-
-    def __str__(self):
-        return f"Order #{self.pk} ({self.user})"
-
-
 class Payment(TimestampModel):
-    class Vendor(models.TextChoices):
-        SSLCOMMERZ = "sslcommerz", "SSLCommerz"
-        # The manual mobile-banking flow these name is retired; old rows keep them.
-        BKASH = "bkash", "bKash"
-        NAGAD = "nagad", "Nagad"
-        ROCKET = "rocket", "Rocket"
-
     class Status(models.TextChoices):
-        PENDING = "pending", "Pending"
-        SUCCESSFUL = "successful", "Successful"
-        FAILED = "failed", "Failed"
+        INITIATED = "INITIATED", "Initiated"
+        VALID = "VALID", "Valid"
+        FAILED = "FAILED", "Failed"
+        CANCELLED = "CANCELLED", "Cancelled"
+        EXPIRED = "EXPIRED", "Expired"
 
-    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="payments")
-    amount = models.DecimalField(max_digits=10, decimal_places=2)
-    #: For an SSLCommerz payment, the `tran_id` we generate and send them.
-    transaction_id = models.CharField(max_length=100, db_index=True)
-    vendor = models.CharField(max_length=20, choices=Vendor.choices, default=Vendor.SSLCOMMERZ)
-    sent_from = models.CharField(max_length=20, blank=True)
-    sent_to = models.CharField(max_length=20, blank=True)
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    class Method(models.TextChoices):
+        ONLINE = "online", "Online"
+        CASH = "cash", "Cash"
 
-    # -- set from SSLCommerz's validation API --------------------------------
-    #: Present once SSLCommerz has reported the payment; a pending payment
-    #: with one is waiting for an admin (a risk flag or a mismatch).
-    val_id = models.CharField(max_length=100, blank=True)
-    bank_tran_id = models.CharField(max_length=100, blank=True)
-    #: How the student paid inside the gateway, e.g. "BKASH-BKash".
-    card_type = models.CharField(max_length=50, blank=True)
-    risk_level = models.PositiveSmallIntegerField(null=True, blank=True)
-    gateway_response = models.JSONField(default=dict, blank=True)
+    transaction_id = models.CharField("Transaction ID", max_length=64, unique=True)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, models.SET_NULL, null=True, related_name="payments", verbose_name="User"
+    )
+    product = models.ForeignKey(Product, models.PROTECT, related_name="payments", verbose_name="Product")
+    amount = models.PositiveIntegerField("Amount")
+    # Null means lifetime access.
+    access_until = models.DateTimeField("Access Until", null=True, blank=True)
+    status = models.CharField("Status", max_length=16, choices=Status.choices, default=Status.INITIATED, db_index=True)
+    card_type = models.CharField("Card Type", max_length=64, blank=True)
+    card_issuer_country = models.CharField("Card Issuer Country", max_length=64, blank=True)
+    transaction_date = models.DateTimeField("Transaction Date", null=True, blank=True)
+    gateway_response = models.JSONField("Gateway Response", default=dict, blank=True)
+    # The checkout page SSLCommerz opened, handed back if the buyer starts the same checkout again.
+    gateway_page_url = models.URLField("Gateway Page", max_length=500, blank=True)
+    # Paid for access the buyer already had: no access is granted, and the money is owed back.
+    refund_due = models.BooleanField("Refund Due", default=False)
+    method = models.CharField("Method", max_length=16, choices=Method.choices, default=Method.ONLINE)
+    recorded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, models.SET_NULL, null=True, blank=True, related_name="+", verbose_name="Recorded By"
+    )
+    note = models.CharField("Note", max_length=255, blank=True)
+    confirmation_sent_at = models.DateTimeField("Confirmation Sent At", null=True, blank=True)
 
     objects = PaymentQuerySet.as_manager()
 
     class Meta:
         ordering = ["-created_at"]
-        constraints = [
-            models.UniqueConstraint(
-                fields=["transaction_id"],
-                condition=~models.Q(transaction_id=""),
-                name="unique_non_blank_payment_transaction_id",
-            )
+        verbose_name = "Payment"
+        verbose_name_plural = "Payments"
+        indexes = [
+            models.Index(fields=["user", "product"]),
+            models.Index(fields=["status", "created_at"]),  # the dashboard's income figures
         ]
 
     def __str__(self):
-        return f"Payment for order #{self.order_id}"
+        return self.transaction_id
+
+    def save(self, *args, **kwargs):
+        if not self.transaction_id:
+            candidate = generate_transaction_id(self.product_id)
+            while Payment.objects.filter(transaction_id=candidate).exists():
+                candidate = generate_transaction_id(self.product_id)
+            self.transaction_id = candidate
+        super().save(*args, **kwargs)
 
     @property
-    def details(self):
-        if self.vendor == self.Vendor.SSLCOMMERZ:
-            return {
-                "vendor": self.vendor,
-                "card_type": self.card_type,
-                "bank_tran_id": self.bank_tran_id,
-                "risk_level": self.risk_level,
-            }
-        return {"vendor": self.vendor, "sent_from": self.sent_from, "sent_to": self.sent_to}
+    def title(self):
+        return self.product.title
+
+    def unlocked_courses(self):
+        return list(self.product.courses.all())

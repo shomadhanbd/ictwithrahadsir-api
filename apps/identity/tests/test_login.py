@@ -1,3 +1,7 @@
+from django.conf import settings
+from django.test import override_settings
+
+from apps.core.testing import bearer, make_user
 from apps.core.tests.base import ThrottledAPITestCase
 from apps.identity.models import User
 from apps.identity.tests.base import (
@@ -26,11 +30,7 @@ class LoginTests(ThrottledAPITestCase):
         self.assertEqual(response.json()["user"]["phone"], self.user.phone)
 
     def test_email_is_no_longer_a_login(self):
-        """Phone is the only identifier.
-
-        An account may still hold an email address; it is just not something
-        you can sign in with.
-        """
+        """Phone is the only identifier."""
         response = self.client.post(
             LOGIN_URL,
             {"email": "s@example.com", "password": "Str0ngPass!23"},
@@ -86,6 +86,43 @@ class LoginThrottleTests(ThrottledAPITestCase):
             self.guess()
         body = self.guess().json()
         self.assertIn('message', body)
+
+    def test_a_token_of_ones_own_does_not_lift_the_throttle(self):
+        attacker = bearer(make_user())
+        statuses = [
+            self.client.post(
+                LOGIN_URL, {'phone': self.user.phone, 'password': 'wrong'}, format='json', **attacker
+            ).status_code
+            for _ in range(15)
+        ]
+        self.assertIn(429, statuses, f'a signed-in caller was never throttled: {statuses}')
+
+    def test_a_forged_forwarded_for_header_does_not_lift_the_throttle(self):
+        statuses = [
+            self.client.post(
+                LOGIN_URL,
+                {'phone': self.user.phone, 'password': 'wrong'},
+                format='json',
+                HTTP_X_FORWARDED_FOR=f'203.0.113.{i}',
+            ).status_code
+            for i in range(15)
+        ]
+        self.assertIn(429, statuses, f'each forged address got a fresh limit: {statuses}')
+
+    @override_settings(REST_FRAMEWORK={**settings.REST_FRAMEWORK, 'NUM_PROXIES': 1})
+    def test_behind_a_proxy_the_address_it_appended_is_the_one_counted(self):
+        def guess(forwarded_for):
+            return self.client.post(
+                LOGIN_URL,
+                {'phone': self.user.phone, 'password': 'wrong'},
+                format='json',
+                HTTP_X_FORWARDED_FOR=forwarded_for,
+            ).status_code
+
+        # The client forges the first entry; the proxy appends the real address last.
+        statuses = [guess(f'203.0.113.{i}, 198.51.100.7') for i in range(15)]
+        self.assertIn(429, statuses, f'forged entries got a fresh limit: {statuses}')
+        self.assertEqual(guess('198.51.100.8'), 422)
 
 
 class RegistrationThrottleTests(ThrottledAPITestCase):

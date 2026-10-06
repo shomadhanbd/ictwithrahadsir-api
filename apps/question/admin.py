@@ -19,7 +19,6 @@ class QuestionSourceAdmin(admin.ModelAdmin):
     list_display = ('name', 'kind', 'year', 'unit', 'slug', 'is_active')
     list_editable = ('is_active',)
     list_filter = ('kind', 'is_active', 'year')
-    # `search_fields` is what makes this autocompletable from the block form.
     search_fields = ('name', 'slug', 'unit')
     readonly_fields = ('slug',)
 

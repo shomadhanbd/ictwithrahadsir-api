@@ -8,8 +8,6 @@ from apps.content.api.public.views import (
     PublicPageDetailAPIView,
 )
 
-#: No `app_name`: assembled into the app's single namespace by
-#: `apps.content.api.urls`, so route names survive the split.
 urlpatterns = [
     path('home/', HomeAPIView.as_view(), name='home'),
     path('ebooks/', PublicEBookListAPIView.as_view(), name='ebook_list'),

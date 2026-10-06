@@ -1,4 +1,3 @@
-from drf_spectacular.utils import extend_schema
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -12,9 +11,5 @@ class SmsBalanceAPIView(APIView):
 
     permission_classes = [IsFullAdmin]
 
-    @extend_schema(
-        summary='SMS gateway balance',
-        responses={200: SmsBalanceResponseSerializer},
-    )
     def get(self, request):
         return Response(SmsBalanceResponseSerializer(get_sms_backend().balance()).data)

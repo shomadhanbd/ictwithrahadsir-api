@@ -1,35 +1,23 @@
-"""The academic taxonomy: ClassLevel > Group > Subject > Chapter > Topic, plus
-Batch as a cohort of one level.
-
-Each level `PROTECT`s the one above it, so nothing in use can be deleted;
-`is_active` is how you retire a row instead.
-
-`question_count`, `ClassLevel.subject_count` and `Subject.chapter_count` are
-recounted on demand by `apps.question.counts` (the Question Bank's "Refresh
-questions" button); the other `*_count` fields are typed in.
-
-Slugs are English. A blank one is built from the name (see
-`apps.core.slugs`), so a Bangla-named row should be given a slug explicitly.
-"""
+"""The academic taxonomy: ClassLevel > Group > Subject > Chapter > Topic, plus Batch."""
 
 from django.db import models
 from django.utils.text import slugify
 from django.utils.translation import gettext_lazy as _
 
-from apps.core.slugs import unique_slug
+from apps.academic.managers import ActiveQuerySet, ClassLevelQuerySet, GroupQuerySet, SubjectQuerySet
+from apps.core.models import NameSlugMixin
 
 
-class ClassLevel(models.Model):
+class ClassLevel(NameSlugMixin, models.Model):
     """An education level: class 6, SSC, Dakhil, HSC, Alim, Admission."""
 
     name = models.CharField("Name", max_length=100, unique=True)
     slug = models.SlugField(max_length=120, unique=True, blank=True, verbose_name=_("slug"))
-    group_count = models.PositiveIntegerField("Group Count", default=0)
-    subject_count = models.PositiveIntegerField("Subject Count", default=0)
     question_count = models.PositiveIntegerField("Question Count", default=0)
-    chapter_count = models.PositiveIntegerField("Chapter Count", default=0)
     is_active = models.BooleanField("Active", default=True)
     order = models.PositiveIntegerField("Order", default=0)
+
+    objects = ClassLevelQuerySet.as_manager()
 
     class Meta:
         ordering = ["order", "name"]
@@ -39,27 +27,17 @@ class ClassLevel(models.Model):
     def __str__(self):
         return self.name
 
-    def save(self, *args, **kwargs):
-        if not self.slug:
-            self.slug = unique_slug(self, self.name)
-        super().save(*args, **kwargs)
 
-
-class Group(models.Model):
-    """A branch of study: Science, Arts, Commerce, General.
-
-    Named `Group` rather than `Section` because `courses.Section` is already a
-    chapter of a course. The Django admin lists it under Academic, which is
-    what separates it from `auth.Group`.
-    """
+class Group(NameSlugMixin, models.Model):
+    """A branch of study: Science, Arts, Commerce, General."""
 
     name = models.CharField("Name", max_length=100, unique=True)
     slug = models.SlugField(max_length=120, unique=True, blank=True, verbose_name=_("slug"))
-    subject_count = models.PositiveIntegerField("Subject Count", default=0)
     question_count = models.PositiveIntegerField("Question Count", default=0)
-    chapter_count = models.PositiveIntegerField("Chapter Count", default=0)
     is_active = models.BooleanField("Active", default=True)
     order = models.PositiveIntegerField("Order", default=0)
+
+    objects = GroupQuerySet.as_manager()
 
     class Meta:
         ordering = ["order", "name"]
@@ -67,19 +45,9 @@ class Group(models.Model):
     def __str__(self):
         return self.name
 
-    def save(self, *args, **kwargs):
-        if not self.slug:
-            self.slug = unique_slug(self, self.name)
-        super().save(*args, **kwargs)
 
-
-class Subject(models.Model):
-    """One subject, as taught at one education level to one group.
-
-    "Physics" is not a single row: SSC Science Physics, HSC Science Physics and
-    Alim Science Physics each carry their own chapters and question count. The
-    name repeats, and the triple is what has to be unique.
-    """
+class Subject(NameSlugMixin, models.Model):
+    """One subject at one level for one group; the name repeats across levels."""
 
     name = models.CharField("Name", max_length=100)
     slug = models.SlugField(max_length=160, unique=True, blank=True, verbose_name=_("slug"))
@@ -88,9 +56,10 @@ class Subject(models.Model):
     )
     group = models.ForeignKey(Group, on_delete=models.PROTECT, related_name="subjects")
     question_count = models.PositiveIntegerField("Question Count", default=0)
-    chapter_count = models.PositiveIntegerField("Chapter Count", default=0)
     is_active = models.BooleanField("Active", default=True)
     order = models.PositiveIntegerField("Order", default=0)
+
+    objects = SubjectQuerySet.as_manager()
 
     class Meta:
         ordering = ["order", "name", "id"]
@@ -103,37 +72,27 @@ class Subject(models.Model):
     def __str__(self):
         return f"{self.name} ({self.class_level} / {self.group})"
 
-    def save(self, *args, **kwargs):
-        if not self.slug:
-            # From the triple, not the name: the name alone collides on every
-            # level and group, giving physics-2, physics-3.
-            base = f"{slugify(self.name)}-{self.class_level.slug}-{self.group.slug}"
-            self.slug = unique_slug(self, base)
-        super().save(*args, **kwargs)
+    def slug_base(self):
+        return f"{slugify(self.name)}-{self.class_level.slug}-{self.group.slug}"
 
 
-class Chapter(models.Model):
-    """A chapter within a subject.
-
-    Uniqueness is carried by the slug alone: two chapters of one subject may
-    share a `chapter_number` or a `name`, and the second is suffixed rather
-    than rejected.
-    """
-
+class Chapter(NameSlugMixin, models.Model):
     subject = models.ForeignKey(Subject, on_delete=models.PROTECT, related_name="chapters", verbose_name="Subject")
     name = models.CharField("Name", max_length=200)
     slug = models.SlugField(max_length=220, unique=True, blank=True, verbose_name=_("slug"))
     chapter_number = models.PositiveSmallIntegerField("Chapter Number", default=0)
     question_count = models.PositiveIntegerField("Question Count", default=0)
-    is_locked = models.BooleanField(
-        "Locked",
+    practice_enabled = models.BooleanField(
+        "Open for Practice",
         default=False,
         help_text=(
-            "Locked chapters appear in lists with is_locked=True so clients can render "
-            "a lock badge. Does not gate question access by itself."
+            "Its questions, answers included, are served free to anyone on the practice page. Off until a "
+            "teacher opens it, so questions written for an upcoming exam are not given away."
         ),
     )
     is_active = models.BooleanField("Active", default=True)
+
+    objects = ActiveQuerySet.as_manager()
 
     class Meta:
         ordering = ["chapter_number", "name", "id"]
@@ -144,41 +103,34 @@ class Chapter(models.Model):
     def __str__(self):
         return f"{self.chapter_number}. {self.name} ({self.subject})"
 
-    def save(self, *args, **kwargs):
-        if not self.slug:
-            self.slug = unique_slug(self, f"{slugify(self.name)}-{self.subject.slug}")
-        super().save(*args, **kwargs)
+    def slug_base(self):
+        return f"{slugify(self.name)}-{self.subject.slug}"
 
 
-class Topic(models.Model):
-    """A topic within a chapter -- the most granular curriculum unit."""
-
+class Topic(NameSlugMixin, models.Model):
     chapter = models.ForeignKey(Chapter, on_delete=models.PROTECT, related_name="topics", verbose_name="Chapter")
     name = models.CharField("Name", max_length=200)
     slug = models.SlugField(max_length=220, unique=True, blank=True, verbose_name=_("slug"))
     question_count = models.PositiveIntegerField("Question Count", default=0)
     is_active = models.BooleanField("Active", default=True)
+    order = models.PositiveIntegerField("Order", default=0)
+
+    objects = ActiveQuerySet.as_manager()
 
     class Meta:
-        ordering = ["name", "id"]
+        ordering = ["order", "name", "id"]
         verbose_name = "Topic"
         verbose_name_plural = "Topics"
 
     def __str__(self):
         return f"{self.name} ({self.chapter})"
 
-    def save(self, *args, **kwargs):
-        if not self.slug:
-            self.slug = unique_slug(self, f"{slugify(self.name)}-{self.chapter.slug}")
-        super().save(*args, **kwargs)
+    def slug_base(self):
+        return f"{slugify(self.name)}-{self.chapter.slug}"
 
 
-class Batch(models.Model):
-    """A cohort taking one education level: "SSC-2027", "HSC-2028".
-
-    `is_active` rather than deletion, so a finished batch keeps its students
-    and results while dropping out of every picker.
-    """
+class Batch(NameSlugMixin, models.Model):
+    """A cohort taking one education level, e.g. "SSC-2027"."""
 
     name = models.CharField("Name", max_length=100)
     slug = models.SlugField(max_length=160, unique=True, blank=True, verbose_name=_("slug"))
@@ -187,6 +139,8 @@ class Batch(models.Model):
     )
     is_active = models.BooleanField("Active", default=True)
     order = models.PositiveIntegerField("Order", default=0)
+
+    objects = ActiveQuerySet.as_manager()
 
     class Meta:
         ordering = ["order", "name", "id"]
@@ -197,13 +151,7 @@ class Batch(models.Model):
     def __str__(self):
         return f"{self.name} ({self.class_level})"
 
-    def save(self, *args, **kwargs):
-        if not self.slug:
-            # The level disambiguates a bare "2027", but only when the name
-            # does not already carry it, so "SSC-2027" stays `ssc-2027`.
-            base = slugify(self.name)
-            level = self.class_level.slug
-            if level not in base:
-                base = f"{base}-{level}"
-            self.slug = unique_slug(self, base)
-        super().save(*args, **kwargs)
+    def slug_base(self):
+        # Add the level only when the name lacks it, so "SSC-2027" stays `ssc-2027`.
+        base, level = slugify(self.name), self.class_level.slug
+        return base if level in base else f"{base}-{level}"

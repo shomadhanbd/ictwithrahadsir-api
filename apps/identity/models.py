@@ -1,15 +1,12 @@
-import string
-
 from django.conf import settings
 from django.contrib.auth.base_user import AbstractBaseUser
 from django.contrib.auth.models import Group, PermissionsMixin
 from django.db import models, transaction
 from django.utils import timezone
-from django.utils.crypto import constant_time_compare, get_random_string
 from django.utils.functional import cached_property
 
 from apps.core.phones import normalize_phone, validate_phone
-from apps.identity.managers import UserManager
+from apps.identity.managers import OTPQuerySet, UserManager
 from apps.identity.roles import BACK_OFFICE_ROLES, Role
 
 
@@ -70,8 +67,9 @@ class User(AbstractBaseUser, PermissionsMixin):
         return self.is_superuser or self.role in BACK_OFFICE_ROLES
 
     @property
-    def is_phone_verified(self) -> bool:
-        return self.phone_verified_at is not None
+    def can_sign_in(self) -> bool:
+        # `has_usable_password()` reads an empty hash as usable, so check for one too.
+        return bool(self.is_active and self.password and self.has_usable_password())
 
 
 class OTP(models.Model):
@@ -85,8 +83,9 @@ class OTP(models.Model):
     created_at = models.DateTimeField("Issued At", auto_now_add=True)
     consumed_at = models.DateTimeField("Consumed At", null=True, blank=True)
     attempts = models.PositiveSmallIntegerField("Failed Attempts", default=0)
-    #: Debugging only, e.g. {"platform": "android"}. Never filtered on.
-    meta = models.JSONField("Request Meta", default=dict, blank=True)
+    meta = models.JSONField("Request Meta", default=dict, blank=True)  # debugging only
+
+    objects = OTPQuerySet.as_manager()
 
     class Meta:
         verbose_name = "One-time Code"
@@ -103,49 +102,3 @@ class OTP(models.Model):
         return (
             self.consumed_at is None and self.attempts < settings.OTP_MAX_ATTEMPTS and age <= settings.OTP_TTL_SECONDS
         )
-
-    @classmethod
-    def issue(cls, phone: str, purpose: str, meta: dict | None = None) -> "OTP":
-        return cls.objects.create(
-            phone=phone,
-            code=get_random_string(settings.OTP_LENGTH, allowed_chars=string.digits),
-            purpose=purpose,
-            meta=meta or {},
-        )
-
-    @classmethod
-    def verify(cls, phone: str, code: str, purpose: str) -> bool:
-        otp = cls.latest_for(phone, purpose)
-        if otp is None or not otp.is_usable:
-            return False
-
-        if not constant_time_compare(otp.code, str(code or "")):
-            cls.objects.filter(pk=otp.pk).update(attempts=models.F("attempts") + 1)
-            return False
-
-        # Conditional, so two concurrent verifies cannot both succeed.
-        spent = cls.objects.filter(pk=otp.pk, consumed_at__isnull=True).update(consumed_at=timezone.now())
-        return bool(spent)
-
-    @classmethod
-    def latest_for(cls, phone: str, purpose: str) -> "OTP | None":
-        return cls.objects.filter(phone=phone, purpose=purpose).order_by("-created_at").first()
-
-    @classmethod
-    def seconds_until_resend(cls, phone: str) -> int:
-        """0 if a send is allowed now, otherwise how long to wait."""
-        now = timezone.now()
-        recent = cls.objects.filter(phone=phone, created_at__gte=now - timezone.timedelta(hours=1))
-        recent = recent.order_by("created_at")
-
-        waits = [0]
-        newest = recent.last()
-        if newest and settings.OTP_RESEND_COOLDOWN_SECONDS:
-            elapsed = (now - newest.created_at).total_seconds()
-            waits.append(int(settings.OTP_RESEND_COOLDOWN_SECONDS - elapsed))
-
-        cap = settings.OTP_RATE_LIMIT_PER_PHONE_PER_HOUR
-        if cap and recent.count() >= cap:
-            waits.append(int(3600 - (now - recent.first().created_at).total_seconds()))
-
-        return max(waits)

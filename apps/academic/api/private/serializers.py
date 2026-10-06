@@ -1,16 +1,16 @@
-"""Slugs are read-only throughout: typed in the Django admin, or built from the
-name on save when left blank.
-
-The `*_name` fields spare the panel a second request to resolve a foreign key;
-the matching views `select_related` so they cost no extra query.
-"""
-
 from rest_framework import serializers
 
+from apps.academic import services
 from apps.academic.models import Batch, Chapter, ClassLevel, Group, Subject, Topic
+from apps.academic.validators import validate_chapter_subject_change, validate_topic_chapter_change
+from apps.core.api.fields import LiveCount
 
 
 class ClassLevelSerializer(serializers.ModelSerializer):
+    group_count = LiveCount()
+    subject_count = LiveCount()
+    chapter_count = LiveCount()
+
     class Meta:
         model = ClassLevel
         fields = [
@@ -24,10 +24,13 @@ class ClassLevelSerializer(serializers.ModelSerializer):
             "is_active",
             "order",
         ]
-        read_only_fields = ["slug", "question_count", "subject_count"]
+        read_only_fields = ["slug", "question_count"]
 
 
 class GroupSerializer(serializers.ModelSerializer):
+    subject_count = LiveCount()
+    chapter_count = LiveCount()
+
     class Meta:
         model = Group
         fields = [
@@ -48,6 +51,7 @@ class SubjectSerializer(serializers.ModelSerializer):
     group_id = serializers.PrimaryKeyRelatedField(source="group", queryset=Group.objects.all())
     class_level_name = serializers.CharField(source="class_level.name", read_only=True)
     group_name = serializers.CharField(source="group.name", read_only=True)
+    chapter_count = LiveCount()
 
     class Meta:
         model = Subject
@@ -64,7 +68,7 @@ class SubjectSerializer(serializers.ModelSerializer):
             "is_active",
             "order",
         ]
-        read_only_fields = ["slug", "question_count", "chapter_count"]
+        read_only_fields = ["slug", "question_count"]
 
 
 class ChapterSerializer(serializers.ModelSerializer):
@@ -72,12 +76,7 @@ class ChapterSerializer(serializers.ModelSerializer):
     subject_name = serializers.CharField(source="subject.name", read_only=True)
 
     def validate_subject_id(self, subject):
-        # A question carries its subject as well as its chapter, so moving a
-        # chapter that holds questions would leave them saying two things.
-        # `question_blocks` is the question app's reverse relation, read by
-        # name so this app does not import the one above it.
-        if self.instance is not None and subject != self.instance.subject and self.instance.question_blocks.exists():
-            raise serializers.ValidationError("This chapter has questions, so it cannot move to another subject.")
+        validate_chapter_subject_change(self.instance, subject)
         return subject
 
     class Meta:
@@ -90,7 +89,7 @@ class ChapterSerializer(serializers.ModelSerializer):
             "subject_name",
             "chapter_number",
             "question_count",
-            "is_locked",
+            "practice_enabled",
             "is_active",
         ]
         read_only_fields = ["slug", "question_count"]
@@ -101,15 +100,16 @@ class TopicSerializer(serializers.ModelSerializer):
     chapter_name = serializers.CharField(source="chapter.name", read_only=True)
 
     def validate_chapter_id(self, chapter):
-        # A question's topics must be of its chapter; see the chapter's rule.
-        if self.instance is not None and chapter != self.instance.chapter and self.instance.question_blocks.exists():
-            raise serializers.ValidationError("Questions are tagged with this topic, so it cannot move chapter.")
+        validate_topic_chapter_change(self.instance, chapter)
         return chapter
 
     class Meta:
         model = Topic
-        fields = ["id", "name", "slug", "chapter_id", "chapter_name", "question_count", "is_active"]
+        fields = ["id", "name", "slug", "chapter_id", "chapter_name", "question_count", "is_active", "order"]
         read_only_fields = ["slug", "question_count"]
+
+    def create(self, validated_data):
+        return services.create_topic(**validated_data)
 
 
 class BatchSerializer(serializers.ModelSerializer):

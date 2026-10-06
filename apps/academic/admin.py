@@ -1,7 +1,3 @@
-"""Slugs are editable everywhere; a blank one is built from the name on save.
-`question_count`, and the subject and chapter counts shown in the Question Bank,
-are read-only: "Refresh questions" recounts them."""
-
 from django.contrib import admin
 
 from apps.academic.models import Batch, Chapter, ClassLevel, Group, Subject, Topic
@@ -12,15 +8,12 @@ class ClassLevelAdmin(admin.ModelAdmin):
     list_display = (
         'name',
         'slug',
-        'group_count',
-        'subject_count',
         'question_count',
-        'chapter_count',
         'is_active',
         'order',
     )
-    list_editable = ('group_count', 'chapter_count', 'is_active', 'order')
-    readonly_fields = ('question_count', 'subject_count')
+    list_editable = ('is_active', 'order')
+    readonly_fields = ('question_count',)
     list_filter = ('is_active',)
     search_fields = ('name', 'slug')
 
@@ -30,13 +23,11 @@ class GroupAdmin(admin.ModelAdmin):
     list_display = (
         'name',
         'slug',
-        'subject_count',
         'question_count',
-        'chapter_count',
         'is_active',
         'order',
     )
-    list_editable = ('subject_count', 'chapter_count', 'is_active', 'order')
+    list_editable = ('is_active', 'order')
     readonly_fields = ('question_count',)
     list_filter = ('is_active',)
     search_fields = ('name', 'slug')
@@ -50,12 +41,11 @@ class SubjectAdmin(admin.ModelAdmin):
         'group',
         'slug',
         'question_count',
-        'chapter_count',
         'is_active',
         'order',
     )
     list_editable = ('is_active', 'order')
-    readonly_fields = ('question_count', 'chapter_count')
+    readonly_fields = ('question_count',)
     list_filter = ('class_level', 'group', 'is_active')
     search_fields = ('name', 'slug')
     autocomplete_fields = ('class_level', 'group')
@@ -66,10 +56,18 @@ class SubjectAdmin(admin.ModelAdmin):
 
 @admin.register(Chapter)
 class ChapterAdmin(admin.ModelAdmin):
-    list_display = ('chapter_number', 'name', 'subject', 'slug', 'question_count', 'is_locked', 'is_active')
-    list_editable = ('is_locked', 'is_active')
+    list_display = (
+        'chapter_number',
+        'name',
+        'subject',
+        'slug',
+        'question_count',
+        'practice_enabled',
+        'is_active',
+    )
+    list_editable = ('practice_enabled', 'is_active')
     readonly_fields = ('question_count',)
-    list_filter = ('subject', 'is_locked', 'is_active')
+    list_filter = ('subject', 'practice_enabled', 'is_active')
     search_fields = ('name', 'slug', 'subject__name')
     autocomplete_fields = ('subject',)
 

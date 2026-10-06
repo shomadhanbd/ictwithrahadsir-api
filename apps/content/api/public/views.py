@@ -1,5 +1,4 @@
-from drf_spectacular.utils import OpenApiResponse, extend_schema
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.generics import ListAPIView
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -35,6 +34,8 @@ class PublicNoticeListAPIView(ListAPIView):
         qs = Notice.objects.prefetch_related('categories')
         category_id = self.request.query_params.get('category_id')
         if category_id:
+            if not category_id.isdigit():
+                raise ValidationError({'category_id': ['Must be a category id.']})
             qs = qs.filter(categories__id=category_id)
         return qs.distinct()
 
@@ -62,10 +63,6 @@ class PublicNoticeCategoryListAPIView(UnpaginatedDataListMixin, ListAPIView):
 class PublicPageDetailAPIView(APIView):
     permission_classes = [AllowAny]
 
-    @extend_schema(
-        summary='A static CMS page by key',
-        responses={200: OpenApiResponse(PageSerializer, description='`{data: {...}}`')},
-    )
     def get(self, request, key):
         page = Page.objects.filter(key=key).first()
         if not page:
@@ -78,10 +75,9 @@ class HomeAPIView(APIView):
 
     permission_classes = [AllowAny]
 
-    @extend_schema(summary='Everything the landing page needs', responses={200: HomeSerializer})
     def get(self, request):
         # Imported here rather than at module scope: `courses` imports
         # `content`, so a top-level import back into it would close the cycle.
         from apps.content.selectors import homepage_content
 
-        return Response(HomeSerializer(homepage_content(), context={'request': request}).data)
+        return Response(HomeSerializer(homepage_content(request.user), context={'request': request}).data)

@@ -1,34 +1,17 @@
-"""Golden response-shape tests for the app re-decomposition.
-
-`UrlContractTests` guards which *paths* are served. It says nothing about
-what comes back from them, so it stays green while a serializer rewrite
-silently changes the shape of a payload behind an unchanged URL. The app
-re-decomposition does exactly that: extracting `Exam` off `Content` and
-unifying the teacher models both rewrite serializer internals under
-paths that must not move.
-
-These assert exact key lists and the literal values that come from model
-field defaults, so a shape change fails loudly. They live in `core`
-because `core` survives the restructure with its name intact.
-
-Key order matters: DRF emits keys in `Meta.fields` order, and the two
-frontends destructure these payloads.
-"""
+"""Golden response shapes and URL contracts."""
 
 from django.test import TestCase
 from django.urls import reverse
 
-from rest_framework.authtoken.models import Token
-
 from apps.content.models import Advertisement, Page, Testimonial
-from apps.courses.models import Content, Course, CourseCategory, CourseTeacher, Section
+from apps.core.testing import bearer, make_user
+from apps.courses.models import Content, Course, CourseTeacher, Section
 from apps.identity.models import User
 from apps.profiles.models import TeacherProfile
 
 #: Exactly what `/api/public/home/` returns, in order.
 HOME_KEYS = [
     'courses',
-    'courseCategories',
     'advertisement',
     'testimonials',
     'counters',
@@ -37,12 +20,7 @@ HOME_KEYS = [
     'bannerImage',
 ]
 
-#: Both the homepage `instructors` (profiles.TeacherProfile) and course-detail
-#: `instructors` (courses.CourseTeacher) serialise to this same key list. The
-#: key is spelled `instructors` and stays that way: it is the one piece of the
-#: old vocabulary kept, because an unknown mobile client may read it.
-#: Keeping it frozen is what proved the move out of `faculty` changed no
-#: payload: widening it here would remove the guard, not satisfy it.
+#: Homepage and course-detail `instructors` share this key list; clients read it, so it stays fixed.
 PUBLIC_TEACHER_KEYS = [
     'id',
     'name',
@@ -55,37 +33,51 @@ PUBLIC_TEACHER_KEYS = [
 
 COURSE_LIST_KEYS = [
     'id',
-    'title',
     'slug',
+    'title',
     'subtitle',
-    'duration',
+    'summary',
+    'thumbnail',
+    'delivery',
     'is_online',
-    'active',
-    'featured',
-    'fake_user_count',
-    'video_count',
-    'class_count',
-    'exam_count',
-    'note_count',
-    'link_count',
-    'live_count',
-    'audio_count',
-    'online_count',
-    'offline_count',
-    'image',
+    'difficulty',
+    'language',
+    'duration',
+    'class_level',
+    'group',
+    'batch',
+    'is_featured',
+    'student_count',
     'price',
-    'categories',
+    'is_free',
     'instructors',
-    'routines',
-    'subscription_status',
-    'has_order',
-    'users_count',
+    'starts_on',
+    'enrollment_open',
+    'lesson_counts',
+    'enrollment',
+    'has_purchased',
 ]
 
-#: The original 13 keys in their original order. `teacher_id` is gone with the
-#: roster model it pointed at -- an assignment names the account directly now
-#: -- and everything but `commission` and `order` is read through that account,
-#: so the panel's table renders unchanged while none of it is editable here.
+#: The course landing page: the card, then everything that sells it.
+COURSE_DETAIL_KEYS = COURSE_LIST_KEYS + [
+    'status',
+    'description',
+    'banner',
+    'promo_video',
+    'syllabus_pdf',
+    'learning_outcomes',
+    'target_audience',
+    'requirements',
+    'highlights',
+    'faqs',
+    'schedule',
+    'routines',
+    'packages',
+    'curriculum',
+    'seo',
+]
+
+#: An admin course-teacher row; only `commission` and `order` are editable.
 ADMIN_COURSE_TEACHER_KEYS = [
     'id',
     'course_id',
@@ -112,17 +104,15 @@ class ResponseShapeTests(TestCase):
             role=User.Role.ADMIN,
             is_staff=True,
         )
-        self.auth = {'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=self.admin).key}'}
+        self.auth = bearer(self.admin)
 
-        self.category = CourseCategory.objects.create(title='HSC', slug='hsc')
         self.course = Course.objects.create(
             title='ICT',
             slug='ict',
-            active=True,
-            featured=True,
-            image='http://localhost:8000/media/seed/course-0.png',
+            status='published',
+            is_featured=True,
+            thumbnail='http://localhost:8000/media/seed/course-0.png',
         )
-        self.course.categories.add(self.category)
 
         self.teacher_user = User.objects.create_user(
             phone='01899000111',
@@ -160,8 +150,6 @@ class ResponseShapeTests(TestCase):
             type=Content.Type.VIDEO,
         )
 
-    # -- public ----------------------------------------------------------
-
     def test_home_payload_shape(self):
         body = self.client.get(reverse('api:content:home')).json()
         self.assertEqual(list(body.keys()), HOME_KEYS)
@@ -181,6 +169,13 @@ class ResponseShapeTests(TestCase):
         body = self.client.get(reverse('api:courses:course_list')).json()
         self.assertEqual(list(body['data'][0].keys()), COURSE_LIST_KEYS)
 
+    def test_course_detail_payload_shape(self):
+        body = self.client.get(reverse('api:courses:course_detail', args=[self.course.slug])).json()
+        self.assertEqual(list(body.keys()), COURSE_DETAIL_KEYS)
+        self.assertEqual(list(body['lesson_counts'].keys()), ['video', 'note', 'pdf', 'exam', 'link', 'live', 'total'])
+        self.assertEqual(list(body['schedule'].keys()), ['starts_on', 'ends_on', 'enrollment_deadline', 'note'])
+        self.assertEqual(list(body['seo'].keys()), ['title', 'description', 'image'])
+
     def test_course_detail_instructors_shape(self):
         url = reverse('api:courses:course_detail', args=[self.course.slug])
         body = self.client.get(url).json()
@@ -195,29 +190,19 @@ class ResponseShapeTests(TestCase):
             'http://localhost:8000/media/seed/teacher-0.png',
         )
 
-    # -- admin -----------------------------------------------------------
-
     def test_admin_course_teacher_payload_shape(self):
         body = self.client.get(reverse('api:courses:admin-course-teacher-list'), **self.auth)
         self.assertEqual(list(body.json()['data'][0].keys()), ADMIN_COURSE_TEACHER_KEYS)
 
-    # -- exam taking -----------------------------------------------------
-
 
 class AdminSearchTests(TestCase):
-    """`?search=` must actually filter.
-
-    The global SearchFilter is enabled for every view, but it is inert
-    without `search_fields` on the view itself — so these endpoints accepted
-    `?search=` and returned the unfiltered list. The admin panel ships a
-    search box against each of them, which therefore did nothing at all.
-    """
+    """`?search=` must actually filter."""
 
     def setUp(self):
         from apps.content.models import Notice
 
         admin = User.objects.create_user(phone='01899000111', name='Admin', role=User.Role.ADMIN, is_staff=True)
-        self.auth = {'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=admin).key}'}
+        self.auth = bearer(admin)
 
         Notice.objects.create(title='Exam routine published')
         Notice.objects.create(title='Holiday announcement')
@@ -253,16 +238,11 @@ class AdminSearchTests(TestCase):
 
 
 class SlugOrPkLookupTests(TestCase):
-    """The admin panel routes on the numeric id; the site uses the slug.
-
-    `AdminCourseViewSet.lookup_field` is `slug`, so `/admin/courses/6/` used
-    to 404 -- it looked for a course whose slug was literally "6". The panel
-    only ever has the id, so every course detail route was unreachable.
-    """
+    """The admin panel routes on the numeric id; the site uses the slug."""
 
     def setUp(self):
-        admin = User.objects.create_user(phone='01899000222', name='Admin', role=User.Role.ADMIN, is_staff=True)
-        self.auth = {'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=admin).key}'}
+        admin = make_user(role=User.Role.ADMIN)
+        self.auth = bearer(admin)
         self.course = Course.objects.create(title='Physics First Paper')
 
     def detail(self, value):
@@ -279,9 +259,9 @@ class SlugOrPkLookupTests(TestCase):
         self.assertEqual(res.json()['title'], 'Physics First Paper')
 
     def test_numeric_slug_is_still_reachable(self):
-        # A pk lookup that misses falls through to the slug, or a course
-        # titled "2026" would become unopenable.
-        numeric = Course.objects.create(title='2026')
+        # A pk lookup that misses falls through to the slug, or a course saved
+        # with an all-digit slug (new ones get "course-2026") would become unopenable.
+        numeric = Course.objects.create(title='2026', slug='2026')
         self.assertTrue(numeric.slug.isdigit(), f'expected digits, got {numeric.slug!r}')
         self.assertFalse(Course.objects.filter(pk=numeric.slug).exists())
         res = self.detail(numeric.slug)
@@ -293,18 +273,13 @@ class SlugOrPkLookupTests(TestCase):
 
 
 class CourseTabSearchTests(TestCase):
-    """The course tabs all ship a search box; each endpoint must honour it.
-
-    Routines, teachers and the enrolled-student list had no
-    `search_fields`, so `?search=` was accepted and ignored -- the same inert
-    SearchFilter problem as the top-level admin lists.
-    """
+    """The course tabs all ship a search box; each endpoint must honour it."""
 
     def setUp(self):
         from apps.courses.models import CourseTeacher, Enrollment, Routine
 
-        admin = User.objects.create_user(phone='01899000333', name='Admin', role=User.Role.ADMIN, is_staff=True)
-        self.auth = {'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=admin).key}'}
+        admin = make_user(role=User.Role.ADMIN)
+        self.auth = bearer(admin)
         self.course = Course.objects.create(title='Search Tab Course')
 
         Routine.objects.create(course=self.course, title='September routine', link='a.pdf')
@@ -340,7 +315,7 @@ class CourseTabSearchTests(TestCase):
         self.assert_filters(f'/api/private/courses/{self.course.pk}/enrollments/', 'Nusrat', 1)
 
     def test_enrolment_pages_do_not_overlap(self):
-        """An unordered queryset let a student land on two pages or none."""
+        """Enrolment pages are stably ordered, so no student appears on two."""
         from apps.courses.models import Enrollment
 
         for i in range(2, 8):
@@ -357,53 +332,12 @@ class CourseTabSearchTests(TestCase):
         self.assertEqual(len(seen), Enrollment.objects.filter(course=self.course).count())
 
 
-class CategorySearchTests(TestCase):
-    """The categories screen searches on the server, at either level."""
-
-    def setUp(self):
-        from apps.courses.models import CourseCategory
-
-        admin = User.objects.create_user(phone='01899000444', name='Admin', role=User.Role.ADMIN, is_staff=True)
-        self.auth = {'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=admin).key}'}
-        self.parent = CourseCategory.objects.create(title='HSC ICT')
-        CourseCategory.objects.create(title='Admission Prep')
-        CourseCategory.objects.create(title='HSC 2026', category=self.parent)
-        CourseCategory.objects.create(title='HSC 2027', category=self.parent)
-
-    def test_root_search_filters(self):
-        path = '/api/private/course-categories/'
-        unfiltered = self.client.get(path, **self.auth).json()['meta']['total']
-        filtered = self.client.get(path, {'search': 'Admission'}, **self.auth).json()
-        self.assertEqual(filtered['meta']['total'], 1)
-        self.assertLess(filtered['meta']['total'], unfiltered)
-
-    def test_subcategory_search_stays_within_the_parent(self):
-        # The filter and the search have to compose, or searching inside a
-        # category would surface siblings from elsewhere in the tree.
-        body = self.client.get(
-            '/api/private/course-categories/',
-            {'category_id': self.parent.pk, 'search': '2027'},
-            **self.auth,
-        ).json()
-        self.assertEqual(body['meta']['total'], 1)
-        self.assertEqual(body['data'][0]['title'], 'HSC 2027')
-
-    def test_detail_by_pk_for_the_parent_heading(self):
-        res = self.client.get(f'/api/private/course-categories/{self.parent.pk}/', **self.auth)
-        self.assertEqual(res.status_code, 200)
-        self.assertEqual(res.json()['title'], 'HSC ICT')
-
-
 class CourseMaterialCrudTests(TestCase):
-    """Materials were list-only, so the admin screen was a dead end.
-
-    The endpoint is a full viewset now; these pin the write paths and the
-    search that the screen's box depends on.
-    """
+    """Admins create, edit and delete course materials."""
 
     def setUp(self):
-        admin = User.objects.create_user(phone='01899000666', name='Admin', role=User.Role.ADMIN, is_staff=True)
-        self.auth = {'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=admin).key}'}
+        admin = make_user(role=User.Role.ADMIN)
+        self.auth = bearer(admin)
         self.course = Course.objects.create(title='Material Host Course')
 
     def test_create_update_delete(self):
@@ -457,28 +391,22 @@ class CourseMaterialCrudTests(TestCase):
 
 
 class AdminPaymentListTests(TestCase):
-    """The payments screen searches and filters on the server.
-
-    Neither worked: the view had no `search_fields`, so `?search=` was
-    accepted and ignored, and there was no status filter at all — which is
-    what the screen mainly exists to do.
-    """
+    """The payments screen searches and filters on the server."""
 
     def setUp(self):
-        from apps.billing.models import Order, Payment
+        from apps.billing.models import Payment, Product
 
-        admin = User.objects.create_user(phone='01899000777', name='Admin', role=User.Role.ADMIN, is_staff=True)
-        self.auth = {'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=admin).key}'}
-        course = Course.objects.create(title='Paid Course')
+        admin = make_user(role=User.Role.ADMIN)
+        self.auth = bearer(admin)
+        product = Product.objects.create(title='Paid Bundle', price=500, base_price=500)
 
         for name, phone, txn, status in [
-            ('Nusrat Jahan', '01810500001', 'TRX-AAA-111', Payment.Status.PENDING),
-            ('Imran Hossain', '01810500002', 'TRX-BBB-222', Payment.Status.SUCCESSFUL),
+            ('Nusrat Jahan', '01810500001', 'TRX-AAA-111', Payment.Status.INITIATED),
+            ('Imran Hossain', '01810500002', 'TRX-BBB-222', Payment.Status.VALID),
             ('Rahim Uddin', '01810500003', 'TRX-CCC-333', Payment.Status.FAILED),
         ]:
             user = User.objects.create_user(phone=phone, name=name, role=User.Role.STUDENT)
-            order = Order.objects.create(user=user, course=course, amount=500, total=500)
-            Payment.objects.create(order=order, amount=500, transaction_id=txn, status=status)
+            Payment.objects.create(user=user, product=product, amount=500, transaction_id=txn, status=status)
 
     def get(self, **params):
         return self.client.get('/api/private/payments/', params, **self.auth).json()
@@ -496,8 +424,8 @@ class AdminPaymentListTests(TestCase):
         self.assertEqual(self.get(search='01810500003')['meta']['total'], 1)
 
     def test_status_filter(self):
-        self.assertEqual(self.get(status='pending')['meta']['total'], 1)
-        self.assertEqual(self.get(status='successful')['meta']['total'], 1)
+        self.assertEqual(self.get(status='INITIATED')['meta']['total'], 1)
+        self.assertEqual(self.get(status='VALID')['meta']['total'], 1)
         self.assertEqual(self.get(status='all')['meta']['total'], 3)
         self.assertEqual(self.get()['meta']['total'], 3)
 
@@ -510,14 +438,13 @@ class AdminPaymentListTests(TestCase):
 
 
 class ContentSearchTests(TestCase):
-    """Every content screen ships a search box; none of the endpoints had
-    `search_fields`, so all of them accepted `?search=` and ignored it."""
+    """Every content endpoint honours `?search=`."""
 
     def setUp(self):
         from apps.content.models import EBook, NoticeCategory
 
-        admin = User.objects.create_user(phone='01899000888', name='Admin', role=User.Role.ADMIN, is_staff=True)
-        self.auth = {'HTTP_AUTHORIZATION': f'Bearer {Token.objects.create(user=admin).key}'}
+        admin = make_user(role=User.Role.ADMIN)
+        self.auth = bearer(admin)
 
         NoticeCategory.objects.create(title='Exam schedule')
         NoticeCategory.objects.create(title='Holiday notice')
@@ -547,7 +474,7 @@ class ContentSearchTests(TestCase):
         self.assert_filters('/api/private/ebooks/', 'Physics', 1)
 
     def test_pages_expose_value_type(self):
-        """The screen picks the editor from this; it used to guess from the key."""
+        """Each setting reports the value type its editor needs."""
         # These keys are seeded by a migration, so upsert rather than create.
         Page.objects.update_or_create(key='about', defaults={'value_type': Page.ValueType.HTML, 'value': '<p>hi</p>'})
         Page.objects.update_or_create(

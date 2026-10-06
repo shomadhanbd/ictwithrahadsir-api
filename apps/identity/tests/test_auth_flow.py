@@ -1,9 +1,9 @@
 from django.conf import settings
 from django.utils import timezone
 
+from apps.academic.models import ClassLevel, Group
 from apps.identity.models import OTP, User
 from apps.identity.tests.base import (
-    CHECK_PHONE_URL,
     GET_OTP_URL,
     REGISTER_URL,
     VERIFY_OTP_URL,
@@ -17,22 +17,8 @@ class AuthFlowTests(FixedOtpCodeTestCase):
         super().setUp()
         self.phone = "01810001111"
 
-    def test_check_phone_reports_existence(self):
-        response = self.client.get(CHECK_PHONE_URL, {"phone": self.phone})
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"exists": False})
-
-        User.objects.create_user(phone=self.phone, name="Existing")
-        response = self.client.get(CHECK_PHONE_URL, {"phone": self.phone})
-        self.assertEqual(response.json(), {"exists": True})
-
-    def test_check_phone_requires_a_phone(self):
-        response = self.client.get(CHECK_PHONE_URL)
-        self.assertEqual(response.status_code, 422)
-        self.assertIn("phone", response.json()["errors"])
-
-    def test_check_phone_is_throttled(self):
-        statuses = [self.client.get(CHECK_PHONE_URL, {"phone": f"018100200{i:02d}"}).status_code for i in range(15)]
+    def test_public_auth_endpoints_are_throttled(self):
+        statuses = [self.client.get(GET_OTP_URL, {"phone": f"018100200{i:02d}"}).status_code for i in range(15)]
         self.assertIn(429, statuses, f"no throttle fired: {statuses}")
 
     def test_get_otp_requires_phone(self):
@@ -131,6 +117,21 @@ class AuthFlowTests(FixedOtpCodeTestCase):
         self.assertEqual(user.student.educational_session, "2025-26")
         self.assertTrue(user.check_password("Str0ngPass!23"))
         self.assertEqual(body["user"]["student"]["institution"], "Dhaka College")
+
+    def test_register_records_the_class_and_group(self):
+        hsc, science = ClassLevel.objects.create(name="HSC"), Group.objects.create(name="Science")
+        auth = self._verified_phone()
+        body = {
+            "name": "New Student",
+            "phone": self.phone,
+            "class_level_id": hsc.pk,
+            "group_id": science.pk,
+            "password": "Str0ngPass!23",
+            "password_confirmation": "Str0ngPass!23",
+        }
+        self.assertEqual(self.client.post(REGISTER_URL, body, **auth).status_code, 201)
+        student = User.objects.get(phone=self.phone).student
+        self.assertEqual((student.class_level_id, student.group_id), (hsc.pk, science.pk))
 
     def test_register_requires_a_verified_session(self):
         response = self.client.post(

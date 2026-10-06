@@ -5,6 +5,8 @@ from django.test import TestCase
 from django.utils import timezone
 
 from apps.identity.models import OTP, User
+from apps.identity.selectors import seconds_until_resend
+from apps.identity.services import issue_otp, verify_otp
 from apps.profiles.models import StudentProfile
 
 PHONE = "01810005555"
@@ -19,25 +21,25 @@ def backdate(otp, seconds):
 
 class OtpIssueTests(TestCase):
     def test_the_code_is_digits_of_the_configured_length(self):
-        otp = OTP.issue(PHONE, OTP.Purpose.VERIFY)
+        otp = issue_otp(PHONE, OTP.Purpose.VERIFY)
         self.assertEqual(len(otp.code), settings.OTP_LENGTH)
         self.assertTrue(otp.code.isdigit())
 
     def test_issuing_records_the_purpose(self):
-        otp = OTP.issue(PHONE, OTP.Purpose.PASSWORD_RESET)
+        otp = issue_otp(PHONE, OTP.Purpose.PASSWORD_RESET)
         self.assertEqual(otp.purpose, OTP.Purpose.PASSWORD_RESET)
 
     def test_a_fresh_code_is_usable(self):
-        self.assertTrue(OTP.issue(PHONE, OTP.Purpose.VERIFY).is_usable)
+        self.assertTrue(issue_otp(PHONE, OTP.Purpose.VERIFY).is_usable)
 
     def test_repeated_issues_do_not_return_one_fixed_code(self):
-        codes = {OTP.issue(PHONE, OTP.Purpose.VERIFY).code for _ in range(25)}
+        codes = {issue_otp(PHONE, OTP.Purpose.VERIFY).code for _ in range(25)}
         self.assertGreater(len(codes), 20)
 
 
 class OtpUsabilityTests(TestCase):
     def setUp(self):
-        self.otp = OTP.issue(PHONE, OTP.Purpose.VERIFY)
+        self.otp = issue_otp(PHONE, OTP.Purpose.VERIFY)
 
     def test_a_consumed_code_is_not_usable(self):
         self.otp.consumed_at = timezone.now()
@@ -57,79 +59,79 @@ class OtpUsabilityTests(TestCase):
 
 class OtpPurposeScopingTests(TestCase):
     def test_verify_reads_the_newest_code_for_that_purpose(self):
-        OTP.issue(PHONE, OTP.Purpose.VERIFY)
-        newest = OTP.issue(PHONE, OTP.Purpose.VERIFY)
-        self.assertTrue(OTP.verify(PHONE, newest.code, OTP.Purpose.VERIFY))
+        issue_otp(PHONE, OTP.Purpose.VERIFY)
+        newest = issue_otp(PHONE, OTP.Purpose.VERIFY)
+        self.assertTrue(verify_otp(PHONE, newest.code, OTP.Purpose.VERIFY))
 
     def test_a_reset_code_does_not_satisfy_a_verify(self):
-        reset = OTP.issue(PHONE, OTP.Purpose.PASSWORD_RESET)
-        OTP.issue(PHONE, OTP.Purpose.VERIFY)
-        self.assertFalse(OTP.verify(PHONE, reset.code, OTP.Purpose.VERIFY))
+        reset = issue_otp(PHONE, OTP.Purpose.PASSWORD_RESET)
+        issue_otp(PHONE, OTP.Purpose.VERIFY)
+        self.assertFalse(verify_otp(PHONE, reset.code, OTP.Purpose.VERIFY))
 
 
 class OtpVerifyTests(TestCase):
     def setUp(self):
-        self.otp = OTP.issue(PHONE, OTP.Purpose.VERIFY)
+        self.otp = issue_otp(PHONE, OTP.Purpose.VERIFY)
 
     def test_the_right_code_is_accepted_and_marked_consumed(self):
-        self.assertTrue(OTP.verify(PHONE, self.otp.code, OTP.Purpose.VERIFY))
+        self.assertTrue(verify_otp(PHONE, self.otp.code, OTP.Purpose.VERIFY))
         self.otp.refresh_from_db()
         self.assertIsNotNone(self.otp.consumed_at)
 
     def test_a_code_cannot_be_spent_twice(self):
-        OTP.verify(PHONE, self.otp.code, OTP.Purpose.VERIFY)
-        self.assertFalse(OTP.verify(PHONE, self.otp.code, OTP.Purpose.VERIFY))
+        verify_otp(PHONE, self.otp.code, OTP.Purpose.VERIFY)
+        self.assertFalse(verify_otp(PHONE, self.otp.code, OTP.Purpose.VERIFY))
 
     def test_a_wrong_guess_is_counted_in_the_database(self):
-        self.assertFalse(OTP.verify(PHONE, "000000", OTP.Purpose.VERIFY))
+        self.assertFalse(verify_otp(PHONE, "000000", OTP.Purpose.VERIFY))
         self.otp.refresh_from_db()
         self.assertEqual(self.otp.attempts, 1)
 
     def test_every_wrong_guess_lands(self):
         for expected in range(1, 4):
-            OTP.verify(PHONE, "000000", OTP.Purpose.VERIFY)
+            verify_otp(PHONE, "000000", OTP.Purpose.VERIFY)
             self.otp.refresh_from_db()
             self.assertEqual(self.otp.attempts, expected)
 
     def test_the_code_dies_at_the_attempt_cap(self):
         for _ in range(settings.OTP_MAX_ATTEMPTS):
-            OTP.verify(PHONE, "000000", OTP.Purpose.VERIFY)
-        self.assertFalse(OTP.verify(PHONE, self.otp.code, OTP.Purpose.VERIFY))
+            verify_otp(PHONE, "000000", OTP.Purpose.VERIFY)
+        self.assertFalse(verify_otp(PHONE, self.otp.code, OTP.Purpose.VERIFY))
 
     def test_an_expired_code_is_refused(self):
         backdate(self.otp, settings.OTP_TTL_SECONDS + 5)
-        self.assertFalse(OTP.verify(PHONE, self.otp.code, OTP.Purpose.VERIFY))
+        self.assertFalse(verify_otp(PHONE, self.otp.code, OTP.Purpose.VERIFY))
 
     def test_a_missing_code_is_refused_rather_than_raising(self):
-        self.assertFalse(OTP.verify(PHONE, None, OTP.Purpose.VERIFY))
-        self.assertFalse(OTP.verify(PHONE, "", OTP.Purpose.VERIFY))
+        self.assertFalse(verify_otp(PHONE, None, OTP.Purpose.VERIFY))
+        self.assertFalse(verify_otp(PHONE, "", OTP.Purpose.VERIFY))
 
     def test_the_wrong_purpose_is_refused(self):
-        self.assertFalse(OTP.verify(PHONE, self.otp.code, OTP.Purpose.PASSWORD_RESET))
+        self.assertFalse(verify_otp(PHONE, self.otp.code, OTP.Purpose.PASSWORD_RESET))
 
     def test_the_wrong_purpose_does_not_burn_the_real_code(self):
-        OTP.verify(PHONE, self.otp.code, OTP.Purpose.PASSWORD_RESET)
+        verify_otp(PHONE, self.otp.code, OTP.Purpose.PASSWORD_RESET)
         self.otp.refresh_from_db()
         self.assertEqual(self.otp.attempts, 0)
-        self.assertTrue(OTP.verify(PHONE, self.otp.code, OTP.Purpose.VERIFY))
+        self.assertTrue(verify_otp(PHONE, self.otp.code, OTP.Purpose.VERIFY))
 
 
 class OtpResendCooldownTests(TestCase):
     def test_no_wait_for_a_number_that_has_never_asked(self):
-        self.assertEqual(OTP.seconds_until_resend(PHONE), 0)
+        self.assertEqual(seconds_until_resend(PHONE), 0)
 
     def test_a_fresh_code_starts_the_cooldown(self):
-        OTP.issue(PHONE, OTP.Purpose.VERIFY)
-        self.assertGreater(OTP.seconds_until_resend(PHONE), 0)
+        issue_otp(PHONE, OTP.Purpose.VERIFY)
+        self.assertGreater(seconds_until_resend(PHONE), 0)
 
     def test_the_cooldown_lapses(self):
-        otp = OTP.issue(PHONE, OTP.Purpose.VERIFY)
+        otp = issue_otp(PHONE, OTP.Purpose.VERIFY)
         backdate(otp, settings.OTP_RESEND_COOLDOWN_SECONDS + 1)
-        self.assertEqual(OTP.seconds_until_resend(PHONE), 0)
+        self.assertEqual(seconds_until_resend(PHONE), 0)
 
     def test_the_cooldown_is_shared_across_purposes(self):
-        OTP.issue(PHONE, OTP.Purpose.VERIFY)
-        self.assertGreater(OTP.seconds_until_resend(PHONE), 0)
+        issue_otp(PHONE, OTP.Purpose.PASSWORD_RESET)
+        self.assertGreater(seconds_until_resend(PHONE), 0)
 
 
 class UserManagerCreateTests(TestCase):
@@ -189,11 +191,6 @@ class UserManagerSuperuserTests(TestCase):
         self.assertTrue(admin.is_superuser)
 
     def test_is_staff_cannot_be_turned_off_because_it_is_derived(self):
-        """It used to be a settable column that could disagree with the role.
-
-        Passing it is now ignored rather than honoured, so nobody can make an
-        admin account that is locked out of the Django admin site.
-        """
         admin = User.objects.create_superuser(phone=PHONE, password="x", is_staff=False)
         self.assertTrue(admin.is_staff)
 
@@ -272,33 +269,25 @@ class UserQuerySetTests(TestCase):
         students = User.objects.students()
         self.assertEqual(list(students), [self.student])
 
-    def test_joined_since_filters_on_date_joined(self):
-        cutoff = timezone.now() - timezone.timedelta(days=1)
-        self.assertEqual(User.objects.students().joined_since(cutoff).count(), 1)
-
-        future = timezone.now() + timezone.timedelta(days=1)
-        self.assertEqual(User.objects.students().joined_since(future).count(), 0)
-
 
 class OtpStorageTests(TestCase):
     def test_the_code_survives_a_field_refresh(self):
-        otp = OTP.issue(PHONE, OTP.Purpose.VERIFY)
+        otp = issue_otp(PHONE, OTP.Purpose.VERIFY)
         code = otp.code
         otp.refresh_from_db()
         self.assertEqual(otp.code, code)
 
     def test_meta_is_recorded_when_given(self):
-        otp = OTP.issue(PHONE, OTP.Purpose.VERIFY, meta={"platform": "android"})
+        otp = issue_otp(PHONE, OTP.Purpose.VERIFY, meta={"platform": "android"})
         self.assertEqual(OTP.objects.get(pk=otp.pk).meta, {"platform": "android"})
 
     def test_meta_defaults_to_an_empty_dict(self):
-        otp = OTP.issue(PHONE, OTP.Purpose.VERIFY)
+        otp = issue_otp(PHONE, OTP.Purpose.VERIFY)
         self.assertEqual(OTP.objects.get(pk=otp.pk).meta, {})
 
 
 class RoleGroupPermissionTests(TestCase):
-    """`is_staff` follows role, so a back-office group must carry permissions
-    or its members reach the Django admin and find it empty."""
+    """Every back-office group carries Django admin permissions."""
 
     def group(self, role):
         return Group.objects.get(name=role)
@@ -314,7 +303,7 @@ class RoleGroupPermissionTests(TestCase):
         moderator = User.objects.create_user(phone=PHONE, name="Mod", role=User.Role.MODERATOR)
         self.assertTrue(moderator.is_staff)
         self.assertTrue(moderator.has_perm("content.change_notice"))
-        self.assertFalse(moderator.has_perm("billing.change_order"))
+        self.assertFalse(moderator.has_perm("billing.change_payment"))
 
     def test_roles_that_never_reach_the_admin_get_nothing(self):
         for role in (User.Role.TEACHER, User.Role.STUDENT):
@@ -330,8 +319,7 @@ class UserIndexTests(TestCase):
 
 
 class StudentProfileTests(TestCase):
-    """`identity` no longer owns the model, but `user.student` is still the way
-    every serializer reaches it, so the accessor stays pinned from here."""
+    """`user.student` reaches the student profile."""
 
     def setUp(self):
         self.user = User.objects.create_user(phone=PHONE, name="Student")

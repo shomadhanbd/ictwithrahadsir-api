@@ -1,12 +1,11 @@
-"""The student/guardian split, and the payload it must not change."""
+"""The student profile and the `/me` payload."""
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
 
-from rest_framework.authtoken.models import Token
-
 from apps.academic.models import ClassLevel, Group
+from apps.core.testing import bearer
 from apps.profiles.models import GuardianProfile, StudentProfile
 
 User = get_user_model()
@@ -32,11 +31,7 @@ class GuardianProfileTests(TestCase):
 
 
 class StudentPayloadTests(TestCase):
-    """`guardian_name`/`guardian_phone` now cross a join to reach the payload.
-
-    Both frontends read them flat inside `student`, and `/me` is a frozen
-    contract, so splitting the model must not split the response.
-    """
+    """Guardian fields are read through the student profile."""
 
     #: What `/me` emits and nothing more. Widening this is a frontend change.
     STUDENT_KEYS = {
@@ -45,11 +40,13 @@ class StudentPayloadTests(TestCase):
         "institution",
         "educational_session",
         "address",
+        "class_level_id",
+        "group_id",
     }
 
     def setUp(self):
         self.user = User.objects.create_user(phone="01810002222", name="Student", password="Str0ngPass!23")
-        self.auth = {"HTTP_AUTHORIZATION": f"Bearer {Token.objects.create(user=self.user).key}"}
+        self.auth = bearer(self.user)
         self.url = reverse("api:identity:current_user")
 
     def _me(self):
@@ -71,9 +68,7 @@ class StudentPayloadTests(TestCase):
         self.assertEqual(block["guardian_phone"], "01911002233")
 
     def test_a_student_with_no_guardian_row_reads_as_blank(self):
-        """The row should always exist -- but a student created before the
-        split, or straight from the ORM, has none, and the payload must not
-        raise `RelatedObjectDoesNotExist` over it."""
+        """A student without a profile row still gets a payload."""
         StudentProfile.objects.create(user=self.user, institution="Dhaka College")
 
         block = self._me()["student"]
@@ -95,14 +90,29 @@ class StudentPayloadTests(TestCase):
         self.assertEqual(guardian.name, "Karim")
         self.assertEqual(guardian.phone, "01911002233")
 
-    def test_the_public_block_carries_no_academic_placement(self):
-        """Class and group are the admin roster's business. Adding them to
-        `/me` would widen a payload nobody asked to change."""
-        student = StudentProfile.objects.create(
-            user=self.user,
-            class_level=ClassLevel.objects.create(name="HSC"),
-            group=Group.objects.create(name="Science"),
-        )
+    def test_me_carries_the_class_and_group(self):
+        hsc, science = ClassLevel.objects.create(name="HSC"), Group.objects.create(name="Science")
+        student = StudentProfile.objects.create(user=self.user, class_level=hsc, group=science)
         GuardianProfile.objects.create(student=student)
 
-        self.assertEqual(set(self._me()["student"]), self.STUDENT_KEYS)
+        block = self._me()["student"]
+        self.assertEqual((block["class_level_id"], block["group_id"]), (hsc.pk, science.pk))
+
+    def test_a_student_sets_their_own_class_and_group(self):
+        hsc, science = ClassLevel.objects.create(name="HSC"), Group.objects.create(name="Science")
+        response = self.client.post(
+            self.url,
+            {"student": {"class_level_id": hsc.pk, "group_id": science.pk}},
+            content_type="application/json",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        profile = StudentProfile.objects.get(user=self.user)
+        self.assertEqual((profile.class_level_id, profile.group_id), (hsc.pk, science.pk))
+
+    def test_a_group_needs_a_class(self):
+        science = Group.objects.create(name="Science")
+        response = self.client.post(
+            self.url, {"student": {"group_id": science.pk}}, content_type="application/json", **self.auth
+        )
+        self.assertEqual(response.status_code, 422)

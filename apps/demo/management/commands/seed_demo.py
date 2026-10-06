@@ -7,24 +7,28 @@ students, enrolments, and a year of orders for the dashboard charts.
     python manage.py seed_demo            # idempotent top-up
     python manage.py seed_demo --fresh    # wipe demo rows first
 
+Development only: `apps.demo` is installed by the local settings alone, and the
+command refuses to run unless DEBUG is on and the database is SQLite (or
+ALLOW_DEMO_SEED=1 is set for a disposable Postgres). `--fresh` empties whole tables.
+
 Images are generated as PNGs into MEDIA_ROOT and referenced as absolute
 `http://localhost:8000/media/...` URLs, which is the one local host both
 `next.config.ts` files whitelist in `images.remotePatterns`.
 """
 
+import os
 import random
-import uuid
 from datetime import timedelta
 from decimal import Decimal
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.core.management.base import BaseCommand
-from django.db import transaction
+from django.core.management.base import BaseCommand, CommandError
+from django.db import connection, transaction
 from django.utils import timezone
 
 from apps.academic.models import Batch, Chapter, ClassLevel, Group, Subject, Topic
-from apps.billing.models import Order, Payment, Product, ProductCoupon
-from apps.billing.services import price_after_discount
+from apps.billing.models import Payment, Product
 from apps.content.models import (
     Advertisement,
     EBook,
@@ -35,11 +39,8 @@ from apps.content.models import (
 )
 from apps.courses.models import (
     Content,
-    Coupon,
     Course,
-    CourseCategory,
     CourseMaterial,
-    CoursePrice,
     CourseTeacher,
     Enrollment,
     Routine,
@@ -54,6 +55,15 @@ SEED_DIR = "seed"
 
 # Deterministic so re-running the command reproduces the same demo set.
 RNG_SEED = 20260816
+
+
+def teacher_phone(index):
+    return f"0171000{index + 1:04d}"
+
+
+def student_phone(index):
+    return f"0181000{index + 1:04d}"
+
 
 PALETTE = [
     ((14, 30, 65), (37, 99, 235)),
@@ -105,8 +115,6 @@ def _draw_placeholder(path, width, height, label, palette_index):
 
 def make_image(name, width, height, label, palette_index=0):
     """Write `media/seed/<name>.png` once and return its absolute URL."""
-    from django.conf import settings
-
     directory = settings.MEDIA_ROOT / SEED_DIR
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"{name}.png"
@@ -119,21 +127,12 @@ def make_image(name, width, height, label, palette_index=0):
 # Demo content
 # ---------------------------------------------------------------------------
 
-# Slugs are supplied explicitly: slugs are English, and these titles are Bangla.
-CATEGORIES = [
-    ("এইচএসসি আইসিটি", "hsc-ict", [("এইচএসসি ২০২৬", "hsc-2026"), ("এইচএসসি ২০২৭", "hsc-2027")]),
-    ("এসএসসি আইসিটি", "ssc-ict", [("এসএসসি ২০২৬", "ssc-2026")]),
-    ("অ্যাডমিশন প্রস্তুতি", "admission", [("ভার্সিটি ক", "varsity-ka"), ("মেডিকেল", "medical")]),
-    ("প্রোগ্রামিং", "programming", [("সি প্রোগ্রামিং", "c-programming"), ("ওয়েব ডিজাইন", "web-design")]),
-]
-
-# (title, slug, subtitle, category, duration, featured, is_online, chapters)
+# (title, slug, subtitle, duration, featured, is_online, chapters)
 COURSES = [
     (
         "এইচএসসি আইসিটি ফুল কোর্স ২০২৬",
         "hsc-ict-full-course-2026",
         "৬ অধ্যায়ের সম্পূর্ণ সিলেবাস, বোর্ড প্রশ্ন সমাধান ও লাইভ ক্লাস",
-        "এইচএসসি আইসিটি",
         "৬ মাস",
         True,
         True,
@@ -150,7 +149,6 @@ COURSES = [
         "সংখ্যা পদ্ধতি ও ডিজিটাল ডিভাইস ক্র্যাশ কোর্স",
         "number-system-digital-device-crash",
         "তৃতীয় অধ্যায়ের গাণিতিক সমস্যা ও লজিক গেট শর্টকাট",
-        "এইচএসসি আইসিটি",
         "৬ সপ্তাহ",
         True,
         True,
@@ -160,7 +158,6 @@ COURSES = [
         "সি প্রোগ্রামিং জিরো টু হিরো",
         "c-programming-zero-to-hero",
         "শূন্য থেকে শুরু করে বোর্ড ও ভার্সিটি লেভেল প্রোগ্রামিং",
-        "প্রোগ্রামিং",
         "৩ মাস",
         True,
         True,
@@ -170,7 +167,6 @@ COURSES = [
         "এইচটিএমএল ও ওয়েব ডিজাইন মাস্টারক্লাস",
         "html-web-design-masterclass",
         "হাতে-কলমে ওয়েবসাইট তৈরি করে চতুর্থ অধ্যায় শেষ",
-        "প্রোগ্রামিং",
         "৮ সপ্তাহ",
         True,
         True,
@@ -180,7 +176,6 @@ COURSES = [
         "এসএসসি আইসিটি সম্পূর্ণ প্রস্তুতি",
         "ssc-ict-full-preparation",
         "এসএসসি সিলেবাস অনুযায়ী অধ্যায়ভিত্তিক ক্লাস ও পরীক্ষা",
-        "এসএসসি আইসিটি",
         "৪ মাস",
         True,
         True,
@@ -190,7 +185,6 @@ COURSES = [
         "ভার্সিটি ভর্তি আইসিটি ফাইনাল রিভিশন",
         "admission-ict-final-revision",
         "ঢাবি, রাবি ও গুচ্ছ ভর্তি পরীক্ষার প্রশ্নব্যাংক সমাধান",
-        "অ্যাডমিশন প্রস্তুতি",
         "১০ সপ্তাহ",
         False,
         True,
@@ -198,12 +192,28 @@ COURSES = [
     ),
 ]
 
-COURSE_FEATURES = [
-    "৳ এককালীন পেমেন্ট, আজীবন এক্সেস",
-    "প্রতিটি অধ্যায়ে লাইভ ক্লাস ও রেকর্ডিং",
-    "অধ্যায়ভিত্তিক এমসিকিউ পরীক্ষা ও র‍্যাঙ্কিং",
-    "পিডিএফ লেকচার শিট ও হ্যান্ডনোট",
-    "২৪/৭ সাপোর্ট গ্রুপ",
+#: (title, description, icon) -- the landing page's highlight cards.
+COURSE_HIGHLIGHTS = [
+    ("এককালীন পেমেন্ট", "একবার পেমেন্টে কোর্সের মেয়াদ পর্যন্ত পূর্ণ এক্সেস।", "wallet"),
+    ("লাইভ ক্লাস ও রেকর্ডিং", "প্রতিটি অধ্যায়ে লাইভ ক্লাস, পরে রেকর্ডিং দেখার সুযোগ।", "video"),
+    ("এমসিকিউ পরীক্ষা ও র‍্যাঙ্কিং", "অধ্যায়ভিত্তিক পরীক্ষা দিয়ে নিজের অবস্থান যাচাই।", "trophy"),
+    ("লেকচার শিট ও হ্যান্ডনোট", "প্রতিটি ক্লাসের পিডিএফ লেকচার শিট।", "file-text"),
+    ("২৪/৭ সাপোর্ট গ্রুপ", "যেকোনো প্রশ্নের উত্তর পেতে সাপোর্ট গ্রুপ।", "message-circle"),
+]
+
+COURSE_OUTCOMES = [
+    ("পুরো সিলেবাস অধ্যায়ভিত্তিকভাবে শেষ করা", "book-open"),
+    ("বোর্ড প্রশ্নের ধরন বুঝে উত্তর লেখা", "pen-tool"),
+    ("এমসিকিউ-তে দ্রুত ও নির্ভুল উত্তর দেওয়া", "target"),
+]
+
+COURSE_AUDIENCE = ["এই বছরের পরীক্ষার্থী", "যারা অধ্যায়ভিত্তিক রিভিশন চায়"]
+
+COURSE_REQUIREMENTS = ["স্মার্টফোন বা কম্পিউটার", "ইন্টারনেট সংযোগ"]
+
+COURSE_FAQS = [
+    ("ক্লাস মিস করলে কী হবে?", "প্রতিটি লাইভ ক্লাসের রেকর্ডিং কোর্সে যুক্ত করা হয়।"),
+    ("কোর্সের মেয়াদ কতদিন?", "কোর্স পেজে দেওয়া প্রাইস অনুযায়ী মেয়াদ নির্ধারিত হয়।"),
 ]
 
 #: name, slug -- the education levels, in academic order
@@ -232,11 +242,11 @@ SUBJECTS = [
 
 #: Chapters per subject, and the topics inside each. The names are Bengali,
 #: so their slugs are just the parent's slug plus a number.
-#: title, price (BDT), coupon code (10% off)
+#: title, price (BDT)
 PRODUCTS = [
-    ("HSC ICT ফুল প্যাকেজ", "4500", "FULL10"),
-    ("লাইভ + রেকর্ডেড কম্বো", "3000", "COMBO10"),
-    ("প্রোগ্রামিং বান্ডেল", "2500", "CODE10"),
+    ("HSC ICT ফুল প্যাকেজ", 4500),
+    ("লাইভ + রেকর্ডেড কম্বো", 3000),
+    ("প্রোগ্রামিং বান্ডেল", 2500),
 ]
 
 CHAPTERS = [
@@ -449,6 +459,13 @@ class Command(BaseCommand):
 
     @transaction.atomic
     def handle(self, *args, **options):
+        # manage.py falls back to the local settings, where DEBUG is always on, so DEBUG alone proves nothing.
+        disposable = connection.vendor == "sqlite" or os.environ.get("ALLOW_DEMO_SEED") == "1"
+        if not (settings.DEBUG and disposable):
+            raise CommandError(
+                "seed_demo writes fake data and --fresh empties tables. It runs only with DEBUG on and a SQLite "
+                "database; set ALLOW_DEMO_SEED=1 to seed a disposable Postgres."
+            )
         self.rng = random.Random(RNG_SEED)
         self.now = timezone.now()
 
@@ -457,13 +474,12 @@ class Command(BaseCommand):
 
         self._seed_pages()
         self._seed_academic()
-        categories = self._seed_categories()
         teachers = self._seed_teachers()
         self._seed_testimonials()
         self._seed_advertisements()
         self._seed_notices()
         self._seed_ebooks()
-        courses = self._seed_courses(categories, teachers)
+        courses = self._seed_courses(teachers)
         students = self._seed_students()
         self._seed_enrollments(courses, students)
         products = self._seed_products(courses)
@@ -472,7 +488,6 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS("\nDemo data ready:"))
         for label, count in [
-            ("course categories", CourseCategory.objects.count()),
             ("courses", Course.objects.count()),
             ("sections", Section.objects.count()),
             ("contents", Content.objects.count()),
@@ -488,8 +503,6 @@ class Command(BaseCommand):
             ("students", User.objects.filter(groups__name=User.Role.STUDENT).count()),
             ("enrollments", Enrollment.objects.count()),
             ("products", Product.objects.count()),
-            ("product coupons", ProductCoupon.objects.count()),
-            ("orders", Order.objects.count()),
             ("payments", Payment.objects.count()),
         ]:
             self.stdout.write(f"  {count:>5}  {label}")
@@ -501,18 +514,13 @@ class Command(BaseCommand):
         self.stdout.write("Removing existing demo rows...")
         for model in [
             Payment,
-            Order,
-            ProductCoupon,
             Product,
             Enrollment,
             Content,
             Section,
             Routine,
-            Coupon,
-            CoursePrice,
             CourseTeacher,
             Course,
-            CourseCategory,
             CourseMaterial,
             Notice,
             NoticeCategory,
@@ -528,9 +536,9 @@ class Command(BaseCommand):
             Group,
         ]:
             model.objects.all().delete()
-        User.objects.filter(groups__name=User.Role.STUDENT, phone__startswith="0181").delete()
-        # The teacher accounts this command mints, on the reserved 0171 block.
-        User.objects.filter(groups__name=User.Role.TEACHER, phone__startswith="0171").delete()
+        # Only the exact accounts this command mints: their prefixes are real operators' ranges.
+        User.objects.filter(phone__in=[student_phone(i) for i in range(len(STUDENT_NAMES))]).delete()
+        User.objects.filter(phone__in=[teacher_phone(i) for i in range(len(TEACHERS))]).delete()
         Page.objects.exclude(
             key__in=["homeBannerImage", "homeCourseCounter", "homeStudentCounter", "homeInstructorCounter"]
         ).delete()
@@ -563,34 +571,6 @@ class Command(BaseCommand):
                 },
             )
         self.stdout.write("  pages + homepage counters")
-
-    def _seed_categories(self):
-        categories = {}
-        for index, (title, slug, children) in enumerate(CATEGORIES):
-            parent, _ = CourseCategory.objects.get_or_create(
-                slug=slug,
-                defaults={
-                    "title": title,
-                    "category": None,
-                    "order": index,
-                    "image": make_image(f"cat-{index}", 600, 400, f"CAT {index + 1}", index),
-                },
-            )
-            categories[title] = parent
-            for child_index, (child_title, child_slug) in enumerate(children):
-                CourseCategory.objects.get_or_create(
-                    slug=child_slug,
-                    defaults={
-                        "title": child_title,
-                        "category": parent,
-                        "order": child_index,
-                        "image": make_image(
-                            f"cat-{index}-{child_index}", 600, 400, f"SUB {child_index + 1}", index + 2
-                        ),
-                    },
-                )
-        self.stdout.write("  course categories")
-        return categories
 
     def _seed_academic(self):
         """Education levels, groups, subjects and batches.
@@ -644,7 +624,7 @@ class Command(BaseCommand):
         levels = list(ClassLevel.objects.all())
         teachers = []
         for index, (name, designation, kind, description, subjects) in enumerate(TEACHERS):
-            phone = f"0171000{index + 1:04d}"
+            phone = teacher_phone(index)
             user = User.objects.filter(phone=phone).first()
             if user is None:
                 # `create_user` marks the password unusable; writing the row
@@ -744,73 +724,66 @@ class Command(BaseCommand):
 
     # -- exams --------------------------------------------------------------
 
-    def _seed_courses(self, categories, teachers):
+    def _seed_courses(self, teachers):
         courses = []
         for index, row in enumerate(COURSES):
-            title, slug, subtitle, category_title, duration, featured, is_online, chapters = row
+            title, slug, subtitle, duration, featured, is_online, chapters = row
             course, created = Course.objects.get_or_create(
                 slug=slug,
                 defaults={
                     "title": title,
                     "subtitle": subtitle,
                     "duration": duration,
-                    "featured": featured,
+                    "summary": subtitle,
+                    "is_featured": featured,
                     "is_online": is_online,
-                    "active": True,
-                    "fake_user_count": self.rng.randint(400, 4200),
+                    "delivery": Course.Delivery.HYBRID if is_online else Course.Delivery.LIVE,
+                    "difficulty": Course.Difficulty.INTERMEDIATE,
+                    "status": Course.Status.PUBLISHED,
+                    "fake_student_count": self.rng.randint(400, 4200),
                     "description": (
                         f"<p>{subtitle}</p><p>কোর্সটিতে মোট {len(chapters)}টি অধ্যায় রয়েছে। "
                         "প্রতিটি অধ্যায়ে থাকছে রেকর্ডেড ভিডিও ক্লাস, লেকচার শিট, "
                         "অধ্যায়ভিত্তিক এমসিকিউ পরীক্ষা এবং লাইভ প্রশ্নোত্তর সেশন।</p>"
                     ),
-                    "features": COURSE_FEATURES,
-                    "video": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-                    "image": make_image(f"course-{index}", 800, 450, f"COURSE {index + 1}", index),
+                    "highlights": [{"title": t, "description": d, "icon": i} for t, d, i in COURSE_HIGHLIGHTS],
+                    "learning_outcomes": [{"title": t, "icon": i} for t, i in COURSE_OUTCOMES],
+                    "target_audience": [{"title": t} for t in COURSE_AUDIENCE],
+                    "requirements": [{"title": t} for t in COURSE_REQUIREMENTS],
+                    "faqs": [{"question": q, "answer": a} for q, a in COURSE_FAQS],
+                    "promo_video": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                    "thumbnail": make_image(f"course-{index}", 800, 450, f"COURSE {index + 1}", index),
+                    "banner": make_image(f"course-{index}-banner", 1600, 500, f"COURSE {index + 1}", index),
                 },
             )
             if created:
-                course.categories.add(categories[category_title])
-                self._seed_course_prices(course, index)
+                self._seed_course_packages(course, index)
                 self._seed_course_extras(course, teachers, index)
                 self._seed_course_tree(course, chapters, index, slug)
             courses.append(course)
         self.stdout.write("  courses + sections + contents")
         return courses
 
-    def _seed_course_prices(self, course, index):
-        base = Decimal(str(1500 + index * 500))
-        full = CoursePrice.objects.create(
-            priceable_type=CoursePrice.PRICEABLE_COURSE,
-            priceable_id=course.id,
-            title="ফুল কোর্স (আজীবন এক্সেস)",
-            amount=base,
-            # `discount` is the amount OFF, which is what `price_after_discount`
-            # subtracts and what billing's own test asserts (1500 - 300 = 1200).
-            # This used to seed `base - 300`, i.e. 1200 against a 1500 course,
-            # so the API quoted — and would have charged — 300 for a 1500 taka
-            # course, and the storefront correctly displayed an 80% discount.
-            discount=Decimal("300") if index % 2 == 0 else None,
-            discount_till=self.now + timedelta(days=30),
-            type=CoursePrice.Type.FULL,
-            validity_type=CoursePrice.ValidityType.RELATIVE,
-            validity_duration=365,
+    def _seed_course_packages(self, course, index):
+        """Two packages per course, as billing sells it: a year with a
+        struck-through "was" price on every other course, and a month."""
+        base = 1500 + index * 500
+        full = Product.objects.create(
+            title=f"{course.title} — ১ বছর",
+            description="পুরো কোর্সে এক বছরের এক্সেস।",
+            price=base - 300 if index % 2 == 0 else base,
+            base_price=base,
+            access_days=365,
         )
-        CoursePrice.objects.create(
-            priceable_type=CoursePrice.PRICEABLE_COURSE,
-            priceable_id=course.id,
-            title="মাসিক সাবস্ক্রিপশন",
-            amount=(base / Decimal("5")).quantize(Decimal("1")),
-            type=CoursePrice.Type.SUBSCRIPTION,
-            validity_type=CoursePrice.ValidityType.RELATIVE,
-            validity_duration=30,
+        monthly = Product.objects.create(
+            title=f"{course.title} — ১ মাস",
+            description="৩০ দিনের এক্সেস।",
+            price=base // 5,
+            base_price=base // 5,
+            access_days=30,
         )
-        Coupon.objects.create(
-            price=full,
-            code=f"ICT{index + 1}0",
-            discount=Decimal("10"),
-            discount_type=Coupon.DiscountType.PERCENT,
-            valid_till=self.now + timedelta(days=45),
-        )
+        full.courses.add(course)
+        monthly.courses.add(course)
 
     def _seed_course_extras(self, course, teachers, index):
         # The assignment names the account and the commission. Everything the
@@ -925,7 +898,7 @@ class Command(BaseCommand):
         groups = list(Group.objects.all())
         students = []
         for index, name in enumerate(STUDENT_NAMES):
-            phone = f"0181000{index + 1:04d}"
+            phone = student_phone(index)
             student = User.objects.filter(phone=phone).first()
             if student is None:
                 joined = self.now - timedelta(days=self.rng.randint(3, 330))
@@ -971,86 +944,57 @@ class Command(BaseCommand):
         self.stdout.write("  enrollments")
 
     def _seed_products(self, courses):
-        """A few bundles, each unlocking two courses for a year, with a coupon."""
+        """A few bundles, each unlocking two courses for a year."""
         products = []
-        for index, (title, amount, code) in enumerate(PRODUCTS):
+        for index, (title, amount) in enumerate(PRODUCTS):
             product, created = Product.objects.get_or_create(
                 title=title,
                 defaults={
                     "description": f"{title} — access to the courses below for one year.",
-                    "thumbnail": make_image(f"product-{index}", 600, 800, title[:14], index + 2),
-                    "amount": Decimal(amount),
+                    "price": amount,
+                    "base_price": amount,
                     "access_days": 365,
                 },
             )
             if created:
                 product.courses.set(courses[index : index + 2])
-                ProductCoupon.objects.create(product=product, code=code, discount=Decimal("10"))
             products.append(product)
-        self.stdout.write("  products + coupons")
+        self.stdout.write("  products")
         return products
 
     def _seed_orders(self, courses, products, students):
-        """Orders are back-dated across the last 12 months so there is a
-        history to list. `created_at` is auto_now_add, so it is rewritten via
-        queryset update. Payments look like settled SSLCommerz ones."""
-        if Order.objects.exists():
-            self.stdout.write("  orders (already present, skipped)")
+        """Payments back-dated across the last 12 months. `created_at` is
+        auto_now_add, so it is rewritten with a queryset update."""
+        if Payment.objects.exists():
+            self.stdout.write("  payments (already present, skipped)")
             return
 
         card_types = ["BKASH-BKash", "NAGAD-Nagad", "VISA-Dutch Bangla", "MASTER-City Bank"]
+        bought = set()
         for _ in range(90):
             student = self.rng.choice(students)
+            product = self.rng.choice(products)
             days_ago = self.rng.randint(0, 360)
             created = self.now - timedelta(days=days_ago, hours=self.rng.randint(0, 23))
 
-            # One order in five is a product; the rest are courses.
-            if products and self.rng.random() < 0.2:
-                product = self.rng.choice(products)
-                amount = price_after_discount(product)
-                order_kwargs = {"product": product, "item_title": product.title}
-            else:
-                course = self.rng.choice(courses)
-                # `prices` is ordered by amount, so `.first()` would always be
-                # the cheap subscription tier — mix both so income varies.
-                available = list(course.prices)
-                if not available:
-                    continue
-                price = self.rng.choice(available)
-                amount = price_after_discount(price)
-                order_kwargs = {
-                    "course": course,
-                    "price": price,
-                    "item_title": course.title,
-                    "price_title": price.title,
-                }
-
             status = self.rng.choices(
-                [Order.Status.PAID, Order.Status.PENDING, Order.Status.CANCELLED],
+                [Payment.Status.VALID, Payment.Status.INITIATED, Payment.Status.CANCELLED],
                 weights=[78, 15, 7],
             )[0]
-            if status == Order.Status.PAID and "product" in order_kwargs:
-                if Order.objects.paid().filter(user=student, product=order_kwargs["product"]).exists():
-                    continue  # a student owns a product once
-            order = Order.objects.create(user=student, amount=amount, total=amount, status=status, **order_kwargs)
-            Order.objects.filter(pk=order.pk).update(created_at=created)
-
-            payment_status = {
-                Order.Status.PAID: Payment.Status.SUCCESSFUL,
-                Order.Status.PENDING: Payment.Status.PENDING,
-                Order.Status.CANCELLED: Payment.Status.FAILED,
-            }[status]
-            settled = payment_status == Payment.Status.SUCCESSFUL
+            # A product is bought once; a second attempt is left unfinished.
+            if status == Payment.Status.VALID and (student.pk, product.pk) in bought:
+                status = Payment.Status.CANCELLED
+            settled = status == Payment.Status.VALID
+            if settled:
+                bought.add((student.pk, product.pk))
             payment = Payment.objects.create(
-                order=order,
-                amount=amount,
-                transaction_id=uuid.UUID(int=self.rng.getrandbits(128)).hex,
-                vendor=Payment.Vendor.SSLCOMMERZ,
-                status=payment_status,
-                val_id=f"VAL{self.rng.randint(10**9, 10**10)}" if settled else "",
-                bank_tran_id=f"BNK{self.rng.randint(10**9, 10**10)}" if settled else "",
+                user=student,
+                product=product,
+                amount=product.price,
+                access_until=created + timedelta(days=product.access_days),
+                status=status,
                 card_type=self.rng.choice(card_types) if settled else "",
-                risk_level=0 if settled else None,
+                transaction_date=created if settled else None,
             )
             Payment.objects.filter(pk=payment.pk).update(created_at=created)
-        self.stdout.write("  orders + payments")
+        self.stdout.write("  payments")

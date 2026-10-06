@@ -1,14 +1,4 @@
-"""The Django admin has to actually render.
-
-`manage.py check` validates the *configuration* -- that a field named in
-`list_display` exists, that an `autocomplete_fields` target declares
-`search_fields`. It says nothing about whether a custom column raises when it
-is called with a real row, which is where admin mistakes usually live.
-
-So these load every registered changelist and every add form for real, and
-then assert the thing that actually degrades in production: that a changelist
-does not run more queries as rows are added to it.
-"""
+"""The Django admin has to actually render."""
 
 from django.contrib import admin
 from django.db import connection
@@ -21,10 +11,7 @@ from apps.identity.models import User
 #: Apps whose admin is Django's own, not ours.
 THIRD_PARTY_LABELS = {'auth', 'authtoken', 'contenttypes', 'sessions', 'admin'}
 
-#: The admin templates resolve `{% static %}` for their own CSS. Production
-#: serves that through WhiteNoise's *manifest* storage, which raises unless
-#: `collectstatic` has been run -- a build step, not something a test should
-#: need. The plain backend renders the same pages.
+#: WhiteNoise's manifest storage needs `collectstatic`; the plain backend renders the same pages.
 render_admin_templates = override_settings(
     STORAGES={
         'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
@@ -86,13 +73,7 @@ class _FakeRequest:
 
 @render_admin_templates
 class AdminQueryBudgetTests(TestCase):
-    """A changelist's cost must not grow with the number of rows on it.
-
-    Every one of these lists renders at least one foreign key, so without
-    `list_select_related` each row costs an extra query. The failure is
-    invisible on seed data and makes the page unusable on real data, which is
-    exactly the kind of regression a test should hold.
-    """
+    """A changelist's cost must not grow with the number of rows on it."""
 
     @classmethod
     def setUpTestData(cls):
@@ -125,7 +106,7 @@ class AdminQueryBudgetTests(TestCase):
     def test_enrollment_changelist_is_flat(self):
         from apps.courses.models import Course, Enrollment
 
-        course = Course.objects.create(title='ICT', active=True)
+        course = Course.objects.create(title='ICT', status='published')
         counter = iter(range(1000))
 
         def make_row():
@@ -138,26 +119,22 @@ class AdminQueryBudgetTests(TestCase):
         self._assert_flat('courses', 'enrollment', make_row)
 
     def test_payment_changelist_is_flat(self):
-        from decimal import Decimal
+        from apps.billing.models import Payment, Product
 
-        from apps.billing.models import Order, Payment
-        from apps.courses.models import Course
-
-        course = Course.objects.create(title='ICT', active=True)
+        product = Product.objects.create(title='ICT', price=100, base_price=100)
         counter = iter(range(1000))
 
         def make_row():
             i = next(counter)
             user = User.objects.create_user(phone=f'0181080{i:04d}', name=f'B{i}')
-            order = Order.objects.create(user=user, course=course, amount=Decimal('100'), total=Decimal('100'))
-            Payment.objects.create(order=order, amount=Decimal('100'), transaction_id=f'TRX{i}')
+            Payment.objects.create(user=user, product=product, amount=100)
 
         self._assert_flat('billing', 'payment', make_row)
 
     def test_content_changelist_is_flat(self):
         from apps.courses.models import Content, Course, Section
 
-        course = Course.objects.create(title='ICT', active=True)
+        course = Course.objects.create(title='ICT', status='published')
         section = Section.objects.create(course=course, title='S1')
         counter = iter(range(1000))
 

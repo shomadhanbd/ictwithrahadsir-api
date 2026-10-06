@@ -1,76 +1,55 @@
-"""Reusable query predicates for the course models.
-
-Two rules were previously spelled out at several sites each:
-
-* `active=True` plus the same three `prefetch_related` arguments, copied
-  verbatim into three querysets in the views.
-* "this enrolment has not expired" -- written out in `Content.is_accessible_by`,
-  in a module-level helper in the views, and again in the course serializer.
-  Three copies of an access rule is three chances for them to disagree about
-  who is still enrolled.
-
-Naming each once means a change lands everywhere at the same time.
-"""
-
 from django.db import models
+from django.db.models import Count
 from django.utils import timezone
+
+from apps.core.querysets import with_stable_order
+
+
+def current_q(at=None):
+    """Access that has not expired; a null `valid_till` never does."""
+    return models.Q(valid_till__isnull=True) | models.Q(valid_till__gte=at or timezone.now())
 
 
 class CourseQuerySet(models.QuerySet):
-    #: The relations every course payload touches. Without these a page of
-    #: 15 courses issues a query per course per relation.
-    CATALOGUE_PREFETCH = ('categories', 'routines')
+    def published(self):
+        return self.filter(status=self.model.Status.PUBLISHED)
 
-    def active(self):
-        return self.filter(active=True)
+    def available(self):
+        """Courses enrolled students can still use: published or archived."""
+        return self.filter(status__in=(self.model.Status.PUBLISHED, self.model.Status.ARCHIVED))
 
     def featured(self):
-        return self.filter(featured=True)
+        return self.filter(is_featured=True)
+
+    def visible_to(self, user):
+        """Students with a class level see open courses and those for their level and group."""
+        if user is None or not user.is_authenticated:
+            return self
+
+        profile = getattr(user, "student", None)
+        if profile is None or profile.class_level_id is None:
+            return self
+
+        for_level = models.Q(class_level_id=profile.class_level_id) & (
+            models.Q(group__isnull=True) | models.Q(group_id=profile.group_id)
+        )
+        return self.filter(models.Q(class_level__isnull=True) | for_level)
 
     def with_catalogue_prefetch(self):
-        return self.prefetch_related(*self.CATALOGUE_PREFETCH, self._teacher_prefetch())
-
-    @staticmethod
-    def _teacher_prefetch():
-        """The teacher block, in one query rather than three.
-
-        A plain `'instructors__user__teacher'` walks the path as three
-        prefetches; one `select_related` down it joins them into the query that
-        fetches the assignments. Built here rather than beside
-        `CATALOGUE_PREFETCH` because it needs the model, and `models` imports
-        this module.
-        """
-        from apps.courses.models import CourseTeacher
-
-        return models.Prefetch(
-            'instructors',
-            queryset=CourseTeacher.objects.select_related('user__teacher'),
+        teachers = self.model._meta.get_field("instructors").related_model.objects.select_related("user__teacher")
+        return self.select_related("class_level", "group", "batch").prefetch_related(
+            models.Prefetch("instructors", queryset=teachers)
         )
+
+    def with_enrolled_count(self):
+        return with_stable_order(self.annotate(enrolled_count=Count("enrollments", distinct=True)))
 
 
 class EnrollmentQuerySet(models.QuerySet):
     def current(self, at=None):
-        """Enrolments that have not lapsed.
-
-        A null `valid_till` means the enrolment never expires. This is the
-        single definition of "still enrolled"; anything gating access on an
-        enrolment should go through it rather than re-checking the date.
-
-        `Enrollment.is_current` is the in-memory twin of this filter, for a
-        row that has already been fetched. Keep the two in step.
-        """
-        at = at or timezone.now()
-        return self.filter(models.Q(valid_till__isnull=True) | models.Q(valid_till__gte=at))
-
-    def for_user(self, user):
-        return self.filter(user=user)
+        return self.filter(current_q(at))
 
 
-class ContentQuerySet(models.QuerySet):
-    def active(self):
-        return self.filter(active=True)
-
-
-class SectionQuerySet(models.QuerySet):
+class ActiveQuerySet(models.QuerySet):
     def active(self):
         return self.filter(active=True)

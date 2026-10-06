@@ -1,47 +1,36 @@
-"""Reusable query predicates for the billing models.
-
-Naming `paid()` / `since()` once means the `status`/`created_at` index (see
-`Order.Meta`) has one place to be kept in step with the queries that use it.
-"""
-
 from django.db import models
+from django.db.models import Q
+from django.db.models.functions import Coalesce
+from django.utils import timezone
+
+from apps.courses.models import Course
 
 
-class OrderQuerySet(models.QuerySet):
-    def paid(self):
-        """Orders that have been confirmed as paid."""
-        return self.filter(status=self.model.Status.PAID)
+class ProductQuerySet(models.QuerySet):
+    def on_sale(self):
+        """Active, ending after today, and every course in it published and open for enrolment.
 
-    def pending(self):
-        return self.filter(status=self.model.Status.PENDING)
-
-    def with_status(self, status):
-        return self.filter(status=status)
-
-    def since(self, when):
-        """Orders created at or after `when`."""
-        return self.filter(created_at__gte=when)
-
-    def for_user(self, user):
-        return self.filter(user=user)
-
-    def for_products(self):
-        return self.filter(product__isnull=False)
+        A package ending today is not sold: full price for a few hours of access.
+        """
+        return (
+            self.filter(
+                Q(access_ends_on__isnull=True) | Q(access_ends_on__gt=timezone.localdate()),
+                is_active=True,
+                courses__isnull=False,
+            )
+            .exclude(courses__enrollment_deadline__lt=timezone.now())
+            .exclude(courses__in=Course.objects.exclude(status=Course.Status.PUBLISHED))
+            .distinct()
+        )
 
 
 class PaymentQuerySet(models.QuerySet):
-    def with_payer(self):
-        """Preload the order and its user.
+    def paid(self):
+        return self.filter(status=self.model.Status.VALID)
 
-        The admin payment list renders the payer's name and phone for every
-        row, which is two extra queries per payment without this.
-        """
-        return self.select_related('order', 'order__user')
+    def awaiting(self):
+        return self.filter(status=self.model.Status.INITIATED)
 
-    def with_status(self, status):
-        return self.filter(status=status)
-
-    def held(self):
-        """Reported by SSLCommerz but not fulfilled: a risk flag or a mismatch,
-        waiting for an admin."""
-        return self.filter(status=self.model.Status.PENDING).exclude(val_id="")
+    def with_paid_on(self):
+        """`paid_on`: the gateway's transaction time, else when the row was made (cash sales)."""
+        return self.annotate(paid_on=Coalesce("transaction_date", "created_at"))

@@ -1,11 +1,12 @@
-"""SMS delivery. `settings.SMS_BACKEND` picks the provider: "console" (default,
-logs the message) or "bulksmsbd"."""
+"""SMS delivery; `settings.SMS_BACKEND` is "console" (the default, logs only) or "bulksmsbd"."""
 
 import logging
 
 from django.conf import settings
 
 import requests
+
+from apps.core.phones import masked_phone
 
 logger = logging.getLogger('sms')
 
@@ -54,10 +55,10 @@ class BulkSmsBdBackend(SmsBackend):
             code = None
         if code != self.ACCEPTED:
             # Never log `message`: it carries the OTP.
-            logger.error('BulkSMSBD refused the message to %s (response_code=%s)', phone, code)
+            logger.error('BulkSMSBD refused the message to %s (response_code=%s)', masked_phone(phone), code)
             raise BulkSmsBdError(f'BulkSMSBD returned response_code {code}.')
 
-        logger.info('BulkSMSBD accepted a message for %s', phone)
+        logger.info('BulkSMSBD accepted a message for %s', masked_phone(phone))
 
     def balance(self) -> dict:
         """Remaining credit in whole taka, or zero if the lookup fails."""

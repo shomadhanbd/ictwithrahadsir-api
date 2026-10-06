@@ -1,0 +1,25 @@
+/*
+ * Tweaks to the stock Django admin. Loaded after responsive.css
+ * (templates/admin/base_site.html), so equal selectors win on source order.
+ */
+
+/*
+ * Keep the changelist filter as a sidebar between 600px and 767px, where
+ * Django stacks it above the results. Undoes only what responsive.css changes
+ * in that range; below 600px Django's stacked layout is left alone.
+ */
+@media (min-width: 600px) and (max-width: 767px) {
+    #changelist .changelist-form-container {
+        flex-direction: row;
+    }
+
+    #changelist .changelist-form-container:has(#changelist-filter) > div {
+        max-width: calc(100% - 270px);
+        width: auto;
+    }
+
+    #changelist-filter {
+        width: auto;
+        margin: 0 0 0 30px;
+    }
+}

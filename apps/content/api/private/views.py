@@ -1,4 +1,3 @@
-from drf_spectacular.utils import extend_schema
 from rest_framework.exceptions import NotFound
 from rest_framework.generics import ListAPIView
 from rest_framework.response import Response
@@ -89,7 +88,6 @@ class AdminPageUpdateAPIView(APIView):
 
     permission_classes = [IsContentStaff]
 
-    @extend_schema(summary='Edit a static page', request=PageSerializer, responses={200: PageSerializer})
     def patch(self, request, slug):
         page = Page.objects.filter(slug=slug).first()
         if not page:

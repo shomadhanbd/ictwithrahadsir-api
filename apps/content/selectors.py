@@ -1,6 +1,6 @@
 """Reads for the CMS payloads, chiefly the homepage aggregate.
 
-The homepage is one round trip that gathers eight things from four apps.
+The homepage is one round trip that gathers seven things from four apps.
 Doing that in the view meant importing `courses` *inside* the handler to dodge
 an import cycle -- `content` is imported by that app, so a module-scope import
 back into it would close the loop.
@@ -19,6 +19,9 @@ from apps.profiles.models import TeacherProfile
 #: The homepage shows featured courses only, and never the whole catalogue.
 FEATURED_COURSE_LIMIT = 12
 
+#: The most teachers `/home` returns; the About page lists them all, so it is generous.
+HOME_INSTRUCTORS = 50
+
 #: The `Page` key holding the homepage banner image.
 BANNER_PAGE_KEY = 'homeBannerImage'
 
@@ -26,17 +29,20 @@ BANNER_PAGE_KEY = 'homeBannerImage'
 SUCCESS_STORY_COUNTER_KEY = 'homeInstructorCounter'
 
 
-def homepage_content():
+def homepage_content(user=None):
     """Everything the landing page needs, as model instances.
 
     Returns a dict of querysets/lists rather than serialised data: rendering
     is the serializer's job, and keeping this layer free of `request` means
-    it can be called from a warm-cache job later without faking one.
+    it can be called from a warm-cache job later without faking one. `user`
+    narrows the featured courses to the ones they may see; none means a
+    visitor, who sees them all.
     """
-    from apps.courses.models import Course, CourseCategory
+    from apps.courses.models import Course
 
-    courses = list(Course.objects.active().featured().with_catalogue_prefetch()[:FEATURED_COURSE_LIMIT])
-    categories = list(CourseCategory.objects.filter(category__isnull=True))
+    courses = list(
+        Course.objects.published().featured().visible_to(user).with_catalogue_prefetch()[:FEATURED_COURSE_LIMIT]
+    )
 
     # Homepage counters and banner are managed as `Page` rows through the
     # admin panel's Pages screen (value_type="counter"/"image"), not the
@@ -47,11 +53,11 @@ def homepage_content():
 
     return {
         'courses': courses,
-        'categories': categories,
         'counters': counters,
         'banner': Page.objects.filter(key=BANNER_PAGE_KEY).first(),
         'success_story': next((c.value for c in counters if c.key == SUCCESS_STORY_COUNTER_KEY), 0),
         'advertisements': Advertisement.objects.all(),
         'testimonials': Testimonial.objects.all(),
-        'instructors': TeacherProfile.objects.select_related('user'),
+        # Active accounts only; the About page reuses this as the whole roster, so the cap only bounds the payload.
+        'instructors': TeacherProfile.objects.filter(user__is_active=True).select_related('user')[:HOME_INSTRUCTORS],
     }

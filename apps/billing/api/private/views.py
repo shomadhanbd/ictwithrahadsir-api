@@ -1,104 +1,65 @@
-"""HTTP layer for the admin billing screens: products, coupons, orders, payments.
+from django.db.models import Count, Q
 
-Every handler here does the same three things and nothing else: validate the
-input with a serializer, call one service or selector, render the result.
-The rules themselves live in `apps/billing/services.py` (writes) and
-`apps/billing/selectors.py` (reads).
-"""
-
-from drf_spectacular.utils import extend_schema
-from rest_framework.exceptions import NotFound
+from rest_framework import status
 from rest_framework.generics import ListAPIView
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.billing import services
-from apps.billing.api.serializers import (
-    AdminOrderSerializer,
-    AdminPaymentSerializer,
-    AdminProductSerializer,
-    PaymentStatusUpdateRequestSerializer,
-    ProductCouponSerializer,
-)
-from apps.billing.models import Order, Payment, Product, ProductCoupon
+from apps.billing.api.filters import AdminProductFilter
+from apps.billing.api.serializers import AdminPaymentSerializer, AdminProductSerializer, CashSaleRequestSerializer
+from apps.billing.models import Payment, Product
+from apps.billing.services.offline import record_cash_sale
 from apps.core.api.pagination import LaravelStylePageNumberPagination
-from apps.core.api.permissions import IsFullAdmin
+from apps.core.api.permissions import IsFullAdmin, IsTeachingStaff
 from apps.core.api.viewsets import AdminModelViewSet
+from apps.courses.api.permissions import assert_may_manage_course
 
 
 class AdminProductViewSet(AdminModelViewSet):
-    """Products. One somebody has paid for cannot be deleted (409); set
-    `active` to false to stop selling it."""
+    """A product somebody paid for cannot be deleted (409); deactivate it."""
 
     serializer_class = AdminProductSerializer
-    queryset = Product.objects.prefetch_related('courses')
-    search_fields = ['title', 'slug']
-    filterset_fields = ['active']
-
-
-class AdminProductCouponViewSet(AdminModelViewSet):
-    serializer_class = ProductCouponSerializer
-    queryset = ProductCoupon.objects.select_related('product')
-    search_fields = ['code']
-    filterset_fields = ['product', 'active']
-
-
-class AdminOrderListAPIView(ListAPIView):
-    """Every order, newest first; `?status=` narrows it."""
-
-    permission_classes = [IsFullAdmin]
-    serializer_class = AdminOrderSerializer
-    pagination_class = LaravelStylePageNumberPagination
-    search_fields = ['id', 'item_title', 'coupon_code', 'user__name', 'user__phone']
-
-    def get_queryset(self):
-        qs = Order.objects.select_related('user').order_by('-id')
-        status_value = self.request.query_params.get('status')
-        if status_value and status_value != 'all':
-            qs = qs.with_status(status_value)
-        return qs
+    queryset = (
+        Product.objects.prefetch_related('courses')
+        .annotate(payment_count=Count('payments', filter=Q(payments__status=Payment.Status.VALID), distinct=True))
+        .order_by('-id')
+    )
+    search_fields = ['title', 'product_id']
+    filterset_class = AdminProductFilter
 
 
 class AdminPaymentListAPIView(ListAPIView):
     permission_classes = [IsFullAdmin]
     serializer_class = AdminPaymentSerializer
     pagination_class = LaravelStylePageNumberPagination
-    # The panel searches by payer and by transaction reference; without these
-    # the global SearchFilter had nothing to match and `?search=` was ignored.
-    search_fields = ['transaction_id', 'order__user__name', 'order__user__phone']
+    search_fields = ['transaction_id', 'user__name', 'user__phone']
 
     def get_queryset(self):
-        # Newest first, and explicitly ordered: an unordered queryset lets the
-        # database pick page boundaries, so a payment could show on two pages
-        # or on none.
-        qs = Payment.objects.with_payer().order_by('-id')
-
-        # The screen's main job is clearing pending payments, which is
-        # impossible on a mixed list once there are more than a page of them.
-        status_value = self.request.query_params.get('status')
-        if status_value and status_value != 'all':
-            qs = qs.with_status(status_value)
-        return qs
+        queryset = (
+            Payment.objects.select_related('user', 'product', 'recorded_by')
+            .prefetch_related('product__courses')
+            .order_by('-id')
+        )
+        value = self.request.query_params.get('status')
+        return queryset.filter(status=value) if value and value != 'all' else queryset
 
 
-class AdminPaymentUpdateAPIView(APIView):
-    """An admin's decision on a payment SSLCommerz reported but held back (a
-    risk flag or a mismatch): confirm it to grant access, or fail it."""
+class AdminCashSaleAPIView(APIView):
+    """Records money taken at the centre for a package, and enrols the student."""
 
-    permission_classes = [IsFullAdmin]
+    permission_classes = [IsTeachingStaff]
 
-    @extend_schema(
-        summary='Confirm or fail a payment',
-        request=PaymentStatusUpdateRequestSerializer,
-        responses={200: AdminPaymentSerializer},
-    )
-    def patch(self, request, pk):
-        payment = Payment.objects.filter(pk=pk).first()
-        if not payment:
-            raise NotFound('Payment not found.')
-
-        serializer = PaymentStatusUpdateRequestSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        payment = services.confirm_payment(payment=payment, **serializer.validated_data)
-        return Response(AdminPaymentSerializer(payment).data)
+    def post(self, request):
+        body = CashSaleRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        data = body.validated_data
+        assert_may_manage_course(request, data["course"].pk)
+        payment = record_cash_sale(
+            user=data["user"],
+            product=data["product"],
+            amount=data["amount"],
+            valid_till=data.get("valid_till"),
+            recorded_by=request.user,
+            note=data.get("note", ""),
+        )
+        return Response(AdminPaymentSerializer(payment).data, status=status.HTTP_201_CREATED)

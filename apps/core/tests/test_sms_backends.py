@@ -1,8 +1,4 @@
-"""The SMS gateway adapters and the factory that chooses between them.
-
-Nothing here touches the network: `requests` is patched at every call site,
-which is also the guard that this suite can never spend real SMS credit.
-"""
+"""The SMS gateway adapters and the factory that chooses between them."""
 
 from unittest import mock
 
@@ -39,8 +35,7 @@ class SmsBackendFactoryTests(TestCase):
 
 
 class GatewayNumberTests(TestCase):
-    """`normalize_phone` stores the local `01...` form; the gateway wants
-    the country code back on."""
+    """The gateway gets the number with its country code."""
 
     def test_a_local_number_gains_the_country_code(self):
         self.assertEqual(BulkSmsBdBackend.gateway_number('01711111111'), '8801711111111')
@@ -75,8 +70,7 @@ class BulkSmsBdSendTests(TestCase):
         self.assertEqual(post.call_args.kwargs['timeout'], 10)
 
     def test_a_refusal_raises_even_though_the_http_status_was_200(self):
-        """BulkSMSBD reports a bad API key as 200 + response_code 1002. Left
-        unchecked, a misconfigured key looks like a successful send forever."""
+        """A 200 with BulkSMSBD's error code 1002 counts as a failed send."""
         with (
             mock.patch('requests.post', return_value=fake_response({'response_code': 1002})),
             self.assertRaises(BulkSmsBdError),
@@ -98,8 +92,7 @@ class BulkSmsBdBalanceTests(TestCase):
             self.assertEqual(BulkSmsBdBackend().balance(), {'balance': 1234, 'currency': 'BDT'})
 
     def test_a_failed_lookup_reports_zero_rather_than_raising(self):
-        """A dead balance call must not take the admin dashboard down with
-        it -- unlike a send, nobody is waiting on it to log in."""
+        """A failed balance call returns nothing instead of raising."""
         with mock.patch('requests.get', side_effect=requests.Timeout('slow')):
             self.assertEqual(BulkSmsBdBackend().balance(), {'balance': 0, 'currency': 'BDT'})
 
