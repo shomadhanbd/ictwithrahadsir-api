@@ -1,7 +1,7 @@
 from django.conf import settings
 from django.utils import timezone
 
-from apps.core.phones import normalize_phone
+from apps.core.text.phones import normalize_phone
 from apps.identity.models import OTP, User
 from apps.identity.roles import is_full_admin
 

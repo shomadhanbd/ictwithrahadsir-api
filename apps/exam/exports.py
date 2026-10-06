@@ -1,4 +1,4 @@
-from apps.core.exports import clock, local_stamp
+from apps.core.api.views.exports import local_stamp
 
 RESULT_COLUMNS = [
     "Rank",
@@ -14,6 +14,10 @@ RESULT_COLUMNS = [
     "Time taken",
     "Submitted at",
 ]
+
+
+def clock(seconds) -> str:
+    return "" if seconds is None else f"{seconds // 60}:{seconds % 60:02d}"
 
 
 def result_rows(exam, attempts, *, ranks):

@@ -3,6 +3,7 @@
 from django.core.exceptions import ValidationError
 
 from apps.academic.models import Chapter, Subject, Topic
+from apps.core.testing import next_slug
 from apps.question.models import Question, QuestionBlock, QuestionOption, QuestionSet
 from apps.question.tests.base import BLOCKS_URL, QUESTIONS_URL, QuestionTestCase, detail
 
@@ -76,7 +77,7 @@ class AuthoringRuleTests(QuestionTestCase):
 
     def test_a_chapter_from_another_subject_is_refused(self):
         other = Subject.objects.create(name="Physics", class_level=self.hsc, group=self.science, slug="phy-hsc-science")
-        elsewhere = Chapter.objects.create(name="Motion", subject=other)
+        elsewhere = Chapter.objects.create(slug=next_slug("chapter"), name="Motion", subject=other)
 
         response = self.client.post(
             BLOCKS_URL,
@@ -346,7 +347,11 @@ class BlockTopicTests(QuestionTestCase):
 
     def test_a_topic_from_another_chapter_is_refused(self):
         physics = Subject.objects.create(name="Physics", class_level=self.hsc, group=self.science, slug="phy")
-        optics = Topic.objects.create(name="Optics", chapter=Chapter.objects.create(name="Light", subject=physics))
+        optics = Topic.objects.create(
+            slug=next_slug("topic"),
+            name="Optics",
+            chapter=Chapter.objects.create(slug=next_slug("chapter"), name="Light", subject=physics),
+        )
         response = self.client.post(
             BLOCKS_URL,
             {"subject_id": self.ict.pk, "chapter_id": self.chapter.pk, "topic_ids": [optics.pk]},
@@ -357,7 +362,7 @@ class BlockTopicTests(QuestionTestCase):
         self.assertIn("topic_ids", response.json()["errors"])
 
     def test_a_topic_of_its_own_chapter_is_accepted(self):
-        binary = Topic.objects.create(name="Binary", chapter=self.chapter)
+        binary = Topic.objects.create(slug=next_slug("topic"), name="Binary", chapter=self.chapter)
         response = self.client.post(
             BLOCKS_URL,
             {"subject_id": self.ict.pk, "chapter_id": self.chapter.pk, "topic_ids": [binary.pk]},
@@ -368,8 +373,8 @@ class BlockTopicTests(QuestionTestCase):
 
     def test_moving_to_another_chapter_needs_its_topics_to_follow(self):
         block = self.block()
-        block.topics.add(Topic.objects.create(name="Binary", chapter=self.chapter))
-        other = Chapter.objects.create(name="Networking", subject=self.ict, chapter_number=2)
+        block.topics.add(Topic.objects.create(slug=next_slug("topic"), name="Binary", chapter=self.chapter))
+        other = Chapter.objects.create(slug=next_slug("chapter"), name="Networking", subject=self.ict, chapter_number=2)
         response = self.client.patch(
             detail("question_block", block.pk), {"chapter_id": other.pk}, content_type="application/json", **self.auth
         )

@@ -246,7 +246,7 @@ def initiate_payment(*, user, product_id: str) -> dict:
 
 def _open_gateway_session(payment: Payment) -> dict:
     user = payment.user
-    capture_url = _callback_url("payment-capture")
+    capture_url = _callback_url("payment_capture")
     post_body = {
         "total_amount": payment.amount,
         "currency": "BDT",
@@ -254,7 +254,7 @@ def _open_gateway_session(payment: Payment) -> dict:
         "success_url": capture_url,
         "fail_url": capture_url,
         "cancel_url": capture_url,
-        "ipn_url": _callback_url("payment-ipn"),
+        "ipn_url": _callback_url("payment_ipn"),
         "multi_card_name": "",
         "emi_option": 0,
         "value_a": str(user.pk),  # echoed by the Validator API; see `_validate_with_validator_api`

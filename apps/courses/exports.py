@@ -1,4 +1,4 @@
-from apps.core.exports import local_stamp
+from apps.core.api.views.exports import local_stamp
 
 STUDENT_EXPORT_HEADER = [
     "Name",

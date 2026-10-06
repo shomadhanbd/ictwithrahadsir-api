@@ -11,7 +11,7 @@ from apps.academic.tests.base import (
     AcademicTestCase,
     detail,
 )
-from apps.core.testing import bearer, make_user
+from apps.core.testing import bearer, make_user, next_slug
 from apps.identity.models import User
 
 
@@ -20,7 +20,7 @@ class ListTests(AcademicTestCase):
         super().setUp()
         for level in (self.ssc, self.hsc):
             for group in (self.science, self.arts):
-                Subject.objects.create(name="ICT", class_level=level, group=group)
+                Subject.objects.create(slug=next_slug("subject"), name="ICT", class_level=level, group=group)
 
     def _totals(self, url, query=None):
         body = self.client.get(url, query or {}, **self.auth).json()
@@ -62,8 +62,8 @@ class ListTests(AcademicTestCase):
 
 class BatchTests(AcademicTestCase):
     def test_batches_can_be_scoped_to_active_ones(self):
-        Batch.objects.create(name="2027", class_level=self.ssc)
-        Batch.objects.create(name="2026", class_level=self.ssc, is_active=False)
+        Batch.objects.create(slug=next_slug("batch"), name="2027", class_level=self.ssc)
+        Batch.objects.create(slug=next_slug("batch"), name="2026", class_level=self.ssc, is_active=False)
 
         body = self.client.get(BATCHES_URL, {"is_active": "true"}, **self.auth).json()
 
@@ -80,7 +80,7 @@ class DeletionTests(AcademicTestCase):
     """A level or group in use cannot be deleted."""
 
     def test_a_level_in_use_cannot_be_deleted(self):
-        Subject.objects.create(name="Physics", class_level=self.ssc, group=self.science)
+        Subject.objects.create(slug=next_slug("subject"), name="Physics", class_level=self.ssc, group=self.science)
 
         response = self.client.delete(detail("class_level", self.ssc.pk), **self.auth)
 
@@ -94,7 +94,7 @@ class DeletionTests(AcademicTestCase):
         self.assertFalse(ClassLevel.objects.filter(pk=self.hsc.pk).exists())
 
     def test_a_level_with_batches_cannot_be_deleted(self):
-        Batch.objects.create(name="2027", class_level=self.ssc)
+        Batch.objects.create(slug=next_slug("batch"), name="2027", class_level=self.ssc)
         self.assertEqual(self.client.delete(detail("class_level", self.ssc.pk), **self.auth).status_code, 409)
 
 
@@ -102,7 +102,7 @@ class RetireTests(AcademicTestCase):
     """`is_active` retires a row that is still in use."""
 
     def test_a_level_in_use_can_be_retired_instead(self):
-        Subject.objects.create(name="Physics", class_level=self.ssc, group=self.science)
+        Subject.objects.create(slug=next_slug("subject"), name="Physics", class_level=self.ssc, group=self.science)
         self.assertEqual(self.client.delete(detail("class_level", self.ssc.pk), **self.auth).status_code, 409)
 
         response = self.client.patch(
@@ -119,14 +119,18 @@ class RetireTests(AcademicTestCase):
     def test_everything_is_active_by_default(self):
         for row in (self.ssc, self.science):
             self.assertTrue(row.is_active)
-        subject = Subject.objects.create(name="Physics", class_level=self.ssc, group=self.science)
+        subject = Subject.objects.create(
+            slug=next_slug("subject"), name="Physics", class_level=self.ssc, group=self.science
+        )
         self.assertTrue(subject.is_active)
 
     def test_each_resource_can_be_filtered_by_status(self):
         Group.objects.create(name="ব্যবসায় শিক্ষা", slug="commerce", is_active=False)
-        Subject.objects.create(name="Physics", class_level=self.ssc, group=self.science, is_active=False)
-        Batch.objects.create(name="2026", class_level=self.ssc, is_active=False)
-        Batch.objects.create(name="2027", class_level=self.ssc)
+        Subject.objects.create(
+            slug=next_slug("subject"), name="Physics", class_level=self.ssc, group=self.science, is_active=False
+        )
+        Batch.objects.create(slug=next_slug("batch"), name="2026", class_level=self.ssc, is_active=False)
+        Batch.objects.create(slug=next_slug("batch"), name="2027", class_level=self.ssc)
 
         for url, expected in [(GROUPS_URL, 2), (SUBJECTS_URL, 0), (BATCHES_URL, 1)]:
             body = self.client.get(url, {"is_active": "true"}, **self.auth).json()
@@ -148,7 +152,9 @@ class TeacherCurriculumLimitsTests(AcademicTestCase):
     def setUp(self):
         super().setUp()
         self.teacher = bearer(make_user(role=User.Role.TEACHER))
-        self.subject = Subject.objects.create(name="ICT", class_level=self.ssc, group=self.science)
+        self.subject = Subject.objects.create(
+            slug=next_slug("subject"), name="ICT", class_level=self.ssc, group=self.science
+        )
 
     def test_a_teacher_reads_but_cannot_change_a_class_level(self):
         url = reverse("api:academic:admin_class_level_detail", args=[self.ssc.pk])
@@ -174,10 +180,12 @@ class TeacherCurriculumLimitsTests(AcademicTestCase):
         self.assertEqual(response.status_code, 200)
 
     def test_a_teacher_cannot_switch_a_subject_off_or_move_chapters_and_topics(self):
-        chapter = Chapter.objects.create(name="Number systems", subject=self.subject)
-        other = Subject.objects.create(name="Physics", class_level=self.ssc, group=self.science)
-        topic = Topic.objects.create(name="Binary", chapter=chapter)
-        other_chapter = Chapter.objects.create(name="Logic", subject=self.subject)
+        chapter = Chapter.objects.create(slug=next_slug("chapter"), name="Number systems", subject=self.subject)
+        other = Subject.objects.create(
+            slug=next_slug("subject"), name="Physics", class_level=self.ssc, group=self.science
+        )
+        topic = Topic.objects.create(slug=next_slug("topic"), name="Binary", chapter=chapter)
+        other_chapter = Chapter.objects.create(slug=next_slug("chapter"), name="Logic", subject=self.subject)
         for url, body in (
             (reverse("api:academic:admin_subject_detail", args=[self.subject.pk]), {"is_active": False}),
             (reverse("api:academic:admin_chapter_detail", args=[chapter.pk]), {"subject_id": other.pk}),
@@ -191,7 +199,7 @@ class TeacherCurriculumLimitsTests(AcademicTestCase):
         self.assertEqual((chapter.subject_id, topic.chapter_id), (self.subject.pk, chapter.pk))
 
     def test_a_teacher_still_renames_chapters_and_topics(self):
-        chapter = Chapter.objects.create(name="Number systems", subject=self.subject)
+        chapter = Chapter.objects.create(slug=next_slug("chapter"), name="Number systems", subject=self.subject)
         url = reverse("api:academic:admin_chapter_detail", args=[chapter.pk])
         response = self.client.patch(url, {"name": "Numbers"}, content_type="application/json", **self.teacher)
         self.assertEqual(response.status_code, 200)

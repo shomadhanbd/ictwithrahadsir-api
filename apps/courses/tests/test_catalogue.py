@@ -7,7 +7,7 @@ from rest_framework.test import APITestCase
 
 from apps.academic.models import Batch, ClassLevel, Group
 from apps.billing.models import Product
-from apps.core.testing import bearer, make_user
+from apps.core.testing import bearer, make_user, next_slug
 from apps.courses.models import (
     Content,
     Course,
@@ -116,7 +116,7 @@ class CourseAudienceTests(APITestCase):
         self.ssc = ClassLevel.objects.create(name='SSC', slug='ssc')
         self.science = Group.objects.create(name='Science', slug='science')
         self.arts = Group.objects.create(name='Arts', slug='arts')
-        self.hsc_2027 = Batch.objects.create(name='HSC-2027', class_level=self.hsc)
+        self.hsc_2027 = Batch.objects.create(slug=next_slug("batch"), name='HSC-2027', class_level=self.hsc)
 
         Course.objects.create(status='published', title='Open', slug='open')
         Course.objects.create(
@@ -191,9 +191,9 @@ class PublicAcademicListTests(APITestCase):
     def test_lists_active_batches_for_a_level(self):
         hsc = ClassLevel.objects.create(name='HSC', slug='hsc')
         ssc = ClassLevel.objects.create(name='SSC', slug='ssc')
-        Batch.objects.create(name='HSC-2027', class_level=hsc)
-        Batch.objects.create(name='HSC-2020', class_level=hsc, is_active=False)
-        Batch.objects.create(name='SSC-2027', class_level=ssc)
+        Batch.objects.create(slug=next_slug("batch"), name='HSC-2027', class_level=hsc)
+        Batch.objects.create(slug=next_slug("batch"), name='HSC-2020', class_level=hsc, is_active=False)
+        Batch.objects.create(slug=next_slug("batch"), name='SSC-2027', class_level=ssc)
         body = self.client.get(reverse('api:academic:batch_list'), {'class_level': 'hsc'}).json()
         self.assertEqual([b['name'] for b in body['data']], ['HSC-2027'])
         self.assertEqual(body['data'][0]['class_level'], 'hsc')
@@ -234,7 +234,12 @@ class CourseProfilePayloadTests(APITestCase):
 
     def test_filters_by_delivery_difficulty_and_language(self):
         Course.objects.create(
-            title='Live English', status='published', delivery='live', difficulty='advanced', language='en'
+            slug=next_slug("course"),
+            title='Live English',
+            status='published',
+            delivery='live',
+            difficulty='advanced',
+            language='en',
         )
         for params in ({'delivery': 'live'}, {'difficulty': 'advanced'}, {'language': 'en'}):
             titles = [c['title'] for c in self.client.get(COURSE_LIST_URL, params).json()['data']]
@@ -256,7 +261,9 @@ class CourseListQueryCountTests(APITestCase):
                     slug=f'course-{i}-c{j}',
                     type=content_type,
                 )
-            package = Product.objects.create(title=f'Package {i}', price=100, base_price=100)
+            package = Product.objects.create(
+                product_id=next_slug("product"), title=f'Package {i}', price=100, base_price=100
+            )
             package.courses.add(course)
 
     def count_queries(self, course_count):
@@ -293,7 +300,7 @@ class HasOrderWiringTests(APITestCase):
 
         from apps.billing.models import Payment, Product
 
-        product = Product.objects.create(title='Bundle', price=100, base_price=100)
+        product = Product.objects.create(product_id=next_slug("product"), title='Bundle', price=100, base_price=100)
         product.courses.add(self.bought)
         Payment.objects.create(user=self.student, product=product, amount=100, status=Payment.Status.VALID)
 

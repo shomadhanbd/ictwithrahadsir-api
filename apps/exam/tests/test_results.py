@@ -32,11 +32,11 @@ class ResultsTests(CourseExamTestCase):
         exam = self.published_exam(end_time=timezone.now() + timezone.timedelta(hours=2))
         attempt = attempt_service.submit(attempt_service.start_attempt(exam, self.student))
         self.assertEqual(self.client.get(url("attempt_result", attempt.pk), **self.student_auth).status_code, 403)
-        self.assertEqual(self.client.get(url("exam_ranking", exam.slug), **self.student_auth).status_code, 403)
+        self.assertEqual(self.client.get(url("exam_ranking", exam.pk), **self.student_auth).status_code, 403)
 
         type(exam).objects.filter(pk=exam.pk).update(end_time=timezone.now() - timezone.timedelta(minutes=1))
         self.assertEqual(self.client.get(url("attempt_result", attempt.pk), **self.student_auth).status_code, 200)
-        self.assertEqual(self.client.get(url("exam_ranking", exam.slug), **self.student_auth).status_code, 200)
+        self.assertEqual(self.client.get(url("exam_ranking", exam.pk), **self.student_auth).status_code, 200)
 
     def test_with_no_times_set_the_result_is_out_on_submit(self):
         exam = self.published_exam()
@@ -62,7 +62,7 @@ class ResultsTests(CourseExamTestCase):
                 [{"question_id": q.pk, "option_ids": [self.option(q, 0)]} for q in self.questions[:right]],
             )
             attempt_service.submit(attempt)
-        body = self.client.get(url("exam_ranking", exam.slug), **self.student_auth).json()
+        body = self.client.get(url("exam_ranking", exam.pk), **self.student_auth).json()
         self.assertEqual([row["name"] for row in body["top"]], ["Student Two", "Student One"])
         self.assertEqual(body["me"]["rank"], 2)
 

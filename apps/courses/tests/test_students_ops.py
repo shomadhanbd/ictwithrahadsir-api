@@ -12,10 +12,11 @@ from apps.core.testing import bearer, make_user
 from apps.courses.models import Content, ContentCompletion, Course, CourseTeacher, Enrollment, Section
 from apps.courses.services import send_expiry_reminders
 from apps.identity.models import User
+from apps.notifications.gateways import SmsError
 
 
 def sms_outbox():
-    return patch('apps.courses.services.get_sms_backend')
+    return patch('apps.notifications.services.get_gateway')
 
 
 class ExpiryReminderTests(APITestCase):
@@ -39,7 +40,7 @@ class ExpiryReminderTests(APITestCase):
         backend.return_value.send.assert_called_once()
         phone, message = backend.return_value.send.call_args.args
         self.assertEqual(phone, soon.user.phone)
-        self.assertIn('HSC ICT', message)
+        self.assertTrue(message.isascii(), 'reminders are sent in English only')
         self.assertIn('/course/hsc-ict-remind', message)
 
     def test_a_renewed_end_date_is_reminded_again(self):
@@ -52,7 +53,7 @@ class ExpiryReminderTests(APITestCase):
     def test_a_failed_send_is_retried_next_run(self):
         self.enrol(self.now + timezone.timedelta(days=1))
         with sms_outbox() as backend:
-            backend.return_value.send.side_effect = RuntimeError('down')
+            backend.return_value.send.side_effect = SmsError('down')
             self.assertEqual(send_expiry_reminders(days=3), 0)
             backend.return_value.send.side_effect = None
             self.assertEqual(send_expiry_reminders(days=3), 1)

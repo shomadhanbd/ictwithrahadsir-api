@@ -15,29 +15,29 @@ from apps.exam.tests.base import (
 class TakingAnExamTests(CourseExamTestCase):
     def test_not_enrolled_is_refused(self):
         exam = self.published_exam()
-        response = self.client.post(url("exam_start", exam.slug), **bearer(make_user()))
+        response = self.client.post(url("exam_start", exam.pk), **bearer(make_user()))
         self.assertEqual(response.status_code, 403)
 
     def test_a_draft_exam_is_not_found(self):
         exam = self.lesson().exam
-        self.assertEqual(self.client.get(url("exam_detail", exam.slug), **self.student_auth).status_code, 404)
+        self.assertEqual(self.client.get(url("exam_detail", exam.pk), **self.student_auth).status_code, 404)
 
     def test_outside_the_window_is_refused(self):
         exam = self.published_exam(start_time=timezone.now() + timezone.timedelta(hours=1))
-        response = self.client.post(url("exam_start", exam.slug), **self.student_auth)
+        response = self.client.post(url("exam_start", exam.pk), **self.student_auth)
         self.assertEqual(response.status_code, 422)
 
     def test_an_unreleased_exam_lesson_cannot_be_started(self):
         exam = self.published_exam()
         Content.objects.filter(pk=exam.lesson_id).update(available_from=timezone.now() + timezone.timedelta(days=1))
-        response = self.client.post(url("exam_start", exam.slug), **self.student_auth)
+        response = self.client.post(url("exam_start", exam.pk), **self.student_auth)
         self.assertEqual(response.status_code, 403)
         self.assertIn("Available from", response.json()["message"])
 
     def test_starting_twice_resumes(self):
         exam = self.published_exam()
-        first = self.client.post(url("exam_start", exam.slug), **self.student_auth).json()["id"]
-        second = self.client.post(url("exam_start", exam.slug), **self.student_auth).json()["id"]
+        first = self.client.post(url("exam_start", exam.pk), **self.student_auth).json()["id"]
+        second = self.client.post(url("exam_start", exam.pk), **self.student_auth).json()["id"]
         self.assertEqual(first, second)
 
     def test_submitting_completes_the_lesson(self):
@@ -48,7 +48,7 @@ class TakingAnExamTests(CourseExamTestCase):
     def test_attempts_are_limited(self):
         exam = self.published_exam()
         attempt_service.submit(attempt_service.start_attempt(exam, self.student))
-        response = self.client.post(url("exam_start", exam.slug), **self.student_auth)
+        response = self.client.post(url("exam_start", exam.pk), **self.student_auth)
         self.assertEqual(response.status_code, 422)
 
     def test_the_paper_carries_no_answer_key(self):
@@ -126,7 +126,7 @@ class TakingAnExamTests(CourseExamTestCase):
     def test_an_exam_on_a_draft_course_cannot_be_sat(self):
         exam = self.published_exam()
         Course.objects.filter(pk=self.course.pk).update(status=Course.Status.DRAFT)
-        self.assertEqual(self.client.post(url("exam_start", exam.slug), **self.student_auth).status_code, 404)
+        self.assertEqual(self.client.post(url("exam_start", exam.pk), **self.student_auth).status_code, 404)
 
     def test_bad_answers_are_refused(self):
         exam = self.published_exam()

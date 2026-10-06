@@ -3,7 +3,7 @@ from rest_framework import serializers
 from apps.academic import services
 from apps.academic.models import Batch, Chapter, ClassLevel, Group, Subject, Topic
 from apps.academic.validators import validate_chapter_subject_change, validate_topic_chapter_change
-from apps.core.api.fields import LiveCount
+from apps.core.api.serializers.fields import LiveCount
 
 
 class ClassLevelSerializer(serializers.ModelSerializer):
@@ -24,7 +24,7 @@ class ClassLevelSerializer(serializers.ModelSerializer):
             "is_active",
             "order",
         ]
-        read_only_fields = ["slug", "question_count"]
+        read_only_fields = ["question_count"]
 
 
 class GroupSerializer(serializers.ModelSerializer):
@@ -43,7 +43,7 @@ class GroupSerializer(serializers.ModelSerializer):
             "is_active",
             "order",
         ]
-        read_only_fields = ["slug", "question_count"]
+        read_only_fields = ["question_count"]
 
 
 class SubjectSerializer(serializers.ModelSerializer):
@@ -68,7 +68,7 @@ class SubjectSerializer(serializers.ModelSerializer):
             "is_active",
             "order",
         ]
-        read_only_fields = ["slug", "question_count"]
+        read_only_fields = ["question_count"]
 
 
 class ChapterSerializer(serializers.ModelSerializer):
@@ -92,7 +92,7 @@ class ChapterSerializer(serializers.ModelSerializer):
             "practice_enabled",
             "is_active",
         ]
-        read_only_fields = ["slug", "question_count"]
+        read_only_fields = ["question_count"]
 
 
 class TopicSerializer(serializers.ModelSerializer):
@@ -106,7 +106,7 @@ class TopicSerializer(serializers.ModelSerializer):
     class Meta:
         model = Topic
         fields = ["id", "name", "slug", "chapter_id", "chapter_name", "question_count", "is_active", "order"]
-        read_only_fields = ["slug", "question_count"]
+        read_only_fields = ["question_count"]
 
     def create(self, validated_data):
         return services.create_topic(**validated_data)
@@ -119,4 +119,3 @@ class BatchSerializer(serializers.ModelSerializer):
     class Meta:
         model = Batch
         fields = ["id", "name", "slug", "class_level_id", "class_level_name", "is_active", "order"]
-        read_only_fields = ["slug"]

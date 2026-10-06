@@ -2,7 +2,7 @@ from django.contrib.auth.password_validation import validate_password
 
 from rest_framework import serializers
 
-from apps.core.api.fields import MediaField
+from apps.core.api.serializers.fields import MediaField
 
 
 class UserWriteSerializer(serializers.ModelSerializer):

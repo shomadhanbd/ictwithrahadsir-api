@@ -12,7 +12,7 @@ from django.urls import include, path
 
 api_patterns = (
     [
-        path('', include('apps.core.api.urls')),
+        path('', include('apps.notifications.api.urls')),
         path('', include('apps.academic.api.urls')),
         path('', include('apps.question.api.urls')),
         path('', include('apps.profiles.api.urls')),
@@ -34,5 +34,5 @@ urlpatterns = [
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 
-handler404 = 'apps.core.api.errors.not_found'
-handler500 = 'apps.core.api.errors.server_failure'
+handler404 = 'apps.core.api.errors.pages.not_found'
+handler500 = 'apps.core.api.errors.pages.server_failure'

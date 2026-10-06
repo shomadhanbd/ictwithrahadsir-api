@@ -7,14 +7,13 @@ from django.utils import timezone
 from apps.billing.managers import PaymentQuerySet, ProductQuerySet
 from apps.billing.utils import generate_transaction_id
 from apps.core.models import TimestampModel
-from apps.core.slugs import unique_slug
 from apps.courses.models import Course
 
 
 class Product(TimestampModel):
     title = models.CharField("Title", max_length=255)
     description = models.TextField("Description", blank=True)
-    product_id = models.SlugField("Product ID", max_length=280, unique=True, blank=True)
+    product_id = models.SlugField("Product ID", max_length=280, unique=True)
     courses = models.ManyToManyField(Course, related_name="products", verbose_name="Courses")
     price = models.PositiveIntegerField("Price")
     base_price = models.PositiveIntegerField("Base Price")
@@ -57,11 +56,6 @@ class Product(TimestampModel):
     def current_price(self) -> int:
         return self.price if self.discount_active else max(self.price, self.base_price)
 
-    def save(self, *args, **kwargs):
-        if not self.product_id:
-            self.product_id = unique_slug(self, self.title, slug_field="product_id")
-        super().save(*args, **kwargs)
-
 
 class Payment(TimestampModel):
     class Status(models.TextChoices):
@@ -97,7 +91,6 @@ class Payment(TimestampModel):
         settings.AUTH_USER_MODEL, models.SET_NULL, null=True, blank=True, related_name="+", verbose_name="Recorded By"
     )
     note = models.CharField("Note", max_length=255, blank=True)
-    confirmation_sent_at = models.DateTimeField("Confirmation Sent At", null=True, blank=True)
 
     objects = PaymentQuerySet.as_manager()
 

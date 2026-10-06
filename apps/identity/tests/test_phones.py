@@ -1,8 +1,9 @@
 from django.db import IntegrityError
 
-from apps.core.phones import normalize_phone
+from rest_framework.test import APITestCase
+
 from apps.core.testing import bearer
-from apps.core.tests.base import ThrottledAPITestCase
+from apps.core.text.phones import normalize_phone
 from apps.identity.models import OTP, User
 from apps.identity.tests.base import (
     ADMIN_USER_URL,
@@ -25,7 +26,7 @@ SPELLINGS = [
 CANONICAL = "01810001111"
 
 
-class NormalizeFunctionTests(ThrottledAPITestCase):
+class NormalizeFunctionTests(APITestCase):
     def test_every_spelling_collapses_to_one(self):
         self.assertEqual({normalize_phone(s) for s in SPELLINGS}, {CANONICAL})
 
@@ -61,7 +62,7 @@ class NormalizeFunctionTests(ThrottledAPITestCase):
                 self.assertEqual(normalize_phone(f"{prefix}10001111"), f"{prefix}10001111")
 
 
-class ManagerNormalizationTests(ThrottledAPITestCase):
+class ManagerNormalizationTests(APITestCase):
     def test_create_user_stores_the_canonical_form(self):
         user = User.objects.create_user(phone="+8801810001111", name="Student")
         self.assertEqual(user.phone, CANONICAL)
@@ -101,7 +102,7 @@ class AuthEndpointNormalizationTests(FixedOtpCodeTestCase):
         self.assertIn("phone", response.json()["errors"])
 
 
-class AdminCreateNormalizationTests(ThrottledAPITestCase):
+class AdminCreateNormalizationTests(APITestCase):
     def setUp(self):
         super().setUp()
         self.admin = User.objects.create_user(

@@ -1,12 +1,10 @@
-"""Texts sent to enrolled students."""
+"""Texts sent to enrolled students; English only, since course titles are often Bangla."""
 
 from django.conf import settings
-
-from apps.core.bangla import bn_date
+from django.utils import timezone
 
 
 def expiry_reminder(enrollment) -> str:
-    return (
-        f"{enrollment.course.title} কোর্সে আপনার এক্সেস {bn_date(enrollment.valid_till)} তারিখে শেষ হবে। "
-        f"রিনিউ করুন: {settings.FRONTEND_URL.rstrip('/')}/course/{enrollment.course.slug}"
-    )
+    ends = timezone.localtime(enrollment.valid_till).strftime("%d %b %Y")
+    renew = f"{settings.FRONTEND_URL.rstrip('/')}/course/{enrollment.course.slug}"
+    return f"Your course access ends on {ends}. Renew here: {renew}"

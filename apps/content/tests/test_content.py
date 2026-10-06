@@ -157,8 +157,8 @@ class AdminCmsTests(APITestCase):
         self.assertEqual(Page.objects.get(key='homeStudentCounter').value_type, Page.ValueType.COUNTER)
 
     def test_a_notice_body_is_stripped_of_script(self):
-        body = {'title': 'Notice', 'body': '<p>খবর</p><a href="javascript:steal()">x</a>'}
-        response = self.client.post(reverse('api:content:admin-notice-list'), body, format='json', **self.auth)
+        body = {'title': 'Notice', 'slug': 'notice', 'body': '<p>খবর</p><a href="javascript:steal()">x</a>'}
+        response = self.client.post(reverse('api:content:admin_notice_list'), body, format='json', **self.auth)
         self.assertEqual(response.status_code, 201, response.content)
         self.assertNotIn('javascript', Notice.objects.get().body)
 

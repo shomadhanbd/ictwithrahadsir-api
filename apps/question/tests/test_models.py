@@ -1,4 +1,4 @@
-"""Who owns a question, its slugs, and the order rows come back in."""
+"""Who owns a question, and the order rows come back in."""
 
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
@@ -31,21 +31,6 @@ class OwnershipTests(QuestionTestCase):
     def test_clean_reports_it_before_the_database_has_to(self):
         with self.assertRaises(ValidationError):
             Question(prompt_content="x").clean()
-
-
-class SlugTests(QuestionTestCase):
-    def test_every_row_is_slugged_from_its_pk(self):
-        block = self.block(kind=QuestionBlock.Kind.GROUP)
-        question_set = QuestionSet.objects.create(block=block, stimulus_content="…")
-        question = Question.objects.create(question_set=question_set, prompt_content="?")
-
-        self.assertEqual(block.slug, f"b-{block.pk}")
-        self.assertEqual(question_set.slug, f"qs-{question_set.pk}")
-        self.assertEqual(question.slug, f"q-{question.pk}")
-
-    def test_an_explicit_slug_is_kept(self):
-        block = self.block(slug="custom")
-        self.assertEqual(block.slug, "custom")
 
 
 class OrderingTests(QuestionTestCase):

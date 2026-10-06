@@ -5,15 +5,16 @@ from django.core.exceptions import PermissionDenied
 from django.test import RequestFactory
 from django.urls import reverse
 
+from rest_framework.test import APITestCase
+
 from apps.core.testing import bearer, make_user
-from apps.core.tests.base import ThrottledAPITestCase
 from apps.identity.models import User
 from apps.profiles.models import TeacherProfile
 
-TEACHERS_URL = reverse("api:profiles:admin-teacher-list")
+TEACHERS_URL = reverse("api:profiles:admin_teacher_list")
 
 
-class SuperuserAccountTests(ThrottledAPITestCase):
+class SuperuserAccountTests(APITestCase):
     def setUp(self):
         super().setUp()
         self.root = User.objects.create_superuser(phone="01700000020", password="Str0ngPass!23", name="Root")
@@ -37,7 +38,7 @@ class SuperuserAccountTests(ThrottledAPITestCase):
 
     def test_the_teachers_api_refuses_to_edit_a_linked_superuser(self):
         profile = TeacherProfile.objects.create(user=self.root)
-        url = reverse("api:profiles:admin-teacher-detail", args=[profile.pk])
+        url = reverse("api:profiles:admin_teacher_detail", args=[profile.pk])
         response = self.client.patch(url, {"phone": "01710009091"}, format="json", **self.admin_auth)
         self.assertEqual(response.status_code, 403)
         self.assert_root_phone_unchanged()

@@ -34,10 +34,10 @@ GATEWAY = override_settings(
     SSLCOMMERZ_CANCEL_REDIRECT=CANCEL,
 )
 
-INITIATE_URL = reverse('api:billing:payment-initiate')
-CAPTURE_URL = reverse('api:billing:payment-capture')
-IPN_URL = reverse('api:billing:payment-ipn')
-MY_PAYMENTS_URL = reverse('api:billing:my-payments')
+INITIATE_URL = reverse('api:billing:payment_initiate')
+CAPTURE_URL = reverse('api:billing:payment_capture')
+IPN_URL = reverse('api:billing:payment_ipn')
+MY_PAYMENTS_URL = reverse('api:billing:my_payments')
 
 
 def session_ok():

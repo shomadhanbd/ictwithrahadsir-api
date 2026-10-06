@@ -37,7 +37,7 @@ class CourseAdmin(TimestampedAdmin):
         'enrolled',
         'created_at',
     )
-    readonly_fields = ('published_at', 'created_at', 'updated_at', 'packages_link')
+    readonly_fields = ('published_at', 'packages_link', *TimestampedAdmin.readonly_fields)
     list_display_links = ('id', 'title')
     list_editable = ('status', 'is_featured')
     list_filter = (

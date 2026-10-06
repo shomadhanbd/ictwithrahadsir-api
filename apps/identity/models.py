@@ -5,7 +5,7 @@ from django.db import models, transaction
 from django.utils import timezone
 from django.utils.functional import cached_property
 
-from apps.core.phones import normalize_phone, validate_phone
+from apps.core.text.phones import normalize_phone, validate_phone
 from apps.identity.managers import OTPQuerySet, UserManager
 from apps.identity.roles import BACK_OFFICE_ROLES, Role
 

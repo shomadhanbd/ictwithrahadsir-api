@@ -43,6 +43,7 @@ THIRD_PARTY_APPS = [
 
 LOCAL_APPS = [
     "apps.core",
+    "apps.notifications",
     "apps.academic",
     "apps.question",
     "apps.profiles",
@@ -57,11 +58,9 @@ LOCAL_APPS = [
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
 MIDDLEWARE = [
-    "apps.core.api.health.HealthCheckMiddleware",  # first: answers /api/health/ before host checks
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "corsheaders.middleware.CorsMiddleware",
-    "apps.core.middleware.MethodOverrideMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -86,13 +85,12 @@ TEMPLATES = [
     },
 ]
 
-# Database and cache: SQLite and an in-process cache unless the env says otherwise.
+# Database: SQLite unless DATABASE_URL says otherwise.
 
 DATABASES = {
     "default": environ.Env.db_url_config(env("DATABASE_URL", default="") or f"sqlite:///{BASE_DIR / 'db.sqlite3'}")
 }
 
-CACHES = {"default": environ.Env.cache_url_config(env("CACHE_URL", default="") or "locmemcache://shomadhan-local")}
 
 # Static files
 
@@ -107,7 +105,6 @@ STORAGES = {
 # CORS and CSRF
 
 CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=[])
-CORS_ALLOW_CREDENTIALS = True
 # Lets the admin read the file name of a download (e.g. results CSV).
 CORS_EXPOSE_HEADERS = ["Content-Disposition"]
 CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS", default=[])
@@ -116,26 +113,16 @@ CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS", default=[])
 
 REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],
-    "DEFAULT_AUTHENTICATION_CLASSES": ["apps.core.api.authentication.BearerTokenAuthentication"],
+    "DEFAULT_AUTHENTICATION_CLASSES": ["apps.core.api.auth.authentication.BearerTokenAuthentication"],
     # A view that forgets its permissions fails closed instead of letting anonymous users read.
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
-    "DEFAULT_PAGINATION_CLASS": "apps.core.api.pagination.LaravelStylePageNumberPagination",
+    "DEFAULT_PAGINATION_CLASS": "apps.core.api.views.pagination.ApiPagination",
     "DEFAULT_FILTER_BACKENDS": [
         "django_filters.rest_framework.DjangoFilterBackend",
         "rest_framework.filters.SearchFilter",
         "rest_framework.filters.OrderingFilter",
     ],
-    "EXCEPTION_HANDLER": "apps.core.api.exception_handler.laravel_style_exception_handler",
-    # Proxies in front of the app, so throttles key on the real client IP from X-Forwarded-For.
-    "NUM_PROXIES": env.int("NUM_PROXIES", default=0),
-    # Opt-in per view (apps.core.api.throttling).
-    "DEFAULT_THROTTLE_RATES": {
-        "login_burst": "10/min",
-        "login_sustained": "100/hour",
-        "auth_burst": "10/min",
-        "auth_sustained": "60/hour",
-        "practice": "60/min",
-    },
+    "EXCEPTION_HANDLER": "apps.core.api.errors.handler.api_exception_handler",
     "TEST_REQUEST_DEFAULT_FORMAT": "json",
 }
 
@@ -164,7 +151,7 @@ OTP_RATE_LIMIT_PER_PHONE_PER_HOUR = 5
 DEMO_PHONE = env("DEMO_PHONE", default="")
 DEMO_OTP_CODE = env("DEMO_OTP_CODE", default="000000")
 
-# SMS (providers in apps/core/sms.py)
+# SMS (gateways in apps/notifications/gateways.py)
 
 SMS_BACKEND = env("SMS_BACKEND", default="console")
 BULKSMSBD_API_KEY = env("BULKSMSBD_API_KEY", default="")
@@ -189,9 +176,6 @@ PAYMENT_INITIATE_RATE_LIMIT_PER_USER_PER_HOUR = 10
 # server-side, so a request's host is not the public one.
 API_BASE_URL = env("API_BASE_URL", default="http://localhost:8000")
 FRONTEND_URL = env("FRONTEND_URL", default="http://localhost:3000")  # the student site, for links in SMS
-
-# Lets lesson files be fetched from private/loopback hosts. On only in local.py.
-STREAM_ALLOW_PRIVATE_HOSTS = False
 
 # Logging: a rotating file in development (local.py creates the folder); production logs to stdout.
 

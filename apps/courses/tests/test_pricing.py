@@ -6,7 +6,7 @@ from django.utils import timezone
 from rest_framework.test import APITestCase
 
 from apps.billing.models import Product
-from apps.core.testing import bearer, make_user
+from apps.core.testing import bearer, make_user, next_slug
 from apps.courses.models import (
     Course,
 )
@@ -23,6 +23,7 @@ class CoursePackagePricingTests(APITestCase):
 
     def package(self, **fields):
         fields.setdefault('base_price', fields.get('price', 0))
+        fields.setdefault("product_id", next_slug("package"))
         package = Product.objects.create(**fields)
         package.courses.add(self.course)
         return package
@@ -61,7 +62,9 @@ class CoursePackagePricingTests(APITestCase):
     def test_packages_cost_one_query_for_a_whole_page(self):
         for i in range(5):
             course = Course.objects.create(title=f'C{i}', slug=f'c{i}', status='published')
-            Product.objects.create(title=f'P{i}', price=100, base_price=100).courses.add(course)
+            Product.objects.create(
+                product_id=next_slug("product"), title=f'P{i}', price=100, base_price=100
+            ).courses.add(course)
         with CaptureQueriesContext(connection) as ctx:
             self.client.get(COURSE_LIST_URL)
         product_queries = [q for q in ctx.captured_queries if 'billing_product' in q['sql']]
@@ -76,10 +79,16 @@ class AdminProductFilterTests(APITestCase):
     def test_lists_the_packages_that_include_a_course(self):
         physics = Course.objects.create(title='Physics', slug='physics')
         chemistry = Course.objects.create(title='Chemistry', slug='chemistry')
-        Product.objects.create(title='Physics', price=100, base_price=100).courses.add(physics)
-        Product.objects.create(title='Bundle', price=200, base_price=200).courses.add(physics, chemistry)
-        Product.objects.create(title='Chemistry', price=100, base_price=100).courses.add(chemistry)
-        body = self.client.get(reverse('api:billing:admin-product-list'), {'course_id': physics.pk}, **self.auth).json()
+        Product.objects.create(product_id=next_slug("product"), title='Physics', price=100, base_price=100).courses.add(
+            physics
+        )
+        Product.objects.create(product_id=next_slug("product"), title='Bundle', price=200, base_price=200).courses.add(
+            physics, chemistry
+        )
+        Product.objects.create(
+            product_id=next_slug("product"), title='Chemistry', price=100, base_price=100
+        ).courses.add(chemistry)
+        body = self.client.get(reverse('api:billing:admin_product_list'), {'course_id': physics.pk}, **self.auth).json()
         self.assertEqual(sorted(p['title'] for p in body['data']), ['Bundle', 'Physics'])
         bundle = next(p for p in body['data'] if p['title'] == 'Bundle')
         self.assertEqual(sorted(bundle['course_ids']), sorted([physics.pk, chemistry.pk]))
@@ -88,9 +97,13 @@ class AdminProductFilterTests(APITestCase):
     def test_filters_bundles_from_single_course_prices(self):
         physics = Course.objects.create(title='Physics', slug='physics')
         chemistry = Course.objects.create(title='Chemistry', slug='chemistry')
-        Product.objects.create(title='Physics', price=100, base_price=100).courses.add(physics)
-        Product.objects.create(title='Bundle', price=200, base_price=200).courses.add(physics, chemistry)
-        url = reverse('api:billing:admin-product-list')
+        Product.objects.create(product_id=next_slug("product"), title='Physics', price=100, base_price=100).courses.add(
+            physics
+        )
+        Product.objects.create(product_id=next_slug("product"), title='Bundle', price=200, base_price=200).courses.add(
+            physics, chemistry
+        )
+        url = reverse('api:billing:admin_product_list')
         for kind, expected in (('bundle', ['Bundle']), ('single', ['Physics'])):
             body = self.client.get(url, {'kind': kind}, **self.auth).json()
             self.assertEqual([p['title'] for p in body['data']], expected, kind)

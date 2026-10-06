@@ -3,6 +3,8 @@ from django.db.models import Count, DurationField, ExpressionWrapper, F, Integer
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
+from apps.core.querysets import with_stable_order
+
 
 class ExamQuerySet(models.QuerySet):
     def published(self):
@@ -31,12 +33,13 @@ class ExamQuerySet(models.QuerySet):
             .annotate(n=Count("id"))
             .values("n")
         )
-        return self.annotate(
+        totals = self.annotate(
             section_count=Count("sections", distinct=True),
             selected_question_count=Sum("sections__question_count"),
             computed_marks=Sum("sections__computed_marks"),
             attempt_count=Coalesce(Subquery(attempts, output_field=IntegerField()), 0),
         )
+        return with_stable_order(totals)
 
 
 class ExamAttemptQuerySet(models.QuerySet):

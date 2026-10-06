@@ -20,7 +20,7 @@ class HistoryTests(BillingTestBase):
         self.assertEqual([p['transaction_id'] for p in payments], [mine.transaction_id])
         self.assertEqual((payments[0]['title'], payments[0]['status']), ('HSC ICT Package', 'VALID'))
 
-        url = reverse('api:billing:my-payment-detail', args=[mine.transaction_id])
+        url = reverse('api:billing:my_payment_detail', args=[mine.transaction_id])
         detail = self.client.get(url, **self.auth).json()
         self.assertEqual(detail['status'], 'VALID')
         self.assertEqual(

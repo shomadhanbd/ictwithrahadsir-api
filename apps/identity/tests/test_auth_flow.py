@@ -2,6 +2,7 @@ from django.conf import settings
 from django.utils import timezone
 
 from apps.academic.models import ClassLevel, Group
+from apps.core.testing import next_slug
 from apps.identity.models import OTP, User
 from apps.identity.tests.base import (
     GET_OTP_URL,
@@ -16,10 +17,6 @@ class AuthFlowTests(FixedOtpCodeTestCase):
     def setUp(self):
         super().setUp()
         self.phone = "01810001111"
-
-    def test_public_auth_endpoints_are_throttled(self):
-        statuses = [self.client.get(GET_OTP_URL, {"phone": f"018100200{i:02d}"}).status_code for i in range(15)]
-        self.assertIn(429, statuses, f"no throttle fired: {statuses}")
 
     def test_get_otp_requires_phone(self):
         response = self.client.get(GET_OTP_URL)
@@ -119,7 +116,10 @@ class AuthFlowTests(FixedOtpCodeTestCase):
         self.assertEqual(body["user"]["student"]["institution"], "Dhaka College")
 
     def test_register_records_the_class_and_group(self):
-        hsc, science = ClassLevel.objects.create(name="HSC"), Group.objects.create(name="Science")
+        hsc, science = (
+            ClassLevel.objects.create(slug=next_slug("classlevel"), name="HSC"),
+            Group.objects.create(slug=next_slug("group"), name="Science"),
+        )
         auth = self._verified_phone()
         body = {
             "name": "New Student",

@@ -7,7 +7,7 @@ when running migrations, collectstatic or cron commands on the server.
 from django.core.exceptions import ImproperlyConfigured
 
 from config.settings.base import *  # noqa: F403
-from config.settings.base import REST_FRAMEWORK, env
+from config.settings.base import env
 
 DEBUG = False
 
@@ -38,11 +38,6 @@ DATABASES["default"].update(CONN_MAX_AGE=60, CONN_HEALTH_CHECKS=True)
 if "sqlite" in DATABASES["default"]["ENGINE"]:
     raise ImproperlyConfigured("DATABASE_URL must point at Postgres, not SQLite.")
 
-# Throttle counters and OTP state must be shared by every worker.
-CACHES = {"default": env.cache_url_config(_required("CACHE_URL"))}
-if "locmem" in CACHES["default"]["BACKEND"]:
-    raise ImproperlyConfigured("CACHE_URL must be a shared cache such as redis://, not locmem.")
-
 # The console backend writes OTP codes to the log.
 SMS_BACKEND = _required("SMS_BACKEND")
 if SMS_BACKEND != "bulksmsbd":
@@ -64,7 +59,6 @@ ALLOWED_HOSTS = env.list("ALLOWED_HOSTS")
 
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 SECURE_SSL_REDIRECT = env.bool("SECURE_SSL_REDIRECT", default=True)
-REST_FRAMEWORK = {**REST_FRAMEWORK, "NUM_PROXIES": env.int("NUM_PROXIES", default=1)}
 
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True

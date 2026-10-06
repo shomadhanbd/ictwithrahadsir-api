@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from apps.core.api.fields import MediaField
+from apps.core.api.serializers.fields import MediaField
 from apps.courses import selectors
 from apps.courses.api.serializers import RoutineSerializer
 from apps.courses.models import Content, Course, CourseTeacher, Section
@@ -93,8 +93,7 @@ class ContentDetailSerializer(serializers.ModelSerializer):
         return {"body": obj.note_body} if obj.type == Content.Type.NOTE else None
 
     def get_pdf(self, obj) -> dict | None:
-        """The file itself is only served through the streaming endpoint."""
-        return {"has_file": bool(obj.pdf_file)} if obj.type == Content.Type.PDF else None
+        return {"url": obj.pdf_file} if obj.type == Content.Type.PDF else None
 
     def get_link(self, obj) -> dict | None:
         return {"url": obj.link_url} if obj.type == Content.Type.LINK else None

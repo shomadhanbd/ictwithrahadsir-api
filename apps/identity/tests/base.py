@@ -2,7 +2,8 @@ from unittest import mock
 
 from django.urls import reverse
 
-from apps.core.tests.base import ThrottledAPITestCase
+from rest_framework.test import APITestCase
+
 from apps.identity.models import OTP
 
 GET_OTP_URL = reverse('api:identity:otp_request')
@@ -23,7 +24,7 @@ ADMIN_USER_SEARCH_URL = reverse('api:identity:admin_user_search')
 TEST_OTP_CODE = "123456"
 
 
-class FixedOtpCodeTestCase(ThrottledAPITestCase):
+class FixedOtpCodeTestCase(APITestCase):
     """Pins the OTP generator so a test knows what to submit."""
 
     def setUp(self):

@@ -22,9 +22,6 @@ MEDIA_ROOT = BASE_DIR / "media"
 
 SSLCOMMERZ_IS_SANDBOX = env.bool("SSLCOMMERZ_IS_SANDBOX", default=True)
 
-# Demo lesson PDFs are served from localhost.
-STREAM_ALLOW_PRIVATE_HOSTS = True
-
 # Logging
 
 LOGS_DIR.mkdir(parents=True, exist_ok=True)

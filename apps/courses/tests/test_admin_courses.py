@@ -4,7 +4,7 @@ from rest_framework.test import APITestCase
 
 from apps.academic.models import Batch, ClassLevel, Group
 from apps.billing.models import Payment, Product
-from apps.core.testing import bearer, make_user
+from apps.core.testing import bearer, make_user, next_slug
 from apps.courses.models import (
     Content,
     Course,
@@ -19,10 +19,12 @@ class AdminCourseProfileTests(APITestCase):
     def setUp(self):
         admin = make_user(role=User.Role.ADMIN)
         self.auth = bearer(admin)
-        self.url = reverse('api:courses:admin-course-list')
+        self.url = reverse('api:courses:admin_course_list')
 
     def post(self, **data):
-        return self.client.post(self.url, {'title': 'Physics', **data}, format='json', **self.auth)
+        return self.client.post(
+            self.url, {'title': 'Physics', 'slug': next_slug('course'), **data}, format='json', **self.auth
+        )
 
     def test_creates_a_full_course_profile(self):
         response = self.post(
@@ -80,13 +82,13 @@ class AdminCourseAudienceTests(APITestCase):
         self.hsc = ClassLevel.objects.create(name='HSC', slug='hsc')
         self.ssc = ClassLevel.objects.create(name='SSC', slug='ssc')
         self.science = Group.objects.create(name='Science', slug='science')
-        self.ssc_2027 = Batch.objects.create(name='SSC-2027', class_level=self.ssc)
-        self.url = reverse('api:courses:admin-course-list')
+        self.ssc_2027 = Batch.objects.create(slug=next_slug("batch"), name='SSC-2027', class_level=self.ssc)
+        self.url = reverse('api:courses:admin_course_list')
 
     def test_creates_a_targeted_course(self):
         response = self.client.post(
             self.url,
-            {'title': 'Physics', 'class_level_id': self.hsc.id, 'group_id': self.science.id},
+            {'title': 'Physics', 'slug': 'physics', 'class_level_id': self.hsc.id, 'group_id': self.science.id},
             format='json',
             **self.auth,
         )
@@ -95,14 +97,16 @@ class AdminCourseAudienceTests(APITestCase):
         self.assertEqual(response.json()['group_name'], 'Science')
 
     def test_rejects_group_without_level(self):
-        response = self.client.post(self.url, {'title': 'X', 'group_id': self.science.id}, format='json', **self.auth)
+        response = self.client.post(
+            self.url, {'title': 'X', 'slug': 'x', 'group_id': self.science.id}, format='json', **self.auth
+        )
         self.assertEqual(response.status_code, 422)
         self.assertIn('group_id', str(response.content))
 
     def test_rejects_batch_from_another_level(self):
-        course = Course.objects.create(title='Physics', class_level=self.hsc)
+        course = Course.objects.create(slug=next_slug("course"), title='Physics', class_level=self.hsc)
         response = self.client.patch(
-            reverse('api:courses:admin-course-detail', args=[course.slug]),
+            reverse('api:courses:admin_course_detail', args=[course.pk]),
             {'batch_id': self.ssc_2027.id},
             format='json',
             **self.auth,
@@ -111,8 +115,8 @@ class AdminCourseAudienceTests(APITestCase):
         self.assertIn('batch_id', str(response.content))
 
     def test_admin_list_filters_by_level(self):
-        Course.objects.create(title='HSC', class_level=self.hsc)
-        Course.objects.create(title='Open')
+        Course.objects.create(slug=next_slug("course"), title='HSC', class_level=self.hsc)
+        Course.objects.create(slug=next_slug("course"), title='Open')
         body = self.client.get(self.url, {'class_level_id': self.hsc.id}, **self.auth).json()
         self.assertEqual([c['title'] for c in body['data']], ['HSC'])
 
@@ -133,9 +137,11 @@ class AdminSlugTests(APITestCase):
         self.assertEqual(response.status_code, 201)
         self.assertEqual(Course.objects.get().slug, 'hsc-ict')
 
-    def test_a_blank_slug_is_generated(self):
-        self.assertEqual(self.create().status_code, 201)
-        self.assertEqual(Course.objects.get().slug, 'course')
+    def test_a_blank_slug_is_refused(self):
+        response = self.create(slug='')
+
+        self.assertEqual(response.status_code, 422)
+        self.assertIn('slug', response.json()['errors'])
 
     def test_a_taken_slug_is_rejected(self):
         self.create(slug='hsc-ict')
@@ -153,7 +159,7 @@ class AdminSlugTests(APITestCase):
     def test_the_slug_can_be_changed(self):
         self.create(slug='hsc-ict')
         response = self.client.patch(
-            '/api/private/courses/hsc-ict/', {'slug': 'hsc-ict-2026'}, format='json', **self.auth
+            f'/api/private/courses/{Course.objects.get().pk}/', {'slug': 'hsc-ict-2026'}, format='json', **self.auth
         )
 
         self.assertEqual(response.status_code, 200)
@@ -167,7 +173,7 @@ class AdminSectionOrderTests(APITestCase):
         self.course = Course.objects.create(title='ICT', slug='ict-order')
 
     def create(self, title, **body):
-        body = {'course_id': self.course.pk, 'title': title, **body}
+        body = {'course_id': self.course.pk, 'title': title, 'slug': next_slug('section'), **body}
         return self.client.post('/api/private/sections/', body, format='json', **self.auth)
 
     def titles(self):
@@ -176,7 +182,7 @@ class AdminSectionOrderTests(APITestCase):
     def move(self, title, direction):
         section = Section.objects.get(title=title)
         return self.client.post(
-            f'/api/private/sections/{section.slug}/move/', {'direction': direction}, format='json', **self.auth
+            f'/api/private/sections/{section.pk}/move/', {'direction': direction}, format='json', **self.auth
         )
 
     def test_a_section_cannot_be_moved_to_another_course(self):
@@ -187,7 +193,7 @@ class AdminSectionOrderTests(APITestCase):
         other = Course.objects.create(title='Other', slug='other-course')
 
         response = self.client.patch(
-            f'/api/private/sections/{section.slug}/', {'course_id': other.pk}, format='json', **self.auth
+            f'/api/private/sections/{section.pk}/', {'course_id': other.pk}, format='json', **self.auth
         )
 
         self.assertEqual(response.status_code, 422)
@@ -200,18 +206,17 @@ class AdminSectionOrderTests(APITestCase):
         self.create('Chapter')
         section = Section.objects.get(title='Chapter')
         response = self.client.patch(
-            f'/api/private/sections/{section.slug}/',
+            f'/api/private/sections/{section.pk}/',
             {'course_id': self.course.pk, 'title': 'Renamed'},
             format='json',
             **self.auth,
         )
         self.assertEqual(response.status_code, 200, response.content)
 
-    def test_a_new_section_goes_last_and_gets_a_slug(self):
+    def test_a_new_section_goes_last(self):
         for title in ('অধ্যায় ১', 'অধ্যায় ২', 'অধ্যায় ৩'):
             self.assertEqual(self.create(title).status_code, 201)
         self.assertEqual(self.titles(), ['অধ্যায় ১', 'অধ্যায় ২', 'অধ্যায় ৩'])
-        self.assertTrue(all(Section.objects.values_list('slug', flat=True)))
 
     def test_moving_swaps_with_the_neighbour(self):
         for title in ('A', 'B', 'C'):
@@ -309,19 +314,25 @@ class TeacherCourseScopeTests(APITestCase):
 
     def test_a_teacher_writes_only_into_their_own_course(self):
         writes = {
-            'sections': {'title': 'Ch 2'},
+            'sections': {'title': 'Ch 2', 'slug': None},
             'routines': {'title': 'Routine', 'link': 'https://example.com/r.pdf'},
             'course-materials': {'title': 'Sheet', 'type': 'pdf'},
         }
         for path, body in writes.items():
             with self.subTest(path=path):
+                if 'slug' in body:
+                    body['slug'] = next_slug(path)
                 self.assertEqual(self.post(path, course_id=self.theirs.pk, **body).status_code, 403)
                 self.assertEqual(self.post(path, course_id=self.mine.pk, **body).status_code, 201)
 
         lesson = {'title': 'Lesson', 'type': 'video'}
-        theirs = self.post('contents', course_id=self.theirs.pk, section_id=self.their_section.pk, **lesson)
+        theirs = self.post(
+            'contents', course_id=self.theirs.pk, section_id=self.their_section.pk, slug=next_slug('lesson'), **lesson
+        )
         self.assertEqual(theirs.status_code, 403)
-        mine = self.post('contents', course_id=self.mine.pk, section_id=self.my_section.pk, **lesson)
+        mine = self.post(
+            'contents', course_id=self.mine.pk, section_id=self.my_section.pk, slug=next_slug('lesson'), **lesson
+        )
         self.assertEqual(mine.status_code, 201)
 
     def test_a_lesson_cannot_be_moved_into_another_course(self):
@@ -340,7 +351,7 @@ class TeacherCourseScopeTests(APITestCase):
 
     def test_a_section_must_belong_to_the_course(self):
         response = self.post(
-            'contents', course_id=self.mine.pk, section_id=self.their_section.pk, title='L', type='video'
+            'contents', course_id=self.mine.pk, section_id=self.their_section.pk, title='L', slug='l', type='video'
         )
         self.assertEqual(response.status_code, 422)
         self.assertIn('section_id', response.json()['errors'])
@@ -351,6 +362,7 @@ class TeacherCourseScopeTests(APITestCase):
             course_id=self.mine.pk,
             section_id=self.my_section.pk,
             title='Note',
+            slug='note',
             type='note',
             note_body='<p>নোট</p><img src="x" onerror="fetch(1)">',
         )
@@ -358,7 +370,9 @@ class TeacherCourseScopeTests(APITestCase):
         self.assertEqual(Content.objects.get(title='Note').note_body, '<p>নোট</p><img src="x">')
 
     def test_a_teacher_who_creates_a_course_teaches_it(self):
-        response = self.client.post('/api/private/courses/', {'title': 'New course'}, format='json', **self.auth)
+        response = self.client.post(
+            '/api/private/courses/', {'title': 'New course', 'slug': 'new-course'}, format='json', **self.auth
+        )
         self.assertEqual(response.status_code, 201, response.content)
         course_id = response.json()['id']
         self.assertTrue(CourseTeacher.objects.filter(course_id=course_id, user=self.teacher).exists())
@@ -368,7 +382,9 @@ class TeacherCourseScopeTests(APITestCase):
 
     def test_an_admin_who_creates_a_course_is_not_made_its_teacher(self):
         admin = make_user(role=User.Role.ADMIN)
-        response = self.client.post('/api/private/courses/', {'title': 'Admin course'}, format='json', **bearer(admin))
+        response = self.client.post(
+            '/api/private/courses/', {'title': 'Admin course', 'slug': 'admin-course'}, format='json', **bearer(admin)
+        )
         self.assertEqual(response.status_code, 201, response.content)
         self.assertFalse(CourseTeacher.objects.filter(course_id=response.json()['id']).exists())
 
@@ -379,7 +395,7 @@ class CourseDeleteTests(APITestCase):
         self.course = Course.objects.create(title='ICT', slug='ict-delete')
 
     def delete(self):
-        return self.client.delete(f'/api/private/courses/{self.course.slug}/', **self.auth)
+        return self.client.delete(f'/api/private/courses/{self.course.pk}/', **self.auth)
 
     def test_an_empty_course_can_be_deleted(self):
         self.assertEqual(self.delete().status_code, 204)

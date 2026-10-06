@@ -5,9 +5,7 @@ from rest_framework import serializers
 from rest_framework.validators import UniqueTogetherValidator
 
 from apps.academic.models import Batch, ClassLevel, Group
-from apps.core.api.fields import HtmlField, MediaField
-from apps.core.api.serializers import NonNumericSlugMixin
-from apps.core.validators import validate_fetchable_url
+from apps.core.api.serializers.fields import HtmlField, MediaField
 from apps.courses import selectors, services
 from apps.courses.api.serializers import CourseOwnedSerializer
 from apps.courses.models import Content, Course, CourseTeacher, Enrollment, Section
@@ -67,7 +65,7 @@ class AdminContentSerializer(CourseOwnedSerializer):
     note_body = HtmlField()
     video_description = HtmlField()
     exam = serializers.SerializerMethodField()
-    pdf_file = MediaField(required=False, validators=[validate_fetchable_url])
+    pdf_file = MediaField(required=False)
     course_id = serializers.PrimaryKeyRelatedField(source="course", queryset=Course.objects.all())
     section_id = serializers.PrimaryKeyRelatedField(source="section", queryset=Section.objects.all())
 
@@ -107,7 +105,7 @@ class AdminContentSerializer(CourseOwnedSerializer):
         return value
 
 
-class AdminCourseSerializer(NonNumericSlugMixin, serializers.ModelSerializer):
+class AdminCourseSerializer(serializers.ModelSerializer):
     description = HtmlField()
     class_level_id = serializers.PrimaryKeyRelatedField(
         source="class_level", queryset=ClassLevel.objects.all(), required=False, allow_null=True
@@ -168,7 +166,6 @@ class AdminCourseSerializer(NonNumericSlugMixin, serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = ["id", "published_at", "created_at", "updated_at"]
-        extra_kwargs = {"slug": {"required": False}}
 
     def validate(self, attrs):
         validate_course(
@@ -183,7 +180,7 @@ class AdminCourseSerializer(NonNumericSlugMixin, serializers.ModelSerializer):
         return services.create_course(validated_data, by=self.context["request"].user)
 
 
-class AdminSectionSerializer(NonNumericSlugMixin, CourseOwnedSerializer):
+class AdminSectionSerializer(CourseOwnedSerializer):
     course_id = serializers.PrimaryKeyRelatedField(source="course", queryset=Course.objects.all())
     section_id = serializers.PrimaryKeyRelatedField(
         source="section", queryset=Section.objects.all(), required=False, allow_null=True

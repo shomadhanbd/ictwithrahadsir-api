@@ -6,6 +6,7 @@ from django.test import TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
+from apps.core.testing import next_slug
 from apps.identity.models import User
 
 #: Apps whose admin is Django's own, not ours.
@@ -106,7 +107,7 @@ class AdminQueryBudgetTests(TestCase):
     def test_enrollment_changelist_is_flat(self):
         from apps.courses.models import Course, Enrollment
 
-        course = Course.objects.create(title='ICT', status='published')
+        course = Course.objects.create(slug=next_slug("course"), title='ICT', status='published')
         counter = iter(range(1000))
 
         def make_row():
@@ -121,7 +122,7 @@ class AdminQueryBudgetTests(TestCase):
     def test_payment_changelist_is_flat(self):
         from apps.billing.models import Payment, Product
 
-        product = Product.objects.create(title='ICT', price=100, base_price=100)
+        product = Product.objects.create(product_id=next_slug("product"), title='ICT', price=100, base_price=100)
         counter = iter(range(1000))
 
         def make_row():
@@ -134,12 +135,12 @@ class AdminQueryBudgetTests(TestCase):
     def test_content_changelist_is_flat(self):
         from apps.courses.models import Content, Course, Section
 
-        course = Course.objects.create(title='ICT', status='published')
-        section = Section.objects.create(course=course, title='S1')
+        course = Course.objects.create(slug=next_slug("course"), title='ICT', status='published')
+        section = Section.objects.create(slug=next_slug("section"), course=course, title='S1')
         counter = iter(range(1000))
 
         def make_row():
             i = next(counter)
-            Content.objects.create(course=course, section=section, title=f'Lesson {i}')
+            Content.objects.create(slug=next_slug("content"), course=course, section=section, title=f'Lesson {i}')
 
         self._assert_flat('courses', 'content', make_row)

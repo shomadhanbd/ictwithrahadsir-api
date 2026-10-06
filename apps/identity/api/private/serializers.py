@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from rest_framework.validators import UniqueValidator
 
-from apps.core.api.fields import EmailField, PhoneField
+from apps.core.api.serializers.fields import EmailField, PhoneField
 from apps.identity import services
 from apps.identity.api.serializers import UserWriteSerializer
 from apps.identity.models import User

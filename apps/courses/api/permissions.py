@@ -1,6 +1,6 @@
 from rest_framework.exceptions import PermissionDenied
 
-from apps.core.api.permissions import IsTeachingStaff
+from apps.core.api.auth.permissions import IsTeachingStaff
 from apps.courses.selectors import may_manage_course
 from apps.identity.roles import is_full_admin
 

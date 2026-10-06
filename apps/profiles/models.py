@@ -3,7 +3,7 @@
 from django.conf import settings
 from django.db import models
 
-from apps.core.phones import normalize_phone, validate_phone
+from apps.core.text.phones import normalize_phone, validate_phone
 from apps.profiles.managers import TeacherProfileQuerySet
 
 

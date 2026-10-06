@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 
 from apps.core.admin import ReadOnlyAdmin
-from apps.core.api.permissions import may_change_account
+from apps.core.api.auth.permissions import may_change_account
 from apps.identity.models import OTP, User
 from apps.profiles.models import StudentProfile, TeacherProfile
 

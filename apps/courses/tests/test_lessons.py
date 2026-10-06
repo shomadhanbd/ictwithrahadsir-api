@@ -3,7 +3,7 @@ from django.utils import timezone
 
 from rest_framework.test import APITestCase
 
-from apps.core.testing import bearer, make_user
+from apps.core.testing import bearer, make_user, next_slug
 from apps.courses.models import (
     Content,
     Course,
@@ -82,7 +82,10 @@ class ContentAccessTests(APITestCase):
                 self.assertEqual([b for b in blocks if body[b] is not None], [kind])
 
         self.assertEqual(self.client.get(self.url('ict-note'), **self.auth).json()['note'], {'body': '<p>Read me</p>'})
-        self.assertEqual(self.client.get(self.url('ict-pdf'), **self.auth).json()['pdf'], {'has_file': True})
+        self.assertEqual(
+            self.client.get(self.url('ict-pdf'), **self.auth).json()['pdf'],
+            {'url': 'https://files.example.com/secret.pdf'},
+        )
         live = self.client.get(self.url('ict-live'), **self.auth).json()['live']
         self.assertEqual(live['url'], 'https://meet.example.com/x')
         self.assertIsNotNone(live['scheduled_at'])
@@ -93,7 +96,7 @@ class LessonReleaseTests(APITestCase):
         self.student = make_user()
         self.auth = bearer(self.student)
         self.course = Course.objects.create(status='published', title='ICT', slug='ict-release')
-        section = Section.objects.create(course=self.course, title='Ch1')
+        section = Section.objects.create(slug=next_slug("section"), course=self.course, title='Ch1')
         Enrollment.objects.create(course=self.course, user=self.student)
         self.later = timezone.now() + timezone.timedelta(days=2)
         self.lesson = Content.objects.create(

@@ -17,8 +17,7 @@ from apps.content.models import (
     NoticeCategory,
     Page,
 )
-from apps.core.api.pagination import LaravelStylePageNumberPagination
-from apps.core.api.viewsets import (
+from apps.core.api.views.generics import (
     UnpaginatedDataListMixin,
 )
 
@@ -26,7 +25,6 @@ from apps.core.api.viewsets import (
 class PublicNoticeListAPIView(ListAPIView):
     permission_classes = [AllowAny]
     serializer_class = NoticeSerializer
-    pagination_class = LaravelStylePageNumberPagination
 
     def get_queryset(self):
         # `categories` is serialized on every row, so without the prefetch a

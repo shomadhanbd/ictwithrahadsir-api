@@ -27,8 +27,8 @@ class ExamDetailAPIView(APIView):
 
     permission_classes = [IsAuthenticated]
 
-    def get(self, request, slug):
-        exam = selectors.exam_for_student(slug, request.user)
+    def get(self, request, pk):
+        exam = selectors.exam_for_student(pk, request.user)
         attempts = attempt_service.settled(ExamAttempt.objects.filter(exam=exam, user=request.user))
         summary = selectors.lesson_exam_summary(exam.lesson, request.user)
         return Response(exam_detail_payload(exam, summary, attempts.order_by("number")))
@@ -39,8 +39,8 @@ class ExamStartAPIView(APIView):
 
     permission_classes = [IsAuthenticated]
 
-    def post(self, request, slug):
-        attempt = attempt_service.start_attempt(selectors.exam_for_student(slug, request.user), request.user)
+    def post(self, request, pk):
+        attempt = attempt_service.start_attempt(selectors.exam_for_student(pk, request.user), request.user)
         return Response(attempt_payload(attempt), status=status.HTTP_201_CREATED)
 
 
@@ -91,8 +91,8 @@ class ExamRankingAPIView(APIView):
 
     permission_classes = [IsAuthenticated]
 
-    def get(self, request, slug):
-        exam = selectors.exam_for_student(slug, request.user)
+    def get(self, request, pk):
+        exam = selectors.exam_for_student(pk, request.user)
         selectors.assert_ranking_visible(exam)
         attempt_service.settled(exam.attempts.all())
         total, top, mine = selectors.ranking(exam, request.user, size=RANKING_SIZE)

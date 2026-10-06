@@ -33,7 +33,6 @@ class AdminQuestionSerializer(serializers.ModelSerializer):
         model = Question
         fields = [
             "id",
-            "slug",
             "block_id",
             "question_set_id",
             "question_type",
@@ -46,7 +45,6 @@ class AdminQuestionSerializer(serializers.ModelSerializer):
             "explanation",
             "options",
         ]
-        read_only_fields = ["slug"]
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
@@ -80,8 +78,7 @@ class AdminQuestionSetSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = QuestionSet
-        fields = ["id", "slug", "stimulus_type", "stimulus_content", "questions"]
-        read_only_fields = ["slug"]
+        fields = ["id", "stimulus_type", "stimulus_content", "questions"]
 
 
 class QuestionKindSerializer(serializers.Serializer):
@@ -99,8 +96,7 @@ class QuestionSourceSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = QuestionSource
-        fields = ["id", "slug", "kind", "name", "year", "unit", "label", "is_active"]
-        read_only_fields = ["slug"]
+        fields = ["id", "kind", "name", "year", "unit", "label", "is_active"]
         validators = []
 
     def validate(self, attrs):
@@ -131,7 +127,6 @@ class AdminQuestionBlockSerializer(serializers.ModelSerializer):
         model = QuestionBlock
         fields = [
             "id",
-            "slug",
             "kind",
             "subject_id",
             "subject_name",
@@ -146,7 +141,7 @@ class AdminQuestionBlockSerializer(serializers.ModelSerializer):
             "question_set",
             "standalone_question",
         ]
-        read_only_fields = ["slug", "question_count"]
+        read_only_fields = ["question_count"]
 
     def validate(self, attrs):
         attrs = super().validate(attrs)

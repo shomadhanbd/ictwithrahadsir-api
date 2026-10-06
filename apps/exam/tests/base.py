@@ -8,7 +8,7 @@ from django.urls import reverse
 from rest_framework.test import APITestCase
 
 from apps.academic.models import Chapter, ClassLevel, Group, Subject
-from apps.core.testing import bearer, make_user
+from apps.core.testing import bearer, make_user, next_slug
 from apps.courses.models import Content, Course, Enrollment, Section
 from apps.exam.models import Exam, ExamSection, ExamSectionQuestion
 from apps.identity.models import User
@@ -48,7 +48,9 @@ class ExamTestCase(TestCase):
         self.physics = Subject.objects.create(
             name="Physics", class_level=self.hsc, group=self.science, slug="physics-hsc"
         )
-        self.chapter = Chapter.objects.create(name="Number Systems", subject=self.ict, chapter_number=1)
+        self.chapter = Chapter.objects.create(
+            slug=next_slug("chapter"), name="Number Systems", subject=self.ict, chapter_number=1
+        )
 
     def exam(self, **overrides):
         return Exam.objects.create(
@@ -113,7 +115,7 @@ class ExamTestCase(TestCase):
         return QuestionBlock.objects.create(subject=self.ict)
 
 
-LESSONS_URL = reverse("api:courses:admin-content-list")
+LESSONS_URL = reverse("api:courses:admin_content_list")
 
 
 def url(name, *args):
@@ -132,13 +134,18 @@ class CourseExamTestCase(APITestCase):
         group = Group.objects.create(name="Science", slug="science")
         self.subject = Subject.objects.create(name="ICT", class_level=level, group=group, slug="ict-hsc")
         self.course = Course.objects.create(title="ICT", slug="ict", status="published")
-        self.chapter = Section.objects.create(course=self.course, title="Ch 1")
+        self.chapter = Section.objects.create(slug=next_slug("section"), course=self.course, title="Ch 1")
         Enrollment.objects.create(course=self.course, user=self.student)
         Enrollment.objects.create(course=self.course, user=self.other)
 
     def lesson(self, **fields):
         return Content.objects.create(
-            course=self.course, section=self.chapter, type="exam", title=fields.pop("title", "Model test"), **fields
+            course=self.course,
+            section=self.chapter,
+            type="exam",
+            title=fields.pop("title", "Model test"),
+            slug=fields.pop("slug", None) or next_slug("lesson"),
+            **fields,
         )
 
     def mcq(self, correct=0, options=4, multiple=False):

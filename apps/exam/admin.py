@@ -44,9 +44,9 @@ class ExamAdmin(admin.ModelAdmin):
     form = ExamAdminForm
     list_display = ('title', 'status', 'scope', 'total_marks', 'created_by')
     list_filter = ('status', 'scope')
-    search_fields = ('title', 'slug')
+    search_fields = ('title',)
     autocomplete_fields = ('batch',)
-    readonly_fields = ('slug', 'created_by')
+    readonly_fields = ('created_by',)
     inlines = (ExamSectionInline,)
 
     def get_queryset(self, request):

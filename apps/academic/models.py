@@ -1,18 +1,16 @@
 """The academic taxonomy: ClassLevel > Group > Subject > Chapter > Topic, plus Batch."""
 
 from django.db import models
-from django.utils.text import slugify
 from django.utils.translation import gettext_lazy as _
 
 from apps.academic.managers import ActiveQuerySet, ClassLevelQuerySet, GroupQuerySet, SubjectQuerySet
-from apps.core.models import NameSlugMixin
 
 
-class ClassLevel(NameSlugMixin, models.Model):
+class ClassLevel(models.Model):
     """An education level: class 6, SSC, Dakhil, HSC, Alim, Admission."""
 
     name = models.CharField("Name", max_length=100, unique=True)
-    slug = models.SlugField(max_length=120, unique=True, blank=True, verbose_name=_("slug"))
+    slug = models.SlugField(max_length=120, unique=True, verbose_name=_("slug"))
     question_count = models.PositiveIntegerField("Question Count", default=0)
     is_active = models.BooleanField("Active", default=True)
     order = models.PositiveIntegerField("Order", default=0)
@@ -28,11 +26,11 @@ class ClassLevel(NameSlugMixin, models.Model):
         return self.name
 
 
-class Group(NameSlugMixin, models.Model):
+class Group(models.Model):
     """A branch of study: Science, Arts, Commerce, General."""
 
     name = models.CharField("Name", max_length=100, unique=True)
-    slug = models.SlugField(max_length=120, unique=True, blank=True, verbose_name=_("slug"))
+    slug = models.SlugField(max_length=120, unique=True, verbose_name=_("slug"))
     question_count = models.PositiveIntegerField("Question Count", default=0)
     is_active = models.BooleanField("Active", default=True)
     order = models.PositiveIntegerField("Order", default=0)
@@ -46,11 +44,11 @@ class Group(NameSlugMixin, models.Model):
         return self.name
 
 
-class Subject(NameSlugMixin, models.Model):
+class Subject(models.Model):
     """One subject at one level for one group; the name repeats across levels."""
 
     name = models.CharField("Name", max_length=100)
-    slug = models.SlugField(max_length=160, unique=True, blank=True, verbose_name=_("slug"))
+    slug = models.SlugField(max_length=160, unique=True, verbose_name=_("slug"))
     class_level = models.ForeignKey(
         ClassLevel, on_delete=models.PROTECT, related_name="subjects", verbose_name="Education Level"
     )
@@ -72,14 +70,11 @@ class Subject(NameSlugMixin, models.Model):
     def __str__(self):
         return f"{self.name} ({self.class_level} / {self.group})"
 
-    def slug_base(self):
-        return f"{slugify(self.name)}-{self.class_level.slug}-{self.group.slug}"
 
-
-class Chapter(NameSlugMixin, models.Model):
+class Chapter(models.Model):
     subject = models.ForeignKey(Subject, on_delete=models.PROTECT, related_name="chapters", verbose_name="Subject")
     name = models.CharField("Name", max_length=200)
-    slug = models.SlugField(max_length=220, unique=True, blank=True, verbose_name=_("slug"))
+    slug = models.SlugField(max_length=220, unique=True, verbose_name=_("slug"))
     chapter_number = models.PositiveSmallIntegerField("Chapter Number", default=0)
     question_count = models.PositiveIntegerField("Question Count", default=0)
     practice_enabled = models.BooleanField(
@@ -103,14 +98,11 @@ class Chapter(NameSlugMixin, models.Model):
     def __str__(self):
         return f"{self.chapter_number}. {self.name} ({self.subject})"
 
-    def slug_base(self):
-        return f"{slugify(self.name)}-{self.subject.slug}"
 
-
-class Topic(NameSlugMixin, models.Model):
+class Topic(models.Model):
     chapter = models.ForeignKey(Chapter, on_delete=models.PROTECT, related_name="topics", verbose_name="Chapter")
     name = models.CharField("Name", max_length=200)
-    slug = models.SlugField(max_length=220, unique=True, blank=True, verbose_name=_("slug"))
+    slug = models.SlugField(max_length=220, unique=True, verbose_name=_("slug"))
     question_count = models.PositiveIntegerField("Question Count", default=0)
     is_active = models.BooleanField("Active", default=True)
     order = models.PositiveIntegerField("Order", default=0)
@@ -125,15 +117,12 @@ class Topic(NameSlugMixin, models.Model):
     def __str__(self):
         return f"{self.name} ({self.chapter})"
 
-    def slug_base(self):
-        return f"{slugify(self.name)}-{self.chapter.slug}"
 
-
-class Batch(NameSlugMixin, models.Model):
+class Batch(models.Model):
     """A cohort taking one education level, e.g. "SSC-2027"."""
 
     name = models.CharField("Name", max_length=100)
-    slug = models.SlugField(max_length=160, unique=True, blank=True, verbose_name=_("slug"))
+    slug = models.SlugField(max_length=160, unique=True, verbose_name=_("slug"))
     class_level = models.ForeignKey(
         ClassLevel, on_delete=models.PROTECT, related_name="batches", verbose_name="Education Level"
     )
@@ -150,8 +139,3 @@ class Batch(NameSlugMixin, models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.class_level})"
-
-    def slug_base(self):
-        # Add the level only when the name lacks it, so "SSC-2027" stays `ssc-2027`.
-        base, level = slugify(self.name), self.class_level.slug
-        return base if level in base else f"{base}-{level}"

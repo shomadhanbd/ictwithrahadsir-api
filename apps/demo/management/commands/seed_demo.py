@@ -575,8 +575,7 @@ class Command(BaseCommand):
     def _seed_academic(self):
         """Education levels, groups, subjects and batches.
 
-        Slugs are passed rather than generated: the names are Bangla and
-        slugs are English ("ssc", "science").
+        Slugs are typed by staff, so the seed supplies English ones ("ssc", "science").
         """
         levels = {}
         for order, (name, slug) in enumerate(CLASS_LEVELS):
@@ -597,10 +596,14 @@ class Command(BaseCommand):
         for subject in Subject.objects.all():
             for number, (chapter_name, topics) in enumerate(CHAPTERS, start=1):
                 chapter, _ = Chapter.objects.get_or_create(
-                    name=chapter_name, subject=subject, defaults={"chapter_number": number}
+                    name=chapter_name,
+                    subject=subject,
+                    defaults={"chapter_number": number, "slug": f"{subject.slug}-ch{number}"},
                 )
-                for topic_name in topics:
-                    Topic.objects.get_or_create(name=topic_name, chapter=chapter)
+                for topic_number, topic_name in enumerate(topics, start=1):
+                    Topic.objects.get_or_create(
+                        name=topic_name, chapter=chapter, defaults={"slug": f"{chapter.slug}-t{topic_number}"}
+                    )
 
         order = 0
         for level_slug, label in BATCH_LABELS.items():
@@ -608,7 +611,7 @@ class Command(BaseCommand):
                 Batch.objects.get_or_create(
                     name=f"{label}-{year}",
                     class_level=levels[level_slug],
-                    defaults={"order": order},
+                    defaults={"order": order, "slug": f"{level_slug}-{year}"},
                 )
                 order += 1
 
@@ -769,6 +772,7 @@ class Command(BaseCommand):
         struck-through "was" price on every other course, and a month."""
         base = 1500 + index * 500
         full = Product.objects.create(
+            product_id=f"{course.slug}-1-year",
             title=f"{course.title} — ১ বছর",
             description="পুরো কোর্সে এক বছরের এক্সেস।",
             price=base - 300 if index % 2 == 0 else base,
@@ -776,6 +780,7 @@ class Command(BaseCommand):
             access_days=365,
         )
         monthly = Product.objects.create(
+            product_id=f"{course.slug}-1-month",
             title=f"{course.title} — ১ মাস",
             description="৩০ দিনের এক্সেস।",
             price=base // 5,
@@ -950,6 +955,7 @@ class Command(BaseCommand):
             product, created = Product.objects.get_or_create(
                 title=title,
                 defaults={
+                    "product_id": f"bundle-{index + 1}",
                     "description": f"{title} — access to the courses below for one year.",
                     "price": amount,
                     "base_price": amount,

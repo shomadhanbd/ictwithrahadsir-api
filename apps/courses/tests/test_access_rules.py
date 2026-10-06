@@ -26,7 +26,7 @@ class CurriculumRulesTests(APITestCase):
 
     def test_a_teacher_edits_but_cannot_delete_lessons_or_sections(self):
         lesson_url = f"/api/private/contents/{self.lesson.slug}/"
-        section_url = f"/api/private/sections/{self.section.slug}/"
+        section_url = f"/api/private/sections/{self.section.pk}/"
         self.assertEqual(
             self.client.patch(lesson_url, {"title": "L1b"}, format="json", **self.teacher_auth).status_code, 200
         )
@@ -39,7 +39,7 @@ class CurriculumRulesTests(APITestCase):
         routine = Routine.objects.create(course=self.course, title="Week 1")
         material = CourseMaterial.objects.create(course=self.course, title="Sheet")
         for url in (
-            f"/api/private/courses/{self.course.slug}/",
+            f"/api/private/courses/{self.course.pk}/",
             f"/api/private/routines/{routine.pk}/",
             f"/api/private/course-materials/{material.pk}/",
         ):

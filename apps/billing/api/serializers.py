@@ -87,7 +87,6 @@ class AdminProductSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = ["created_at", "updated_at"]
-        extra_kwargs = {"product_id": {"required": False}}
 
     def get_payment_count(self, product) -> int:
         annotated = getattr(product, "payment_count", None)

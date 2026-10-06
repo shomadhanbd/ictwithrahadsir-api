@@ -1,13 +1,13 @@
 from django.urls import path
 
-from rest_framework.routers import SimpleRouter
-
-from apps.profiles.api.private.views import AdminTeacherLookupAPIView, AdminTeacherViewSet
-
-router = SimpleRouter()
-router.register('teachers', AdminTeacherViewSet, basename='admin-teacher')
+from apps.profiles.api.private.views import (
+    AdminTeacherDetailAPIView,
+    AdminTeacherListCreateAPIView,
+    AdminTeacherLookupAPIView,
+)
 
 urlpatterns = [
-    # Before the router, so `lookup` is not read as a detail id.
+    path('teachers/', AdminTeacherListCreateAPIView.as_view(), name='admin_teacher_list'),
     path('teachers/lookup/', AdminTeacherLookupAPIView.as_view(), name='admin_teacher_lookup'),
-] + router.urls
+    path('teachers/<int:pk>/', AdminTeacherDetailAPIView.as_view(), name='admin_teacher_detail'),
+]

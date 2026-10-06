@@ -8,13 +8,18 @@ from django.utils.crypto import constant_time_compare, get_random_string
 
 from rest_framework.authtoken.models import Token
 
-from apps.core.api.authentication import token_expired
-from apps.core.sms import get_sms_backend
+from apps.core.api.auth.authentication import token_expired
 from apps.identity.models import OTP, User
 from apps.identity.selectors import seconds_until_resend
+from apps.notifications.models import SmsMessage
+from apps.notifications.services import send_sms
 from apps.profiles.services import ensure_student_profile, save_student_profile
 
 BAD_CODE = {"otp": ["Invalid or expired OTP."]}
+OTP_SMS_PURPOSE = {
+    OTP.Purpose.VERIFY: SmsMessage.Purpose.PHONE_VERIFY,
+    OTP.Purpose.PASSWORD_RESET: SmsMessage.Purpose.PASSWORD_RESET,
+}
 
 
 def revoke_tokens(user: User) -> None:
@@ -141,7 +146,7 @@ def send_otp(phone: str, purpose: str, meta: dict | None = None) -> OTP | None:
     if is_demo_phone(phone):
         return None
     otp = issue_otp(phone, purpose, meta=meta)
-    get_sms_backend().send(phone, settings.SMS_OTP_TEMPLATE.format(code=otp.code))
+    send_sms(phone, settings.SMS_OTP_TEMPLATE.format(code=otp.code), purpose=OTP_SMS_PURPOSE[purpose])
     return otp
 
 

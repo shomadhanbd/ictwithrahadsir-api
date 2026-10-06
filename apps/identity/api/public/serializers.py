@@ -3,7 +3,7 @@ from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 
 from apps.academic.models import ClassLevel, Group
-from apps.core.api.fields import MediaField, PhoneField
+from apps.core.api.serializers.fields import MediaField, PhoneField
 from apps.identity import services
 from apps.identity.api.serializers import UserWriteSerializer
 from apps.identity.models import User

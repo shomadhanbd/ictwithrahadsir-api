@@ -1,7 +1,7 @@
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.core.api.permissions import IsFullAdmin, IsTeachingStaff
+from apps.core.api.auth.permissions import IsFullAdmin, IsTeachingStaff
 from apps.dashboard import selectors
 from apps.dashboard.api.private.serializers import (
     DashboardSummarySerializer,

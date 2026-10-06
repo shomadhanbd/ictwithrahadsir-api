@@ -154,15 +154,6 @@ class ProvenanceTests(QuestionTestCase):
 
         self.assertEqual(response.status_code, 201)
 
-    def test_a_source_is_slugged_from_its_whole_label(self):
-        unit = QuestionSource.objects.create(
-            name="ঢাকা বিশ্ববিদ্যালয়", kind=QuestionSource.Kind.UNIVERSITY, unit="ka", year=2021
-        )
-
-        self.assertNotEqual(unit.slug, self.dhaka_2019.slug)
-        self.assertTrue(unit.slug)
-        self.assertIn("2021", unit.slug)
-
     def test_the_label_reads_as_one_exam(self):
         source = QuestionSource.objects.create(name="DU", kind=QuestionSource.Kind.UNIVERSITY, unit="ka", year=2021)
 

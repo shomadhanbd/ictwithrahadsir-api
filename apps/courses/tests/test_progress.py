@@ -3,7 +3,7 @@ from django.utils import timezone
 
 from rest_framework.test import APITestCase
 
-from apps.core.testing import bearer, make_user
+from apps.core.testing import bearer, make_user, next_slug
 from apps.courses.models import (
     Content,
     ContentCompletion,
@@ -135,8 +135,9 @@ class ContentCompletionRealignmentTests(APITestCase):
         self.origin = Course.objects.create(title='Origin', slug='origin', status='published')
         self.destination = Course.objects.create(title='Destination', slug='destination', status='published')
         self.content = Content.objects.create(
+            slug=next_slug("content"),
             course=self.origin,
-            section=Section.objects.create(course=self.origin, title='S1'),
+            section=Section.objects.create(slug=next_slug("section"), course=self.origin, title='S1'),
             title='Lesson',
             active=True,
         )
@@ -144,7 +145,7 @@ class ContentCompletionRealignmentTests(APITestCase):
 
     def move_content(self):
         self.content.course = self.destination
-        self.content.section = Section.objects.create(course=self.destination, title='S2')
+        self.content.section = Section.objects.create(slug=next_slug("section"), course=self.destination, title='S2')
         self.content.save()
 
     def test_moving_a_lesson_repoints_its_completions(self):
@@ -167,6 +168,7 @@ class ContentCompletionRealignmentTests(APITestCase):
 
     def test_other_lessons_completions_are_untouched(self):
         other = Content.objects.create(
+            slug=next_slug("content"),
             course=self.origin,
             section=self.content.section_id and self.content.section,
             title='Another',

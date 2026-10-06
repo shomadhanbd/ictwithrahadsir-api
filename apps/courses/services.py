@@ -5,7 +5,6 @@ from django.db import transaction
 from django.db.models import Q
 
 from apps.core.exceptions import Conflict
-from apps.core.sms import get_sms_backend
 from apps.courses.models import Content, ContentCompletion, Course, CourseTeacher, Enrollment, Section
 from apps.courses.notifications import expiry_reminder
 from apps.courses.selectors import (
@@ -16,6 +15,9 @@ from apps.courses.selectors import (
     section_siblings,
 )
 from apps.identity.roles import is_full_admin
+from apps.notifications.gateways import SmsError
+from apps.notifications.models import SmsMessage
+from apps.notifications.services import send_sms
 
 logger = logging.getLogger("courses")
 
@@ -153,9 +155,14 @@ def send_expiry_reminders(*, now=None, days=None, dry_run=False) -> int:
         if not enrollment.user.phone:
             continue  # nothing to text; claimed so it is not retried every run
         try:
-            get_sms_backend().send(enrollment.user.phone, expiry_reminder(enrollment))
-        except Exception:
-            logger.exception("Expiry reminder failed for enrolment %s", enrollment.pk)
+            send_sms(
+                enrollment.user.phone,
+                expiry_reminder(enrollment),
+                purpose=SmsMessage.Purpose.EXPIRY_REMINDER,
+                recipient=enrollment.user,
+            )
+        except SmsError:
+            logger.warning("Expiry reminder failed for enrolment %s", enrollment.pk)
             release_reminder(enrollment)
             continue
         sent += 1

@@ -3,7 +3,6 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 
 from apps.billing.models import Payment
-from apps.billing.notifications import send_purchase_confirmation
 from apps.courses.services import grant_purchased_access
 
 
@@ -20,6 +19,5 @@ def grant_access_on_valid(sender, instance: Payment, created, update_fields=None
         if instance.user_id:
             for course in instance.unlocked_courses():
                 grant_purchased_access(user=instance.user, course=course, valid_till=instance.access_until)
-            send_purchase_confirmation(instance.pk)
 
     transaction.on_commit(_commit)

@@ -5,8 +5,8 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.validators import UniqueValidator
 
 from apps.academic.models import ClassLevel, Subject
-from apps.core.api.fields import MediaField, PhoneField
-from apps.core.api.permissions import SUPERUSER_ACCOUNT_MESSAGE, may_change_account
+from apps.core.api.auth.permissions import SUPERUSER_ACCOUNT_MESSAGE, may_change_account
+from apps.core.api.serializers.fields import MediaField, PhoneField
 from apps.profiles import services
 from apps.profiles.api.public.serializers import TeacherSerializer
 from apps.profiles.models import TeacherProfile

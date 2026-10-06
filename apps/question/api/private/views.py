@@ -6,8 +6,7 @@ from rest_framework.generics import ListCreateAPIView, RetrieveUpdateDestroyAPIV
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.core.api.permissions import IsTeachingStaff
-from apps.core.api.responses import OkResponseSerializer
+from apps.core.api.auth.permissions import IsTeachingStaff
 from apps.question import kinds, selectors, services
 from apps.question.api.private.filters import QuestionBlockFilter
 from apps.question.api.private.serializers import (
@@ -109,7 +108,7 @@ class AdminQuestionSourceListCreateAPIView(ListCreateAPIView):
     permission_classes = [IsTeachingStaff]
     serializer_class = QuestionSourceSerializer
     queryset = QuestionSource.objects.all()
-    search_fields = ["name", "slug", "unit"]
+    search_fields = ["name", "unit"]
     filterset_fields = ["kind", "year", "is_active"]
 
 
@@ -134,4 +133,4 @@ class AdminRefreshQuestionCountsAPIView(APIView):
 
     def post(self, request):
         services.refresh_curriculum_question_counts()
-        return Response(OkResponseSerializer({"ok": True}).data)
+        return Response({"ok": True})

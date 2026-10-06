@@ -1,13 +1,12 @@
 from rest_framework import serializers
 
 from apps.content.models import Advertisement, EBook, Notice, NoticeCategory, Page, Testimonial
-from apps.core.api.fields import HtmlField, MediaField
-from apps.core.api.serializers import NonNumericSlugMixin
-from apps.core.html import clean_html
+from apps.core.api.serializers.fields import HtmlField, MediaField
+from apps.core.text.html import clean_html
 from apps.profiles.api.public.serializers import TeacherSerializer
 
 
-class NoticeCategorySerializer(NonNumericSlugMixin, serializers.ModelSerializer):
+class NoticeCategorySerializer(serializers.ModelSerializer):
     notice_category_id = serializers.PrimaryKeyRelatedField(
         source="notice_category", queryset=NoticeCategory.objects.all(), required=False, allow_null=True
     )
@@ -49,10 +48,7 @@ class AdvertisementSerializer(serializers.ModelSerializer):
 
 class EBookSerializer(serializers.ModelSerializer):
     image = MediaField(required=False)
-    # Admin's EBook type declares `preview: string | null` (unlike `image`,
-    # which is `{id, link}`) and calls `.split("/")` on it directly -- a bare
-    # `{id, link}` object here would break both the "view PDF" link and that
-    # filename parsing.
+    # The admin panel reads `preview` as a plain URL string (it splits it for the file name).
     preview = MediaField(required=False, bare=True)
 
     class Meta:

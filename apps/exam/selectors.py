@@ -130,13 +130,10 @@ def assert_may_sit(exam, user):
         raise PermissionDenied("Enrol on the course to take this exam.")
 
 
-def exam_for_student(slug, user):
+def exam_for_student(pk, user):
     """A published course exam the caller may sit, or raises."""
     exam = (
-        Exam.objects.course_exams()
-        .select_related("lesson__course", "lesson__section__section")
-        .filter(slug=slug)
-        .first()
+        Exam.objects.course_exams().select_related("lesson__course", "lesson__section__section").filter(pk=pk).first()
     )
     if exam is None:
         raise Exam.DoesNotExist
@@ -387,7 +384,6 @@ def lesson_exam_summary(content, user):
     current, official = open_attempt(mine), official_attempt(mine)
     return {
         "id": exam.pk,
-        "slug": exam.slug,
         "title": exam.title,
         "instructions": exam.instructions,
         "total_marks": exam.total_marks,

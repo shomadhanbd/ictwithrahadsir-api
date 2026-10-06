@@ -5,7 +5,7 @@ from django.test import TestCase
 from django.urls import reverse
 
 from apps.academic.models import ClassLevel, Group
-from apps.core.testing import bearer
+from apps.core.testing import bearer, next_slug
 from apps.profiles.models import GuardianProfile, StudentProfile
 
 User = get_user_model()
@@ -91,7 +91,10 @@ class StudentPayloadTests(TestCase):
         self.assertEqual(guardian.phone, "01911002233")
 
     def test_me_carries_the_class_and_group(self):
-        hsc, science = ClassLevel.objects.create(name="HSC"), Group.objects.create(name="Science")
+        hsc, science = (
+            ClassLevel.objects.create(slug=next_slug("classlevel"), name="HSC"),
+            Group.objects.create(slug=next_slug("group"), name="Science"),
+        )
         student = StudentProfile.objects.create(user=self.user, class_level=hsc, group=science)
         GuardianProfile.objects.create(student=student)
 
@@ -99,7 +102,10 @@ class StudentPayloadTests(TestCase):
         self.assertEqual((block["class_level_id"], block["group_id"]), (hsc.pk, science.pk))
 
     def test_a_student_sets_their_own_class_and_group(self):
-        hsc, science = ClassLevel.objects.create(name="HSC"), Group.objects.create(name="Science")
+        hsc, science = (
+            ClassLevel.objects.create(slug=next_slug("classlevel"), name="HSC"),
+            Group.objects.create(slug=next_slug("group"), name="Science"),
+        )
         response = self.client.post(
             self.url,
             {"student": {"class_level_id": hsc.pk, "group_id": science.pk}},
@@ -111,7 +117,7 @@ class StudentPayloadTests(TestCase):
         self.assertEqual((profile.class_level_id, profile.group_id), (hsc.pk, science.pk))
 
     def test_a_group_needs_a_class(self):
-        science = Group.objects.create(name="Science")
+        science = Group.objects.create(slug=next_slug("group"), name="Science")
         response = self.client.post(
             self.url, {"student": {"group_id": science.pk}}, content_type="application/json", **self.auth
         )

@@ -10,9 +10,8 @@ format all match what those frontends already call. Point them at it with
 
 - Django 6.1 + Django REST Framework
 - PostgreSQL in production, SQLite locally when `DATABASE_URL` is unset
-- Redis cache in production, for rate limits and OTP state
 - Token auth sent as `Authorization: Bearer <key>`, one token per user
-  (`apps.core.api.authentication.BearerTokenAuthentication`)
+  (`apps.core.api.auth.authentication.BearerTokenAuthentication`)
 - SMS through BulkSMSBD; locally a console backend logs messages instead
 - Payments through SSLCommerz
 
@@ -29,7 +28,7 @@ python manage.py seed_demo         # optional: fills the database with demo data
 python manage.py runserver
 ```
 
-No external service is needed locally: SQLite, an in-process cache, OTP codes
+No external service is needed locally: SQLite, OTP codes
 in the console log, and the SSLCommerz sandbox.
 
 - API: `http://localhost:8000/api/` — `public/` for the client app,
@@ -42,7 +41,7 @@ in the console log, and the SSLCommerz sandbox.
 
 | Module | Used by | Purpose |
 |---|---|---|
-| `base.py` | both below | Everything shared, and the app's fixed rules (OTP limits, token lifetime, throttle rates) |
+| `base.py` | both below | Everything shared, and the app's fixed rules (OTP limits, token lifetime) |
 | `local.py` | `manage.py` (default) | `DEBUG`, every host and origin allowed, payment sandbox, the `demo` app |
 | `production.py` | `wsgi.py` / `asgi.py` (default) | HTTPS hardening, stdout logging, and boot checks |
 
@@ -50,7 +49,7 @@ Per-server values and secrets come from `.env` (template: `.env.example`).
 Production refuses to start if any of these is missing or unsafe:
 
 - `SECRET_KEY` (not a placeholder), `ALLOWED_HOSTS`
-- `DATABASE_URL` (Postgres, not SQLite), `CACHE_URL` (Redis, not locmem)
+- `DATABASE_URL` (Postgres, not SQLite)
 - `SMS_BACKEND=bulksmsbd`
 - `SSLCOMMERZ_STORE_ID`, `SSLCOMMERZ_STORE_PASSWORD`
 - `API_BASE_URL`, `FRONTEND_URL` and the three `SSLCOMMERZ_*_REDIRECT` URLs,
@@ -68,13 +67,8 @@ including migrations, `collectstatic` and cron, names the production module:
 DJANGO_SETTINGS_MODULE=config.settings.production venv/bin/python manage.py migrate
 ```
 
-**Health probe**: `GET /api/health/` reports whether the database and cache
-answer (503 if not). It runs before the host and HTTPS checks, so a load
-balancer can probe it by IP over plain HTTP.
-
 **Proxy**: production assumes one TLS-terminating proxy that sets
-`X-Forwarded-Proto`. Throttles key on the client IP behind `NUM_PROXIES`
-proxies (default 1).
+`X-Forwarded-Proto`.
 
 ### Scheduled jobs
 
@@ -96,8 +90,9 @@ not a scheduled job.
 ```
 apps/
   core/        infrastructure: DRF plumbing (auth, pagination, permissions,
-               throttling, fields, error envelope), slugs, phones, SMS,
-               middleware, health check
+               fields, error envelope), text helpers (phones, HTML cleaning)
+  notifications/ SMS: the gateways (console, BulkSMSBD), `send_sms()`, and a
+               log of every message sent (SmsMessage); the SMS balance endpoint
   academic/    ClassLevel, Group, Subject, Chapter, Topic, Batch: the
                curriculum and the admin-managed lists profiles are tagged with
   profiles/    TeacherProfile, StudentProfile, GuardianProfile: who a person
@@ -121,6 +116,10 @@ Each app owns one domain and depends downward only:
 
 - `core` is infrastructure. The one domain module it imports is
   `apps.identity.roles` (plain role names), which its permission tiers use.
+- `notifications` sits just above `core`. Every SMS goes through
+  `apps.notifications.services.send_sms()`, which records it; OTP codes are
+  never stored. Apps that own the data call it (identity for OTPs, courses for
+  expiry reminders; later billing for purchase notices, profiles for guardians).
 - `academic` and `profiles` sit below `identity`: `profiles` reaches the user
   only through `settings.AUTH_USER_MODEL`, and `identity` imports `profiles`,
   never the reverse. Tests will not catch that arrow being flipped, so watch
@@ -134,7 +133,7 @@ Each app owns one domain and depends downward only:
 ## Permissions
 
 Every `/api/private/*` endpoint requires a token for a role its permission
-tier allows (`apps.core.api.permissions`). Public endpoints are open to read
+tier allows (`apps.core.api.auth.permissions`). Public endpoints are open to read
 and require sign-in to write, per resource.
 
 Endpoints teachers must not reach add something stricter: `IsFullAdmin`, or
@@ -147,7 +146,7 @@ The rules, each enforced in one place and mirrored by the admin panel:
 
 - **Accounts**: only a superuser changes a superuser's account, on every path
   that writes one (user API, teachers API, Django admin):
-  `apps.core.api.permissions.may_change_account`.
+  `apps.core.api.auth.permissions.may_change_account`.
 - **Curriculum**: teachers build and edit their courses and the question bank.
   Deleting any part of a course (`IsCourseTeacherAdminDeletes`), changing a
   class level, moving a node to another parent and switching a subject off
@@ -179,7 +178,7 @@ SSLCommerz merchant panel. The flow:
    `SSLCOMMERZ_SUCCESS|FAIL|CANCEL_REDIRECT?tran_id=`, and to the IPN. Both
    are signature-checked, and a VALID is confirmed with the Validator API
    before it is stored. A VALID payment enrols the student on every course in
-   the package and texts them once; access never shortens.
+   the package; access never shortens.
 
 - **Cash sales**: staff record money taken at the centre with
   `POST /api/private/payments/cash/` (`method=cash`). It enrols like an online
@@ -201,14 +200,14 @@ owned by it, built and published at `/api/private/exams/<id>/`. Only MCQ parts
 are allowed for now, graded automatically. Anyone who may open the lesson may
 sit the exam once it is published:
 
-1. `GET /api/public/exams/<slug>/`: the exam and my attempts (the lesson
+1. `GET /api/public/exams/<id>/`: the exam and my attempts (the lesson
    payload's `exam` key carries the same summary).
-2. `POST /api/public/exams/<slug>/attempts/`: start, or resume the open one.
+2. `POST /api/public/exams/<id>/attempts/`: start, or resume the open one.
 3. `GET /api/public/exam-attempts/<id>/`: the paper (no answer key) and my
    saved answers. `PUT .../answers/` autosaves; `POST .../submit/` finishes.
    An attempt past its deadline is submitted as it stands when next read.
 4. `GET /api/public/exam-attempts/<id>/result/` and
-   `GET /api/public/exams/<slug>/ranking/`: once `result_publish_time` has
+   `GET /api/public/exams/<id>/ranking/`: once `result_publish_time` has
    passed. The first submitted attempt is the official, ranked one.
 
 Admins see submissions at `GET /api/private/exams/<id>/attempts/` and re-mark
@@ -218,16 +217,12 @@ them after fixing an answer key with `POST .../regrade/`.
 
 These match what the existing frontends expect.
 
-- **Pagination**: lists return Laravel's envelope,
-  `{data, links: {first, last, prev, next}, meta: {current_page, last_page, per_page, total, ...}}`.
-  `meta.links` is a window around the current page with `...` for gaps, not
-  one entry per page; widen it with `page_link_window` if a client needs more.
+- **Pagination**: lists return
+  `{data, meta: {current_page, last_page, per_page, total, from, to}}`;
+  15 per page, `?page=` and `?per_page=` (up to 200).
 - **Validation errors**: `422` with `{message, errors: {field: [msg, ...]}}`.
-- **Files**: every image or file field reads as `{id, link}` and is written as
+- **Files**: every image or file field reads as `{link}` and is written as
   a URL string. There is no file upload.
-- **Method override**: a multipart admin update that can't use a real verb
-  sends `POST .../{id}?_method=PUT` (or `PATCH`), handled by
-  `apps.core.middleware.MethodOverrideMiddleware`.
 - **Trailing slashes**: every route ends in `/` and `APPEND_SLASH=False`, so a
   slash-less path 404s instead of redirecting.
 

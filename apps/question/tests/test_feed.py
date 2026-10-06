@@ -1,6 +1,7 @@
 """The block feed: its tree, search and filters."""
 
 from apps.academic.models import Topic
+from apps.core.testing import next_slug
 from apps.question.models import Question, QuestionBlock, QuestionOption, QuestionSet
 from apps.question.tests.base import BLOCKS_URL, QuestionTestCase
 
@@ -114,8 +115,8 @@ class NoTopicFilterTests(QuestionTestCase):
     """`?no_topic=true` lists a chapter's questions that carry no topic."""
 
     def test_only_untagged_blocks_are_listed_and_each_once(self):
-        binary = Topic.objects.create(name="Binary", chapter=self.chapter)
-        gates = Topic.objects.create(name="Gates", chapter=self.chapter)
+        binary = Topic.objects.create(slug=next_slug("topic"), name="Binary", chapter=self.chapter)
+        gates = Topic.objects.create(slug=next_slug("topic"), name="Gates", chapter=self.chapter)
         tagged = self.block()
         tagged.topics.add(binary, gates)
         untagged = self.block()

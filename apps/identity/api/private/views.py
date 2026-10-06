@@ -2,8 +2,8 @@ from rest_framework import filters, status
 from rest_framework.generics import ListAPIView, ListCreateAPIView, RetrieveUpdateDestroyAPIView
 from rest_framework.response import Response
 
-from apps.core.api.permissions import IsTeachingStaff
-from apps.core.api.viewsets import UnpaginatedDataListMixin
+from apps.core.api.auth.permissions import IsTeachingStaff
+from apps.core.api.views.generics import UnpaginatedDataListMixin
 from apps.identity import selectors
 from apps.identity.api.permissions import CanManageUsers
 from apps.identity.api.private.serializers import AdminUserSerializer, UserOptionSerializer

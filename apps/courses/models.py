@@ -6,7 +6,6 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from apps.core.models import OrderedModel, TimestampModel
-from apps.core.slugs import unique_slug
 from apps.courses.managers import ActiveQuerySet, CourseQuerySet, EnrollmentQuerySet
 from apps.courses.validators import (
     course_errors,
@@ -40,7 +39,7 @@ class Course(TimestampModel):
 
     title = models.CharField(max_length=255)
     subtitle = models.CharField(max_length=255, blank=True)
-    slug = models.SlugField(max_length=280, unique=True, blank=True, verbose_name=_("slug"))
+    slug = models.SlugField(max_length=280, unique=True, verbose_name=_("slug"))
     summary = models.CharField(max_length=300, blank=True)
     description = models.TextField(blank=True)
 
@@ -102,8 +101,6 @@ class Course(TimestampModel):
             raise ValidationError(errors)
 
     def save(self, *args, **kwargs):
-        if not self.slug:
-            self.slug = unique_slug(self, self.title)
         if self.status == self.Status.PUBLISHED and self.published_at is None:
             self.published_at = timezone.now()
             if kwargs.get("update_fields") is not None:
@@ -136,7 +133,7 @@ class Section(TimestampModel, OrderedModel):
     course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="sections")
     section = models.ForeignKey("self", null=True, blank=True, on_delete=models.CASCADE, related_name="sub_sections")
     title = models.CharField(max_length=255)
-    slug = models.SlugField(max_length=280, unique=True, blank=True, verbose_name=_("slug"))
+    slug = models.SlugField(max_length=280, unique=True, verbose_name=_("slug"))
     active = models.BooleanField(default=True)
 
     objects = ActiveQuerySet.as_manager()
@@ -147,11 +144,6 @@ class Section(TimestampModel, OrderedModel):
 
     def __str__(self):
         return self.title
-
-    def save(self, *args, **kwargs):
-        if not self.slug:
-            self.slug = unique_slug(self, f"{self.course_id}-{self.title}")
-        super().save(*args, **kwargs)
 
 
 class Content(TimestampModel, OrderedModel):
@@ -171,7 +163,7 @@ class Content(TimestampModel, OrderedModel):
     course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="contents")
     section = models.ForeignKey(Section, on_delete=models.CASCADE, related_name="contents")
     title = models.CharField(max_length=255)
-    slug = models.SlugField(max_length=280, unique=True, blank=True, verbose_name=_("slug"))
+    slug = models.SlugField(max_length=280, unique=True, verbose_name=_("slug"))
     type = models.CharField(max_length=20, choices=Type.choices)
     variant = models.CharField(max_length=20, choices=Variant.choices, default=Variant.NEW)
     available_from = models.DateTimeField(null=True, blank=True)
@@ -204,11 +196,6 @@ class Content(TimestampModel, OrderedModel):
 
     def __str__(self):
         return self.title
-
-    def save(self, *args, **kwargs):
-        if not self.slug:
-            self.slug = unique_slug(self, self.title)
-        super().save(*args, **kwargs)
 
 
 class ContentCompletion(TimestampModel):

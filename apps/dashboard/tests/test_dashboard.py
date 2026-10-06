@@ -4,7 +4,7 @@ from django.utils import timezone
 from rest_framework.test import APITestCase
 
 from apps.billing.models import Payment, Product
-from apps.core.testing import bearer, make_user
+from apps.core.testing import bearer, make_user, next_slug
 from apps.courses.models import Course, CourseTeacher, Enrollment
 from apps.identity.models import User
 
@@ -18,7 +18,7 @@ class DashboardTests(APITestCase):
         self.auth = bearer(make_user(role=User.Role.ADMIN))
         self.student = make_user()
         course = Course.objects.create(title="ICT", slug="ict-dash")
-        self.product = Product.objects.create(title="ICT", price=500, base_price=500)
+        self.product = Product.objects.create(product_id=next_slug("product"), title="ICT", price=500, base_price=500)
         self.product.courses.add(course)
         self.now = timezone.now()
 

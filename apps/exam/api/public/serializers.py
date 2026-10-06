@@ -79,7 +79,6 @@ def attempt_payload(attempt) -> dict:
         "server_time": timezone.now(),
         "exam": {
             "id": attempt.exam_id,
-            "slug": exam.slug,
             "title": exam.title,
             "instructions": exam.instructions,
             "total_marks": exam.total_marks,
@@ -160,7 +159,6 @@ def student_exams_payload(rows) -> dict:
         released = row["standing"] == Standing.RESULT_AVAILABLE
         return {
             "id": exam.pk,
-            "slug": exam.slug,
             "title": exam.title,
             "course": {"slug": exam.lesson.course.slug, "title": exam.lesson.course.title},
             "lesson_slug": exam.lesson.slug,

@@ -1,6 +1,6 @@
 from rest_framework.permissions import SAFE_METHODS
 
-from apps.core.api.permissions import SUPERUSER_ACCOUNT_MESSAGE, IsTeachingStaff, may_change_account
+from apps.core.api.auth.permissions import SUPERUSER_ACCOUNT_MESSAGE, IsTeachingStaff, may_change_account
 from apps.identity.roles import TEACHER_CREATABLE_ROLES, is_full_admin
 
 

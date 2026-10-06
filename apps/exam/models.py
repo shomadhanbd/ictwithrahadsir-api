@@ -1,13 +1,12 @@
 from django.conf import settings
 from django.db import models
-from django.utils.translation import gettext_lazy as _
 
-from apps.core.models import NameSlugMixin, TimestampModel
+from apps.core.models import TimestampModel
 from apps.exam.managers import ExamAttemptQuerySet, ExamQuerySet
 from apps.question.models import Question
 
 
-class Exam(NameSlugMixin, TimestampModel):
+class Exam(TimestampModel):
     """One paper: its configuration, and the sections it is made of."""
 
     class Status(models.TextChoices):
@@ -21,7 +20,6 @@ class Exam(NameSlugMixin, TimestampModel):
         COURSE = "course", "Course"
 
     title = models.CharField("Title", max_length=200)
-    slug = models.SlugField(max_length=220, unique=True, blank=True, verbose_name=_("slug"))
     description = models.TextField("Description", blank=True)
     instructions = models.TextField("Instructions", blank=True)
 
@@ -93,9 +91,6 @@ class Exam(NameSlugMixin, TimestampModel):
         ]
 
     def __str__(self):
-        return self.title
-
-    def slug_base(self):
         return self.title
 
     def clean(self):

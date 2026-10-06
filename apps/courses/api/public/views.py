@@ -1,13 +1,10 @@
 from rest_framework import status
-from rest_framework.exceptions import NotFound
 from rest_framework.generics import ListAPIView
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.core.api.pagination import LaravelStylePageNumberPagination
-from apps.core.api.viewsets import UnpaginatedDataListMixin
-from apps.core.streaming import stream_file
+from apps.core.api.views.generics import UnpaginatedDataListMixin
 from apps.courses import selectors, services
 from apps.courses.api.public.filters import PublicCourseFilter
 from apps.courses.api.public.serializers import (
@@ -18,7 +15,7 @@ from apps.courses.api.public.serializers import (
     CourseProgressSerializer,
 )
 from apps.courses.api.serializers import CourseMaterialSerializer
-from apps.courses.models import Content, Course, CourseMaterial
+from apps.courses.models import Course, CourseMaterial
 
 
 class CourseCardsMixin:
@@ -38,7 +35,6 @@ class CourseCardsMixin:
 class PublicCourseListAPIView(CourseCardsMixin, ListAPIView):
     permission_classes = [AllowAny]
     serializer_class = CourseListSerializer
-    pagination_class = LaravelStylePageNumberPagination
     filterset_class = PublicCourseFilter
     search_fields = ["title", "subtitle", "summary"]
     ordering_fields = ["published_at", "title", "starts_on"]
@@ -76,24 +72,6 @@ class ContentDetailAPIView(APIView):
     def get(self, request, slug):
         content = selectors.accessible_content(request.user, slug)
         return Response(ContentDetailSerializer(content, context={"request": request}).data)
-
-
-class ContentPdfAPIView(APIView):
-    """Streams the PDF so its URL is never exposed."""
-
-    permission_classes = [AllowAny]
-
-    def get(self, request, slug):
-        content = selectors.accessible_content(request.user, slug, type=Content.Type.PDF)
-        if not content.pdf_file:
-            raise NotFound("PDF not found.")
-        return stream_file(
-            content.pdf_file,
-            filename=f"{content.slug}.pdf",
-            range_header=request.headers.get("Range"),
-            content_type="application/pdf",
-            missing="PDF not found.",
-        )
 
 
 class CourseProgressAPIView(APIView):

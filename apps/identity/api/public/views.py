@@ -6,14 +6,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.core.api.responses import MessageResponseSerializer, OkResponseSerializer
-from apps.core.api.throttling import (
-    AuthBurstThrottle,
-    AuthSustainedThrottle,
-    LoginBurstThrottle,
-    LoginSustainedThrottle,
-)
-from apps.core.api.views import SerializerAPIView, request_meta
+from apps.core.api.views.generics import SerializerAPIView
 from apps.identity.api.public.serializers import (
     AuthTokenResponseSerializer,
     OtpRequestResponseSerializer,
@@ -38,10 +31,17 @@ from apps.identity.services import (
     verify_phone,
 )
 
+CLIENT_HINT_HEADERS = {"platform": "X-Platform", "app_version": "X-App-Version"}
+
+
+def request_meta(request) -> dict:
+    """Client hints sent with a request, kept for debugging only."""
+    hints = {key: request.headers.get(header) for key, header in CLIENT_HINT_HEADERS.items()}
+    return {key: value for key, value in hints.items() if value}
+
 
 class PublicAuthAPIView(SerializerAPIView):
     permission_classes = [AllowAny]
-    throttle_classes = [AuthBurstThrottle, AuthSustainedThrottle]
 
 
 class OtpRequestAPIView(PublicAuthAPIView):
@@ -93,7 +93,6 @@ class UserRegisterAPIView(SerializerAPIView):
 
 
 class UserLoginAPIView(PublicAuthAPIView):
-    throttle_classes = [LoginBurstThrottle, LoginSustainedThrottle]
     serializer_class = UserLoginRequestSerializer
 
     def post(self, request):
@@ -110,7 +109,7 @@ class PasswordForgotAPIView(PublicAuthAPIView):
         wait = start_password_reset(phone, request_meta(request))
         if wait:
             raise Throttled(wait=wait)
-        return Response(MessageResponseSerializer({"message": "OTP sent."}).data)
+        return Response({"message": "OTP sent."})
 
 
 class PasswordResetCheckAPIView(PublicAuthAPIView):
@@ -119,7 +118,7 @@ class PasswordResetCheckAPIView(PublicAuthAPIView):
     def post(self, request):
         data = self.validated_data(request)
         check_reset_code(data["phone"], data["otp"])
-        return Response(MessageResponseSerializer({"message": "OTP is valid."}).data)
+        return Response({"message": "OTP is valid."})
 
 
 class PasswordResetAPIView(PublicAuthAPIView):
@@ -140,7 +139,7 @@ class UserLogoutAPIView(APIView):
 
     def post(self, request):
         revoke_tokens(request.user)
-        return Response(OkResponseSerializer({"ok": True}).data)
+        return Response({"ok": True})
 
 
 class CurrentUserAPIView(APIView):

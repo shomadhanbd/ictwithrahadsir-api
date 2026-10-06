@@ -1,4 +1,4 @@
-from apps.core.api.permissions import IsTeachingStaff
+from apps.core.api.auth.permissions import IsTeachingStaff
 from apps.exam.selectors import AUTHOR_MESSAGE, may_author_exam
 
 

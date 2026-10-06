@@ -3,8 +3,10 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
+from rest_framework.test import APITestCase
+
 from apps.academic.models import Chapter
-from apps.core.tests.base import ThrottledAPITestCase
+from apps.core.testing import next_slug
 from apps.exam.models import Exam, ExamSection, ExamSectionQuestion
 from apps.question.models import Question, QuestionBlock, QuestionOption, QuestionSet
 from apps.question.tests.base import QuestionTestCase
@@ -13,7 +15,7 @@ TREE_URL = reverse("api:question:practice_tree")
 QUESTIONS_URL = reverse("api:question:practice_questions")
 
 
-class PracticeTests(QuestionTestCase, ThrottledAPITestCase):
+class PracticeTests(QuestionTestCase, APITestCase):
     def setUp(self):
         super().setUp()
         Chapter.objects.filter(pk=self.chapter.pk).update(practice_enabled=True)
@@ -49,11 +51,20 @@ class PracticeTests(QuestionTestCase, ThrottledAPITestCase):
     def test_the_tree_lists_only_chapters_with_practice_questions(self):
         self.mcq()
         retired = Chapter.objects.create(
-            name="Retired", subject=self.ict, chapter_number=3, is_active=False, practice_enabled=True
+            slug=next_slug("chapter"),
+            name="Retired",
+            subject=self.ict,
+            chapter_number=3,
+            is_active=False,
+            practice_enabled=True,
         )
         self.mcq(retired)
-        Chapter.objects.create(name="Empty", subject=self.ict, chapter_number=4, practice_enabled=True)
-        closed = Chapter.objects.create(name="Not opened", subject=self.ict, chapter_number=5)
+        Chapter.objects.create(
+            slug=next_slug("chapter"), name="Empty", subject=self.ict, chapter_number=4, practice_enabled=True
+        )
+        closed = Chapter.objects.create(
+            slug=next_slug("chapter"), name="Not opened", subject=self.ict, chapter_number=5
+        )
         self.mcq(closed)
 
         tree = self.client.get(TREE_URL).json()["data"]

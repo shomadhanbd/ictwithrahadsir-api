@@ -1,11 +1,20 @@
 from rest_framework import serializers
 
 from apps.academic.models import Batch, Subject
-from apps.core.api.serializers import MergedAttrsMixin
 from apps.exam import selectors, validators
 from apps.exam.models import Exam, ExamSection, ExamSectionQuestion
 from apps.exam.selectors import assert_may_author_exam
 from apps.question.models import QuestionBlock
+
+
+class MergedAttrsMixin:
+    """Reads a field as it will be once this request is applied."""
+
+    def merged(self, attrs):
+        def after(field, default=None):
+            return attrs.get(field, getattr(self.instance, field, default))
+
+        return after
 
 
 class ExamSectionQuestionRowSerializer(serializers.ModelSerializer):
@@ -170,7 +179,6 @@ class AdminExamSerializer(MergedAttrsMixin, serializers.ModelSerializer):
         model = Exam
         fields = [
             "id",
-            "slug",
             "title",
             "description",
             "instructions",

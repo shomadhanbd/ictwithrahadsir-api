@@ -19,7 +19,7 @@ from apps.billing.services import (
     process_capture,
     process_ipn,
 )
-from apps.core.api.viewsets import UnpaginatedDataListMixin
+from apps.core.api.views.generics import UnpaginatedDataListMixin
 
 
 class ProductListView(ListAPIView):

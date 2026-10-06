@@ -63,7 +63,7 @@ class BlockSaveTests(QuestionTestCase):
             QuestionOption.objects.create(
                 question=question, content=f"o{position}", position=position, is_correct=correct
             )
-        exam = Exam.objects.create(title="Live", slug="live-save")
+        exam = Exam.objects.create(title="Live")
         section = ExamSection.objects.create(exam=exam, title="MCQ", subject=self.ict, marks=1)
         ExamSectionQuestion.objects.create(section=section, block=standalone, marks=1)
         Exam.objects.filter(pk=exam.pk).update(status=Exam.Status.PUBLISHED)

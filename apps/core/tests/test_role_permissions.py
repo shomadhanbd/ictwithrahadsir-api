@@ -3,9 +3,10 @@
 from django.urls import get_resolver
 from django.urls.resolvers import URLResolver
 
-from apps.academic.models import ClassLevel, Group
-from apps.core.testing import bearer
-from apps.core.tests.base import ThrottledAPITestCase
+from rest_framework.test import APITestCase
+
+from apps.academic.models import ClassLevel, Group, Subject
+from apps.core.testing import bearer, next_slug
 from apps.identity.models import User
 
 
@@ -82,7 +83,7 @@ TEACHING_STAFF = [
 ]
 
 
-class RoleMatrixTests(ThrottledAPITestCase):
+class RoleMatrixTests(APITestCase):
     """One GET per endpoint per role. 200 means allowed, 403 means refused."""
 
     def setUp(self):
@@ -149,12 +150,16 @@ class RoleMatrixTests(ThrottledAPITestCase):
             self.assertEqual(response.status_code, 201, response.content)
             return response.json()['id']
 
-        group_id = Group.objects.create(name='বিজ্ঞান').pk
+        group_id = Group.objects.create(slug=next_slug("group"), name='বিজ্ঞান').pk
 
-        level = create('class-levels', {'name': 'দ্বাদশ'})
-        subject = create('subjects', {'name': 'আইসিটি', 'class_level_id': level, 'group_id': group_id})
-        chapter = create('chapters', {'name': 'সংখ্যা পদ্ধতি', 'subject_id': subject, 'chapter_number': 3})
-        create('topics', {'name': 'বাইনারি', 'chapter_id': chapter})
+        level = create('class-levels', {'name': 'দ্বাদশ', 'slug': 'class-12'})
+        subject = create(
+            'subjects', {'name': 'আইসিটি', 'slug': 'ict-12', 'class_level_id': level, 'group_id': group_id}
+        )
+        chapter = create(
+            'chapters', {'name': 'সংখ্যা পদ্ধতি', 'slug': 'number-systems', 'subject_id': subject, 'chapter_number': 3}
+        )
+        create('topics', {'name': 'বাইনারি', 'slug': 'binary', 'chapter_id': chapter})
 
         renamed = self.client.patch(
             f'{API}/private/chapters/{chapter}/', {'name': 'Number systems'}, format='json', **auth
@@ -162,11 +167,33 @@ class RoleMatrixTests(ThrottledAPITestCase):
         self.assertEqual(renamed.status_code, 200)
 
     def test_only_an_admin_deletes_part_of_the_curriculum(self):
-        level = ClassLevel.objects.create(name='অষ্টম')
+        level = ClassLevel.objects.create(slug=next_slug("classlevel"), name='অষ্টম')
         path = f'{API}/private/class-levels/{level.pk}/'
 
         self.assertEqual(self.client.delete(path, **self.tokens[User.Role.TEACHER]).status_code, 403)
         self.assertEqual(self.client.delete(path, **self.tokens[User.Role.ADMIN]).status_code, 204)
+
+    def test_each_refusal_names_what_was_refused(self):
+        level = ClassLevel.objects.create(slug=next_slug("classlevel"), name='নবম')
+        group = Group.objects.create(slug=next_slug("group"), name='মানবিক')
+        subject = Subject.objects.create(slug=next_slug("subject"), name='বাংলা', class_level=level, group=group)
+        staff_only = 'Only an admin or teacher may manage course material.'
+        cases = [
+            (User.Role.STUDENT, 'get', f'{API}/private/subjects/', staff_only),
+            (
+                User.Role.TEACHER,
+                'delete',
+                f'{API}/private/subjects/{subject.pk}/',
+                'Only an admin may delete part of the curriculum.',
+            ),
+            (User.Role.STUDENT, 'get', f'{API}/private/groups/', staff_only),
+            (User.Role.TEACHER, 'patch', f'{API}/private/groups/{group.pk}/', 'Only an admin may change this.'),
+        ]
+        for role, method, path, message in cases:
+            with self.subTest(role=role, method=method, path=path):
+                response = getattr(self.client, method)(path, format='json', **self.tokens[role])
+                self.assertEqual(response.status_code, 403)
+                self.assertEqual(response.json(), {'message': message})
 
     def test_teacher_cannot_change_groups_or_batches(self):
         for path in ADMIN_WRITE_TEACHER_READ:
@@ -207,7 +234,7 @@ class RoleMatrixTests(ThrottledAPITestCase):
             self.assert_reachable(group, User.Role.STUDENT, allowed=False)
 
 
-class EveryAdminPathHasADecidedTierTests(ThrottledAPITestCase):
+class EveryAdminPathHasADecidedTierTests(APITestCase):
     """No admin endpoint should be missing from the table above."""
 
     #: Paths the matrix cannot GET; each is covered by its own app's tests.
@@ -250,7 +277,7 @@ class EveryAdminPathHasADecidedTierTests(ThrottledAPITestCase):
         )
 
 
-class TeacherCourseScopingTests(ThrottledAPITestCase):
+class TeacherCourseScopingTests(APITestCase):
     """A teacher's reach stops at the courses they actually teach."""
 
     def setUp(self):
@@ -291,9 +318,9 @@ class TeacherCourseScopingTests(ThrottledAPITestCase):
         self.auth = self._auth(self.teacher_user)
         self.admin_auth = self._auth(self.admin)
 
-        section = Section.objects.create(course=self.theirs, title='Week 1')
+        section = Section.objects.create(slug=next_slug("section"), course=self.theirs, title='Week 1')
         self.their_content = Content.objects.create(
-            course=self.theirs, section=section, title='Lesson', type=Content.Type.NOTE
+            slug=next_slug("content"), course=self.theirs, section=section, title='Lesson', type=Content.Type.NOTE
         )
 
     def _auth(self, user):
@@ -312,15 +339,15 @@ class TeacherCourseScopingTests(ThrottledAPITestCase):
         self.assertEqual(listed, [])
 
     def test_a_teacher_cannot_open_another_teachers_course(self):
-        response = self.client.get(f'{API}/private/courses/their-course/', **self.auth)
+        response = self.client.get(f'{API}/private/courses/{self.theirs.pk}/', **self.auth)
         self.assertIn(response.status_code, (403, 404))
 
     def test_a_teacher_can_open_their_own_course(self):
-        response = self.client.get(f'{API}/private/courses/my-course/', **self.auth)
+        response = self.client.get(f'{API}/private/courses/{self.mine.pk}/', **self.auth)
         self.assertEqual(response.status_code, 200)
 
     def test_a_teacher_cannot_edit_another_teachers_course(self):
-        response = self.client.patch(f'{API}/private/courses/their-course/', {'title': 'Hijacked'}, **self.auth)
+        response = self.client.patch(f'{API}/private/courses/{self.theirs.pk}/', {'title': 'Hijacked'}, **self.auth)
         self.assertIn(response.status_code, (403, 404))
         self.theirs.refresh_from_db()
         self.assertEqual(self.theirs.title, 'Their Course')
@@ -352,10 +379,10 @@ class TeacherCourseScopingTests(ThrottledAPITestCase):
 
         # 404, not 403: the scoping mixin filters an unassigned course out.
         self.assertIn(
-            self.client.get(f'{API}/private/courses/their-course/', **self.auth).status_code,
+            self.client.get(f'{API}/private/courses/{self.theirs.pk}/', **self.auth).status_code,
             (403, 404),
         )
 
         CourseTeacher.objects.create(user=self.teacher_user, course=self.theirs)
 
-        self.assertEqual(self.client.get(f'{API}/private/courses/their-course/', **self.auth).status_code, 200)
+        self.assertEqual(self.client.get(f'{API}/private/courses/{self.theirs.pk}/', **self.auth).status_code, 200)

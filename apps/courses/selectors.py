@@ -48,7 +48,6 @@ def admin_lesson_exam(content) -> dict | None:
         return None
     return {
         "id": exam.pk,
-        "slug": exam.slug,
         "status": exam.status,
         "total_marks": exam.total_marks,
         "question_count": sum(section.question_count for section in exam.sections.all()),
@@ -112,9 +111,9 @@ def lesson_is_visible(content) -> bool:
     )
 
 
-def accessible_content(user, slug, **filters) -> Content:
+def accessible_content(user, slug) -> Content:
     """An active lesson `user` may open; raises 404 or 403 otherwise. Its teachers may preview a draft's."""
-    content = Content.objects.select_related("course", "section__section").filter(slug=slug, **filters).first()
+    content = Content.objects.select_related("course", "section__section").filter(slug=slug).first()
     if content is None:
         raise Http404
     signed_in = user is not None and user.is_authenticated

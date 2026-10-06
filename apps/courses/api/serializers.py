@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from apps.core.api.fields import MediaField
+from apps.core.api.serializers.fields import MediaField
 from apps.courses.models import Course, CourseMaterial, Routine
 from apps.courses.validators import validate_section_in_course
 

@@ -5,21 +5,27 @@ from apps.billing.models import Payment, Product
 from apps.billing.tests.base import (
     BillingTestBase,
 )
-from apps.core.testing import bearer, make_user
+from apps.core.testing import bearer, make_user, next_slug
 from apps.courses.models import Course
 from apps.identity.models import User
 
 
 class ProductTests(BillingTestBase):
     def test_the_public_list_shows_products_on_sale(self):
-        Product.objects.create(title='Retired', price=100, base_price=100, is_active=False).courses.set([self.live])
-        Product.objects.create(title='Empty', price=100, base_price=100)
+        Product.objects.create(
+            product_id=next_slug("product"), title='Retired', price=100, base_price=100, is_active=False
+        ).courses.set([self.live])
+        Product.objects.create(product_id=next_slug("product"), title='Empty', price=100, base_price=100)
         ended = Product.objects.create(
-            title='Ended', price=100, base_price=100, access_ends_on=timezone.localdate() - timezone.timedelta(days=1)
+            product_id=next_slug("product"),
+            title='Ended',
+            price=100,
+            base_price=100,
+            access_ends_on=timezone.localdate() - timezone.timedelta(days=1),
         )
         ended.courses.set([self.live])
 
-        body = self.client.get(reverse('api:billing:product-list')).json()
+        body = self.client.get(reverse('api:billing:product_list')).json()
         self.assertEqual([row['product_id'] for row in body['data']], ['hsc-ict'])
         self.assertEqual({row['slug'] for row in body['data'][0]['courses']}, {'ict-live', 'ict-rec'})
 
@@ -35,9 +41,10 @@ class AdminTests(BillingTestBase):
 
     def test_an_admin_creates_a_product(self):
         product = self.post(
-            'api:billing:admin-product-list',
+            'api:billing:admin_product_list',
             {
                 'title': 'Model Tests',
+                'product_id': 'model-tests',
                 'price': 300,
                 'base_price': 400,
                 'course_ids': [self.course.pk],
@@ -57,10 +64,10 @@ class AdminTests(BillingTestBase):
         }
         for label, body in cases.items():
             with self.subTest(label):
-                self.assertEqual(self.post('api:billing:admin-product-list', body).status_code, 422)
+                self.assertEqual(self.post('api:billing:admin_product_list', body).status_code, 422)
 
     def test_students_are_kept_out(self):
-        for url in (reverse('api:billing:admin_payment_list'), reverse('api:billing:admin-product-list')):
+        for url in (reverse('api:billing:admin_payment_list'), reverse('api:billing:admin_product_list')):
             with self.subTest(url=url):
                 self.assertEqual(self.client.get(url, **self.auth).status_code, 403)
 
@@ -81,7 +88,7 @@ class EnrollmentDeadlineTests(BillingTestBase):
 
     def test_a_bundle_stops_selling_when_any_of_its_courses_closes(self):
         self.close(self.recorded)
-        body = self.client.get(reverse('api:billing:product-list')).json()
+        body = self.client.get(reverse('api:billing:product_list')).json()
         self.assertEqual(body['data'], [])
 
     def test_a_future_deadline_still_sells(self):
@@ -105,7 +112,7 @@ class UnpublishedCourseTests(BillingTestBase):
 
     def test_an_archived_course_stops_its_packages_selling(self):
         Course.objects.filter(pk=self.recorded.pk).update(status='archived')
-        self.assertEqual(self.client.get(reverse('api:billing:product-list')).json()['data'], [])
+        self.assertEqual(self.client.get(reverse('api:billing:product_list')).json()['data'], [])
 
     def test_a_draft_course_preview_shows_no_price(self):
         Course.objects.filter(pk=self.live.pk).update(status='draft')
@@ -140,11 +147,11 @@ class DiscountEndTests(BillingTestBase):
 
     def test_the_public_list_shows_the_effective_price(self):
         self.end_discount()
-        row = self.client.get(reverse('api:billing:product-list')).json()['data'][0]
+        row = self.client.get(reverse('api:billing:product_list')).json()['data'][0]
         self.assertEqual((row['price'], row['base_price']), (600, 600))
 
     def test_cheapest_follows_the_effective_price(self):
-        rival = Product.objects.create(title='Year', price=550, base_price=550)
+        rival = Product.objects.create(product_id=next_slug("product"), title='Year', price=550, base_price=550)
         rival.courses.set([self.live])
         self.end_discount()
         self.assertEqual(self.card_price()['title'], 'Year')
@@ -153,7 +160,7 @@ class DiscountEndTests(BillingTestBase):
         admin = make_user(role=User.Role.ADMIN)
         auth = bearer(admin)
         response = self.client.patch(
-            reverse('api:billing:admin-product-detail', args=[self.product.pk]),
+            reverse('api:billing:admin_product_detail', args=[self.product.pk]),
             {'base_price': 500, 'discount_ends_at': (timezone.now() + timezone.timedelta(days=1)).isoformat()},
             format='json',
             **auth,

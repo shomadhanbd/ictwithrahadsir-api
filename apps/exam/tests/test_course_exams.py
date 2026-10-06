@@ -2,7 +2,7 @@
 
 from django.urls import reverse
 
-from apps.core.testing import bearer, make_user
+from apps.core.testing import bearer, make_user, next_slug
 from apps.courses.models import Content, CourseTeacher
 from apps.exam.models import Exam, ExamSection, ExamSectionQuestion
 from apps.exam.services import attempts as attempt_service
@@ -17,7 +17,13 @@ class LessonExamLinkTests(CourseExamTestCase):
     def test_an_exam_lesson_creates_a_draft_course_exam(self):
         response = self.client.post(
             LESSONS_URL,
-            {"course_id": self.course.pk, "section_id": self.chapter.pk, "title": "Weekly test", "type": "exam"},
+            {
+                "course_id": self.course.pk,
+                "section_id": self.chapter.pk,
+                "title": "Weekly test",
+                "slug": "weekly-test",
+                "type": "exam",
+            },
             format="json",
             **self.admin_auth,
         )
@@ -27,15 +33,19 @@ class LessonExamLinkTests(CourseExamTestCase):
         self.assertEqual(response.json()["exam"]["id"], exam.pk)
 
     def test_other_lessons_get_no_exam(self):
-        Content.objects.create(course=self.course, section=self.chapter, type="video", title="Class 1")
+        Content.objects.create(
+            slug=next_slug("content"), course=self.course, section=self.chapter, type="video", title="Class 1"
+        )
         self.assertFalse(Exam.objects.exists())
 
     def test_an_exam_lesson_cannot_change_type_either_way(self):
         exam_lesson = self.lesson()
-        video = Content.objects.create(course=self.course, section=self.chapter, type="video", title="Class 1")
+        video = Content.objects.create(
+            slug=next_slug("content"), course=self.course, section=self.chapter, type="video", title="Class 1"
+        )
         for lesson, new_type in ((exam_lesson, "video"), (video, "exam")):
             response = self.client.patch(
-                reverse("api:courses:admin-content-detail", args=[lesson.slug]),
+                reverse("api:courses:admin_content_detail", args=[lesson.slug]),
                 {"type": new_type},
                 format="json",
                 **self.admin_auth,
@@ -90,7 +100,7 @@ class LessonExamLinkTests(CourseExamTestCase):
         exam = self.published_exam()
         attempt_service.start_attempt(exam, self.student)
         response = self.client.delete(
-            reverse("api:courses:admin-content-detail", args=[exam.lesson.slug]), **self.admin_auth
+            reverse("api:courses:admin_content_detail", args=[exam.lesson.slug]), **self.admin_auth
         )
         self.assertEqual(response.status_code, 409)
 

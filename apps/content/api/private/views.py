@@ -1,5 +1,5 @@
 from rest_framework.exceptions import NotFound
-from rest_framework.generics import ListAPIView
+from rest_framework.generics import ListAPIView, ListCreateAPIView, RetrieveUpdateDestroyAPIView
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -19,62 +19,88 @@ from apps.content.models import (
     Page,
     Testimonial,
 )
-from apps.core.api.permissions import IsContentStaff
-from apps.core.api.viewsets import (
-    AdminModelViewSet,
-    SlugOrPkLookupMixin,
-    UnpaginatedDataListMixin,
-)
+from apps.core.api.auth.permissions import IsContentStaff
+from apps.core.api.views.generics import UnpaginatedDataListMixin
 
 
-class AdminNoticeViewSet(AdminModelViewSet):
+class AdminNoticeView:
     permission_classes = [IsContentStaff]
     queryset = Notice.objects.prefetch_related('categories')
     serializer_class = NoticeSerializer
     lookup_field = 'slug'
-    # Without this the global SearchFilter has nothing to match on, so
-    # `?search=` was accepted and silently ignored -- the admin panel's
-    # search box returned the unfiltered list and looked broken.
+
+
+class AdminNoticeListCreateAPIView(AdminNoticeView, ListCreateAPIView):
     search_fields = ['title', 'body']
 
 
-class AdminNoticeCategoryViewSet(SlugOrPkLookupMixin, AdminModelViewSet):
+class AdminNoticeDetailAPIView(AdminNoticeView, RetrieveUpdateDestroyAPIView):
+    pass
+
+
+class AdminNoticeCategoryView:
     permission_classes = [IsContentStaff]
     queryset = NoticeCategory.objects.all()
     serializer_class = NoticeCategorySerializer
-    lookup_field = 'slug'
+
+
+class AdminNoticeCategoryListCreateAPIView(AdminNoticeCategoryView, ListCreateAPIView):
     search_fields = ['title']
 
     def get_queryset(self):
-        qs = super().get_queryset()
+        """`?category_id=` lists one category's children; without it, the top level only (the tree loads lazily)."""
         category_id = self.request.query_params.get('category_id')
-        if category_id:
-            return qs.filter(notice_category_id=category_id)
-        if self.action == 'list':
-            # Top level only, so the admin panel can expand the tree lazily.
-            return qs.filter(notice_category__isnull=True)
-        return qs
+        return (
+            super()
+            .get_queryset()
+            .filter(**({'notice_category_id': category_id} if category_id else {'notice_category__isnull': True}))
+        )
 
 
-class AdminTestimonialViewSet(AdminModelViewSet):
+class AdminNoticeCategoryDetailAPIView(AdminNoticeCategoryView, RetrieveUpdateDestroyAPIView):
+    pass
+
+
+class AdminTestimonialView:
     permission_classes = [IsContentStaff]
     queryset = Testimonial.objects.all()
     serializer_class = TestimonialSerializer
+
+
+class AdminTestimonialListCreateAPIView(AdminTestimonialView, ListCreateAPIView):
     search_fields = ['name', 'designation', 'description']
 
 
-class AdminAdvertisementViewSet(AdminModelViewSet):
+class AdminTestimonialDetailAPIView(AdminTestimonialView, RetrieveUpdateDestroyAPIView):
+    pass
+
+
+class AdminAdvertisementView:
     permission_classes = [IsContentStaff]
     queryset = Advertisement.objects.all()
     serializer_class = AdvertisementSerializer
+
+
+class AdminAdvertisementListCreateAPIView(AdminAdvertisementView, ListCreateAPIView):
     search_fields = ['title', 'description', 'type']
 
 
-class AdminEBookViewSet(AdminModelViewSet):
+class AdminAdvertisementDetailAPIView(AdminAdvertisementView, RetrieveUpdateDestroyAPIView):
+    pass
+
+
+class AdminEBookView:
     permission_classes = [IsContentStaff]
     queryset = EBook.objects.all()
     serializer_class = EBookSerializer
+
+
+class AdminEBookListCreateAPIView(AdminEBookView, ListCreateAPIView):
     search_fields = ['title', 'description']
+
+
+class AdminEBookDetailAPIView(AdminEBookView, RetrieveUpdateDestroyAPIView):
+    pass
 
 
 class AdminPageListAPIView(UnpaginatedDataListMixin, ListAPIView):

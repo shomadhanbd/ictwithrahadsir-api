@@ -1,15 +1,17 @@
 from rest_framework import status
-from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
-from rest_framework.generics import ListAPIView, get_object_or_404
+from rest_framework.generics import (
+    GenericAPIView,
+    ListAPIView,
+    ListCreateAPIView,
+    RetrieveUpdateDestroyAPIView,
+    get_object_or_404,
+)
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.core.api.pagination import LaravelStylePageNumberPagination
-from apps.core.api.permissions import IsFullAdmin, IsTeachingStaff
-from apps.core.api.responses import OkResponseSerializer
-from apps.core.api.viewsets import AdminModelViewSet, SlugOrPkLookupMixin
-from apps.core.exports import csv_response
+from apps.core.api.auth.permissions import IsFullAdmin, IsTeachingStaff
+from apps.core.api.views.exports import csv_response
 from apps.courses import selectors, services
 from apps.courses.api.permissions import (
     CourseScopedAdminMixin,
@@ -40,37 +42,59 @@ from apps.courses.exports import STUDENT_EXPORT_HEADER, student_export_rows
 from apps.courses.models import Content, Course, CourseMaterial, CourseTeacher, Enrollment, Routine, Section
 
 
-class AdminCourseViewSet(SlugOrPkLookupMixin, CourseScopedAdminMixin, AdminModelViewSet):
+class AdminCourseView(CourseScopedAdminMixin):
     permission_classes = [IsCourseTeacherAdminDeletes]
     course_field = "id"
     queryset = Course.objects.select_related("class_level", "group", "batch").with_enrolled_count()
     serializer_class = AdminCourseSerializer
-    lookup_field = "slug"
-    search_fields = ["title", "subtitle", "slug"]
-    filterset_class = AdminCourseFilter
 
     def perform_destroy(self, instance):
         services.delete_course(instance)
 
 
-class AdminRoutineViewSet(CourseScopedAdminMixin, AdminModelViewSet):
+class AdminCourseListCreateAPIView(AdminCourseView, ListCreateAPIView):
+    search_fields = ["title", "subtitle", "slug"]
+    filterset_class = AdminCourseFilter
+
+
+class AdminCourseDetailAPIView(AdminCourseView, RetrieveUpdateDestroyAPIView):
+    pass
+
+
+class AdminRoutineView(CourseScopedAdminMixin):
     permission_classes = [IsCourseTeacherAdminDeletes]
     queryset = Routine.objects.all()
     serializer_class = RoutineSerializer
+
+
+class AdminRoutineListCreateAPIView(AdminRoutineView, ListCreateAPIView):
     search_fields = ["title"]
     filterset_class = RoutineFilter
 
 
-class AdminSectionViewSet(SlugOrPkLookupMixin, CourseScopedAdminMixin, AdminModelViewSet):
+class AdminRoutineDetailAPIView(AdminRoutineView, RetrieveUpdateDestroyAPIView):
+    pass
+
+
+class AdminSectionView(CourseScopedAdminMixin):
     permission_classes = [IsCourseTeacherAdminDeletes]
     queryset = Section.objects.all()
     serializer_class = AdminSectionSerializer
-    lookup_field = "slug"
+
+
+class AdminSectionListCreateAPIView(AdminSectionView, ListCreateAPIView):
     search_fields = ["title"]
     filterset_class = SectionFilter
 
-    @action(detail=True, methods=["post"])
-    def move(self, request, *args, **kwargs):
+
+class AdminSectionDetailAPIView(AdminSectionView, RetrieveUpdateDestroyAPIView):
+    pass
+
+
+class AdminSectionMoveAPIView(AdminSectionView, GenericAPIView):
+    """Swaps a section with its neighbour among its siblings."""
+
+    def post(self, request, *args, **kwargs):
         section = self.get_object()
         body = SectionMoveSerializer(data=request.data)
         body.is_valid(raise_exception=True)
@@ -79,13 +103,20 @@ class AdminSectionViewSet(SlugOrPkLookupMixin, CourseScopedAdminMixin, AdminMode
         return Response(AdminSectionSerializer(section).data)
 
 
-class AdminContentViewSet(CourseScopedAdminMixin, AdminModelViewSet):
+class AdminContentView(CourseScopedAdminMixin):
     permission_classes = [IsCourseTeacherAdminDeletes]
     queryset = Content.objects.select_related("exam").prefetch_related("exam__sections")
     serializer_class = AdminContentSerializer
     lookup_field = "slug"
+
+
+class AdminContentListCreateAPIView(AdminContentView, ListCreateAPIView):
     search_fields = ["title"]
     filterset_class = ContentFilter
+
+
+class AdminContentDetailAPIView(AdminContentView, RetrieveUpdateDestroyAPIView):
+    pass
 
 
 class AdminContentToggleAPIView(APIView):
@@ -105,7 +136,6 @@ class AdminContentToggleAPIView(APIView):
 class AdminCourseEnrolledUserListAPIView(ListAPIView):
     permission_classes = [IsTeachingStaff]
     serializer_class = EnrollmentSerializer
-    pagination_class = LaravelStylePageNumberPagination
     queryset = Enrollment.objects.none()
     search_fields = ["user__name", "user__phone", "user__email"]
 
@@ -168,25 +198,34 @@ class AdminEnrollmentAPIView(APIView):
         data = self._body(request)
         course = data["course"]
         removed = bool(course) and services.revoke_course_access(user_id=data.get("user_id"), course=course)
-        return Response(OkResponseSerializer({"ok": removed}).data)
+        return Response({"ok": removed})
 
 
-class AdminCourseMaterialViewSet(CourseScopedAdminMixin, AdminModelViewSet):
+class AdminCourseMaterialView(CourseScopedAdminMixin):
     permission_classes = [IsCourseTeacherAdminDeletes]
     queryset = CourseMaterial.objects.select_related("course").order_by("-id")
     serializer_class = CourseMaterialSerializer
+
+
+class AdminCourseMaterialListCreateAPIView(AdminCourseMaterialView, ListCreateAPIView):
     search_fields = ["title", "type", "course__title"]
     filterset_class = CourseMaterialFilter
 
 
-class AdminCourseTeacherViewSet(AdminModelViewSet):
+class AdminCourseMaterialDetailAPIView(AdminCourseMaterialView, RetrieveUpdateDestroyAPIView):
+    pass
+
+
+class AdminCourseTeacherView:
     permission_classes = [IsFullAdmin]
     queryset = CourseTeacher.objects.select_related("user__teacher", "course")
     serializer_class = AdminCourseTeacherSerializer
-    search_fields = [
-        "user__name",
-        "user__email",
-        "user__teacher__designation",
-        "user__teacher__institute",
-    ]
+
+
+class AdminCourseTeacherListCreateAPIView(AdminCourseTeacherView, ListCreateAPIView):
+    search_fields = ["user__name", "user__email", "user__teacher__designation", "user__teacher__institute"]
     filterset_class = CourseTeacherFilter
+
+
+class AdminCourseTeacherDetailAPIView(AdminCourseTeacherView, RetrieveUpdateDestroyAPIView):
+    pass

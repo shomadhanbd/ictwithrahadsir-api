@@ -4,9 +4,10 @@ from django.test import override_settings
 from django.utils import timezone
 
 from rest_framework.authtoken.models import Token
+from rest_framework.test import APITestCase
 
 from apps.academic.models import ClassLevel, Group
-from apps.core.tests.base import ThrottledAPITestCase
+from apps.core.testing import next_slug
 from apps.identity.models import User
 from apps.identity.tests.base import (
     LOGIN_URL,
@@ -16,7 +17,7 @@ from apps.identity.tests.base import (
 from apps.profiles.services import ensure_student_profile
 
 
-class MeAndLogoutTests(ThrottledAPITestCase):
+class MeAndLogoutTests(APITestCase):
     def setUp(self):
         super().setUp()
         self.user = User.objects.create_user(phone="01810004444", name="Student", password="Str0ngPass!23")
@@ -45,7 +46,7 @@ class MeAndLogoutTests(ThrottledAPITestCase):
         self.assertFalse(Token.objects.filter(user=self.user).exists())
 
 
-class PasswordChangeTests(ThrottledAPITestCase):
+class PasswordChangeTests(APITestCase):
     def setUp(self):
         super().setUp()
         self.user = User.objects.create_user(phone="01810004445", name="Student", password="Str0ngPass!23")
@@ -93,7 +94,7 @@ class PasswordChangeTests(ThrottledAPITestCase):
 
 
 @override_settings(TOKEN_TTL_DAYS=90)
-class TokenLifetimeTests(ThrottledAPITestCase):
+class TokenLifetimeTests(APITestCase):
     def setUp(self):
         super().setUp()
         self.user = User.objects.create_user(phone="01810004446", name="Student", password="Str0ngPass!23")
@@ -121,11 +122,14 @@ class TokenLifetimeTests(ThrottledAPITestCase):
         )
 
 
-class StudentAudienceEditTests(ThrottledAPITestCase):
+class StudentAudienceEditTests(APITestCase):
     def setUp(self):
         super().setUp()
         self.hsc = ClassLevel.objects.create(name="HSC", slug="hsc-aud")
-        self.science, self.arts = Group.objects.create(name="Science"), Group.objects.create(name="Arts")
+        self.science, self.arts = (
+            Group.objects.create(slug=next_slug("group"), name="Science"),
+            Group.objects.create(slug=next_slug("group"), name="Arts"),
+        )
         self.user = User.objects.create_user(phone="01810004447", name="Student", password="Str0ngPass!23")
         ensure_student_profile(self.user, class_level=self.hsc, group=self.science)
         self.auth = {"HTTP_AUTHORIZATION": f"Bearer {Token.objects.create(user=self.user).key}"}

@@ -1,7 +1,7 @@
 from rest_framework import serializers
 
 from apps.academic.models import ClassLevel, Group
-from apps.core.api.fields import PhoneField
+from apps.core.api.serializers.fields import PhoneField
 from apps.profiles.models import StudentProfile
 from apps.profiles.validators import clean_student_audience
 

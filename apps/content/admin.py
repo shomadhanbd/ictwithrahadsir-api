@@ -65,7 +65,7 @@ class PageAdmin(TimestampedAdmin):
     list_filter = ('value_type',)
     search_fields = ('key', 'slug', 'value')
     ordering = ('key',)
-    readonly_fields = ('key', 'slug', 'created_at', 'updated_at')
+    readonly_fields = ('key', 'slug', *TimestampedAdmin.readonly_fields)
 
     def has_add_permission(self, request):
         return False

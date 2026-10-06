@@ -8,7 +8,7 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
-from apps.core.testing import bearer, make_user
+from apps.core.testing import bearer, make_user, next_slug
 from apps.courses.models import Course, Enrollment, Section
 from apps.exam.models import Exam
 from apps.exam.services import attempts as attempt_service
@@ -61,7 +61,7 @@ class MyExamsTests(CourseExamTestCase):
     def test_only_courses_the_student_can_open_are_listed(self):
         mine = self.published_exam()
         other_course = Course.objects.create(title="Physics", slug="physics", status="published")
-        other_section = Section.objects.create(course=other_course, title="Ch 1")
+        other_section = Section.objects.create(slug=next_slug("section"), course=other_course, title="Ch 1")
         theirs = Exam.objects.get(
             lesson=other_course.contents.create(section=other_section, title="Other test", type="exam")
         )
@@ -114,7 +114,7 @@ class ResultsExportTests(CourseExamTestCase):
         response = self.client.get(export_url(exam), **self.admin_auth)
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response["Content-Type"].startswith("text/csv"))
-        self.assertIn(f'filename="{exam.slug}-results.csv"', response["Content-Disposition"])
+        self.assertIn(f'filename="exam-{exam.pk}-results.csv"', response["Content-Disposition"])
 
         header, *body = self.rows(response)
         self.assertEqual(header[:3], ["Rank", "Name", "Phone"])

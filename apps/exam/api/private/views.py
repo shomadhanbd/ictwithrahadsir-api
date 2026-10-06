@@ -2,7 +2,7 @@ from rest_framework.generics import GenericAPIView, ListCreateAPIView, RetrieveU
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.core.exports import csv_response
+from apps.core.api.views.exports import csv_response
 from apps.exam import selectors, validators
 from apps.exam.api.private.filters import ExamFilter
 from apps.exam.api.private.permissions import IsExamAuthor
@@ -53,7 +53,7 @@ class AdminExamListCreateAPIView(ExamScopedAdminMixin, ListCreateAPIView):
 
     serializer_class = AdminExamSerializer
     queryset = selectors.admin_exams()
-    search_fields = ["title", "slug", "description"]
+    search_fields = ["title", "description"]
     filterset_class = ExamFilter
 
 
@@ -168,7 +168,7 @@ class AdminExamAttemptExportAPIView(ExamScopedAdminMixin, GenericAPIView):
         exam = self.get_exam()
         settled(exam.attempts.all())
         rows = result_rows(exam, exam.attempts.results_table(), ranks=selectors.official_ranks(exam))
-        return csv_response(f"{exam.slug}-results.csv", RESULT_COLUMNS, rows)
+        return csv_response(f"exam-{exam.pk}-results.csv", RESULT_COLUMNS, rows)
 
 
 class AdminExamAttemptDetailAPIView(ExamScopedAdminMixin, GenericAPIView):

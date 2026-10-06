@@ -6,7 +6,7 @@ from django.core.management import call_command
 from django.urls import reverse
 
 from apps.academic.models import Topic
-from apps.core.testing import bearer, make_user
+from apps.core.testing import bearer, make_user, next_slug
 from apps.identity.models import User
 from apps.question import services
 from apps.question.models import Question, QuestionBlock, QuestionSet
@@ -129,7 +129,7 @@ class RefreshQuestionCountTests(QuestionTestCase):
 
     def setUp(self):
         super().setUp()
-        self.binary = Topic.objects.create(name="Binary", chapter=self.chapter)
+        self.binary = Topic.objects.create(slug=next_slug("topic"), name="Binary", chapter=self.chapter)
         self.block().topics.add(self.binary)
         group = self.block(kind=QuestionBlock.Kind.GROUP)
         stimulus = QuestionSet.objects.create(block=group, stimulus_content="A stimulus")

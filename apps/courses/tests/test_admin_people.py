@@ -169,7 +169,7 @@ class CourseTeacherTests(APITestCase):
 
         self.teacher = make_user(role=User.Role.TEACHER, name='Rahad Sir')
         TeacherProfile.objects.create(user=self.teacher, designation='Founder')
-        self.url = reverse('api:courses:admin-course-teacher-list')
+        self.url = reverse('api:courses:admin_course_teacher_list')
 
     def _assign(self, course, **extra):
         return self.client.post(

@@ -5,14 +5,16 @@ from apps.academic.tests.base import (
     AcademicTestCase,
     detail,
 )
-from apps.core.testing import bearer, make_user
+from apps.core.testing import bearer, make_user, next_slug
 
 
 class DetailRouteTests(AcademicTestCase):
     def setUp(self):
         super().setUp()
-        self.subject = Subject.objects.create(name="Physics", class_level=self.ssc, group=self.science)
-        self.batch = Batch.objects.create(name="SSC-2027", class_level=self.ssc)
+        self.subject = Subject.objects.create(
+            slug=next_slug("subject"), name="Physics", class_level=self.ssc, group=self.science
+        )
+        self.batch = Batch.objects.create(slug=next_slug("batch"), name="SSC-2027", class_level=self.ssc)
 
     def test_every_resource_is_retrievable(self):
         for resource, pk in [
@@ -75,8 +77,8 @@ class ChapterTopicDetailRouteTests(AcademicTestCase):
     def setUp(self):
         super().setUp()
         subject = Subject.objects.create(name="ICT", class_level=self.hsc, group=self.science, slug="ict-hsc-science")
-        self.chapter = Chapter.objects.create(name="Number Systems", subject=subject)
-        self.topic = Topic.objects.create(name="Binary", chapter=self.chapter)
+        self.chapter = Chapter.objects.create(slug=next_slug("chapter"), name="Number Systems", subject=subject)
+        self.topic = Topic.objects.create(slug=next_slug("topic"), name="Binary", chapter=self.chapter)
 
     def _rows(self):
         return [("chapter", self.chapter.pk), ("topic", self.topic.pk)]

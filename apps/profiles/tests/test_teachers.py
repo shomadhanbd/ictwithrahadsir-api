@@ -5,13 +5,13 @@ from django.test import TestCase
 from django.urls import reverse
 
 from apps.academic.models import ClassLevel, Group, Subject
-from apps.core.testing import bearer
+from apps.core.testing import bearer, next_slug
 from apps.courses.models import Course, CourseTeacher
 from apps.profiles.models import TeacherProfile
 
 User = get_user_model()
 
-LIST_URL = reverse("api:profiles:admin-teacher-list")
+LIST_URL = reverse("api:profiles:admin_teacher_list")
 LOOKUP_URL = reverse("api:profiles:admin_teacher_lookup")
 
 
@@ -59,9 +59,14 @@ class TeacherWriteTests(TestCase):
             phone="01700001111", name="Admin", password="Str0ngPass!23", role=User.Role.ADMIN
         )
         self.auth = bearer(admin)
-        self.hsc = ClassLevel.objects.create(name="HSC")
+        self.hsc = ClassLevel.objects.create(slug=next_slug("classlevel"), name="HSC")
         # A subject is one row per level and group, so it needs both.
-        self.ict = Subject.objects.create(name="ICT", class_level=self.hsc, group=Group.objects.create(name="Science"))
+        self.ict = Subject.objects.create(
+            slug=next_slug("subject"),
+            name="ICT",
+            class_level=self.hsc,
+            group=Group.objects.create(slug=next_slug("group"), name="Science"),
+        )
 
     def _post(self, **overrides):
         payload = {"name": "New Teacher", "phone": "01710004444", **overrides}
@@ -161,7 +166,7 @@ class TeacherAccountChangeTests(TestCase):
         CourseTeacher.objects.create(course=self.course, user=self.old)
 
     def detail(self):
-        return reverse("api:profiles:admin-teacher-detail", args=[self.profile.pk])
+        return reverse("api:profiles:admin_teacher_detail", args=[self.profile.pk])
 
     def test_relinking_moves_the_courses_and_ends_the_old_accounts_access(self):
         new = User.objects.create_user(phone="01710006002", name="New account", role=User.Role.TEACHER)

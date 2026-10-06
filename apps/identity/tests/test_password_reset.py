@@ -22,7 +22,7 @@ class PasswordResetTests(FixedOtpCodeTestCase):
     def test_an_unknown_phone_gets_the_same_answer_and_no_sms(self):
         """The reply must not tell who has an account."""
         unknown, known = "01800000000", self.user.phone
-        with mock.patch("apps.identity.services.get_sms_backend") as backend:
+        with mock.patch("apps.notifications.services.get_gateway") as backend:
             replies = [self.client.post(FORGET_PASSWORD_URL, {"phone": phone}) for phone in (unknown, known)]
         self.assertEqual([r.status_code for r in replies], [200, 200])
         self.assertEqual(replies[0].json(), replies[1].json())

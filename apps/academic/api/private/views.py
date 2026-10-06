@@ -1,3 +1,4 @@
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.generics import ListCreateAPIView, RetrieveUpdateDestroyAPIView
 
 from apps.academic.api.private.serializers import (
@@ -9,10 +10,27 @@ from apps.academic.api.private.serializers import (
     TopicSerializer,
 )
 from apps.academic.models import Batch, Chapter, ClassLevel, Group, Subject, Topic
-from apps.core.api.permissions import IsFullAdminOrTeacherReadOnly, IsTeachingStaffAdminDeletes
-from apps.core.api.viewsets import AdminOnlyFieldsMixin
+from apps.core.api.auth.permissions import IsFullAdminOrTeacherReadOnly, IsTeachingStaffAdminDeletes
+from apps.identity.roles import is_full_admin
 
 SLUG_SEARCH = ["name", "slug"]  # names are Bangla; admins search slugs like "hsc"
+
+
+class AdminOnlyFieldsMixin:
+    """Teaching staff edit the row; changing one of `admin_only_fields` (moving it under another parent,
+    switching it off) restructures everything below it, so it is an admin's call."""
+
+    admin_only_fields = ()
+    admin_only_message = "Only an admin may change this."
+
+    def perform_update(self, serializer):
+        instance, data = serializer.instance, serializer.validated_data
+        changed = [
+            field for field in self.admin_only_fields if field in data and data[field] != getattr(instance, field)
+        ]
+        if changed and not is_full_admin(self.request.user):
+            raise PermissionDenied(self.admin_only_message)
+        super().perform_update(serializer)
 
 
 class AdminClassLevelListCreateAPIView(ListCreateAPIView):

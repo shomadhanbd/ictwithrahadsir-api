@@ -8,7 +8,7 @@ from apps.academic.api.public.serializers import (
     PublicGroupSerializer,
 )
 from apps.academic.models import Batch, ClassLevel, Group
-from apps.core.api.viewsets import UnpaginatedDataListMixin
+from apps.core.api.views.generics import UnpaginatedDataListMixin
 
 
 class PublicClassLevelListAPIView(UnpaginatedDataListMixin, ListAPIView):

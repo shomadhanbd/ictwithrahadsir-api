@@ -5,7 +5,7 @@ from rest_framework.test import APITestCase
 
 from apps.billing.models import Payment, Product
 from apps.content.models import Notice, NoticeCategory
-from apps.core.testing import bearer, make_user
+from apps.core.testing import bearer, make_user, next_slug
 from apps.courses.models import (
     Content,
     Course,
@@ -41,23 +41,30 @@ class QueryBudgetTests(APITestCase):
 
         cls.courses = []
         for i in range(cls.COURSES):
-            course = Course.objects.create(title=f"Course {i}", status='published', is_featured=True)
+            course = Course.objects.create(
+                slug=next_slug("course"), title=f"Course {i}", status='published', is_featured=True
+            )
             cls.courses.append(course)
 
             CourseTeacher.objects.create(course=course, user=teachers[i % 3])
             Routine.objects.create(course=course, title=f"Routine {i}")
             Enrollment.objects.create(course=course, user=cls.user)
-            product = Product.objects.create(title=f"Bundle {i}", price=1000, base_price=1000)
+            product = Product.objects.create(
+                product_id=next_slug("product"), title=f"Bundle {i}", price=1000, base_price=1000
+            )
             product.courses.add(course)
             Payment.objects.create(user=cls.user, product=product, amount=1000, status=Payment.Status.VALID)
 
             for s in range(cls.SECTIONS_PER_COURSE):
-                parent = Section.objects.create(course=course, title=f"C{i} Section {s}")
+                parent = Section.objects.create(slug=next_slug("section"), course=course, title=f"C{i} Section {s}")
                 # One nested level, so the recursive serializer is exercised.
-                child = Section.objects.create(course=course, section=parent, title=f"C{i} Sub {s}")
+                child = Section.objects.create(
+                    slug=next_slug("section"), course=course, section=parent, title=f"C{i} Sub {s}"
+                )
                 for c in range(cls.CONTENTS_PER_SECTION):
                     for target in (parent, child):
                         Content.objects.create(
+                            slug=next_slug("content"),
                             course=course,
                             section=target,
                             title=f"C{i}S{s}-{target.id}-{c}",
@@ -66,9 +73,9 @@ class QueryBudgetTests(APITestCase):
 
         cls.detail_course = cls.courses[0]
 
-        notice_category = NoticeCategory.objects.create(title="Notice cat")
+        notice_category = NoticeCategory.objects.create(slug=next_slug("noticecategory"), title="Notice cat")
         for i in range(cls.NOTICES):
-            Notice.objects.create(title=f"Notice {i}").categories.add(notice_category)
+            Notice.objects.create(slug=next_slug("notice"), title=f"Notice {i}").categories.add(notice_category)
 
     def authenticate(self):
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.token.key}")

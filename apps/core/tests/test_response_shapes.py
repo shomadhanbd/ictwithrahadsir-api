@@ -4,7 +4,7 @@ from django.test import TestCase
 from django.urls import reverse
 
 from apps.content.models import Advertisement, Page, Testimonial
-from apps.core.testing import bearer, make_user
+from apps.core.testing import bearer, make_user, next_slug
 from apps.courses.models import Content, Course, CourseTeacher, Section
 from apps.identity.models import User
 from apps.profiles.models import TeacherProfile
@@ -162,7 +162,7 @@ class ResponseShapeTests(TestCase):
         self.assertEqual(body['instructors'][0]['type'], 'permanent')
         self.assertEqual(
             body['instructors'][0]['image'],
-            {'id': body['instructors'][0]['image']['id'], 'link': 'http://localhost:8000/media/seed/teacher-0.png'},
+            {'link': 'http://localhost:8000/media/seed/teacher-0.png'},
         )
 
     def test_course_list_payload_shape(self):
@@ -183,15 +183,15 @@ class ResponseShapeTests(TestCase):
         instructor = body['instructors'][0]
         self.assertEqual(list(instructor.keys()), PUBLIC_TEACHER_KEYS)
         self.assertEqual(instructor['name'], 'Rahad Sir')
-        # MediaField renders a {id, link} object, not a bare URL.
-        self.assertEqual(sorted(instructor['image'].keys()), ['id', 'link'])
+        # MediaField renders a {link} object, not a bare URL.
+        self.assertEqual(sorted(instructor['image'].keys()), ['link'])
         self.assertEqual(
             instructor['image']['link'],
             'http://localhost:8000/media/seed/teacher-0.png',
         )
 
     def test_admin_course_teacher_payload_shape(self):
-        body = self.client.get(reverse('api:courses:admin-course-teacher-list'), **self.auth)
+        body = self.client.get(reverse('api:courses:admin_course_teacher_list'), **self.auth)
         self.assertEqual(list(body.json()['data'][0].keys()), ADMIN_COURSE_TEACHER_KEYS)
 
 
@@ -204,10 +204,10 @@ class AdminSearchTests(TestCase):
         admin = User.objects.create_user(phone='01899000111', name='Admin', role=User.Role.ADMIN, is_staff=True)
         self.auth = bearer(admin)
 
-        Notice.objects.create(title='Exam routine published')
-        Notice.objects.create(title='Holiday announcement')
-        Course.objects.create(title='Physics crash course')
-        Course.objects.create(title='Chemistry masterclass')
+        Notice.objects.create(slug=next_slug("notice"), title='Exam routine published')
+        Notice.objects.create(slug=next_slug("notice"), title='Holiday announcement')
+        Course.objects.create(slug=next_slug("course"), title='Physics crash course')
+        Course.objects.create(slug=next_slug("course"), title='Chemistry masterclass')
         for i, (name, subject) in enumerate([('Rahim Uddin', 'Physics'), ('Karim Ahmed', 'Chemistry')]):
             TeacherProfile.objects.create(
                 user=User.objects.create_user(phone=f'0188800{i:04d}', name=name, role=User.Role.TEACHER),
@@ -221,29 +221,29 @@ class AdminSearchTests(TestCase):
         self.assertLess(filtered, unfiltered, f'{path} ignored ?search=')
 
     def test_notice_search_filters(self):
-        self.assert_filters(reverse('api:content:admin-notice-list'), 'Holiday', 1)
+        self.assert_filters(reverse('api:content:admin_notice_list'), 'Holiday', 1)
 
     def test_course_search_filters(self):
-        self.assert_filters(reverse('api:courses:admin-course-list'), 'Physics', 1)
+        self.assert_filters(reverse('api:courses:admin_course_list'), 'Physics', 1)
 
     def test_teacher_search_filters(self):
-        self.assert_filters(reverse('api:profiles:admin-teacher-list'), 'Rahim', 1)
+        self.assert_filters(reverse('api:profiles:admin_teacher_list'), 'Rahim', 1)
 
     def test_search_that_matches_nothing_returns_nothing(self):
         """The panel's empty state depends on this actually being empty."""
-        url = reverse('api:content:admin-notice-list')
+        url = reverse('api:content:admin_notice_list')
         body = self.client.get(url, {'search': 'zzzznomatch'}, **self.auth).json()
         self.assertEqual(body['meta']['total'], 0)
         self.assertEqual(body['data'], [])
 
 
-class SlugOrPkLookupTests(TestCase):
-    """The admin panel routes on the numeric id; the site uses the slug."""
+class AdminCourseDetailTests(TestCase):
+    """The admin panel opens a course by its id."""
 
     def setUp(self):
         admin = make_user(role=User.Role.ADMIN)
         self.auth = bearer(admin)
-        self.course = Course.objects.create(title='Physics First Paper')
+        self.course = Course.objects.create(slug=next_slug("course"), title='Physics First Paper')
 
     def detail(self, value):
         return self.client.get(f'/api/private/courses/{value}/', **self.auth)
@@ -252,21 +252,6 @@ class SlugOrPkLookupTests(TestCase):
         res = self.detail(self.course.pk)
         self.assertEqual(res.status_code, 200)
         self.assertEqual(res.json()['title'], 'Physics First Paper')
-
-    def test_detail_by_slug_still_works(self):
-        res = self.detail(self.course.slug)
-        self.assertEqual(res.status_code, 200)
-        self.assertEqual(res.json()['title'], 'Physics First Paper')
-
-    def test_numeric_slug_is_still_reachable(self):
-        # A pk lookup that misses falls through to the slug, or a course saved
-        # with an all-digit slug (new ones get "course-2026") would become unopenable.
-        numeric = Course.objects.create(title='2026', slug='2026')
-        self.assertTrue(numeric.slug.isdigit(), f'expected digits, got {numeric.slug!r}')
-        self.assertFalse(Course.objects.filter(pk=numeric.slug).exists())
-        res = self.detail(numeric.slug)
-        self.assertEqual(res.status_code, 200)
-        self.assertEqual(res.json()['title'], '2026')
 
     def test_unknown_id_404s(self):
         self.assertEqual(self.detail(99999).status_code, 404)
@@ -280,7 +265,7 @@ class CourseTabSearchTests(TestCase):
 
         admin = make_user(role=User.Role.ADMIN)
         self.auth = bearer(admin)
-        self.course = Course.objects.create(title='Search Tab Course')
+        self.course = Course.objects.create(slug=next_slug("course"), title='Search Tab Course')
 
         Routine.objects.create(course=self.course, title='September routine', link='a.pdf')
         Routine.objects.create(course=self.course, title='October routine', link='b.pdf')
@@ -338,7 +323,7 @@ class CourseMaterialCrudTests(TestCase):
     def setUp(self):
         admin = make_user(role=User.Role.ADMIN)
         self.auth = bearer(admin)
-        self.course = Course.objects.create(title='Material Host Course')
+        self.course = Course.objects.create(slug=next_slug("course"), title='Material Host Course')
 
     def test_create_update_delete(self):
         from apps.courses.models import CourseMaterial
@@ -381,7 +366,7 @@ class CourseMaterialCrudTests(TestCase):
     def test_filter_by_course(self):
         from apps.courses.models import CourseMaterial
 
-        other = Course.objects.create(title='Another Course')
+        other = Course.objects.create(slug=next_slug("course"), title='Another Course')
         CourseMaterial.objects.create(title='Mine', course=self.course)
         CourseMaterial.objects.create(title='Theirs', course=other)
 
@@ -398,7 +383,9 @@ class AdminPaymentListTests(TestCase):
 
         admin = make_user(role=User.Role.ADMIN)
         self.auth = bearer(admin)
-        product = Product.objects.create(title='Paid Bundle', price=500, base_price=500)
+        product = Product.objects.create(
+            product_id=next_slug("product"), title='Paid Bundle', price=500, base_price=500
+        )
 
         for name, phone, txn, status in [
             ('Nusrat Jahan', '01810500001', 'TRX-AAA-111', Payment.Status.INITIATED),
@@ -446,8 +433,8 @@ class ContentSearchTests(TestCase):
         admin = make_user(role=User.Role.ADMIN)
         self.auth = bearer(admin)
 
-        NoticeCategory.objects.create(title='Exam schedule')
-        NoticeCategory.objects.create(title='Holiday notice')
+        NoticeCategory.objects.create(slug=next_slug("noticecategory"), title='Exam schedule')
+        NoticeCategory.objects.create(slug=next_slug("noticecategory"), title='Holiday notice')
         Testimonial.objects.create(name='Nusrat Jahan', description='Great course')
         Testimonial.objects.create(name='Imran Hossain', description='Very helpful')
         Advertisement.objects.create(title='Admission banner', type='banner')

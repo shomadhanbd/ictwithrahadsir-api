@@ -1,6 +1,6 @@
 from django.test import SimpleTestCase
 
-from apps.core.exports import safe_cell
+from apps.core.api.views.exports import safe_cell
 
 
 class SafeCellTests(SimpleTestCase):

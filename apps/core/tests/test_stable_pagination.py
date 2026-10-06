@@ -7,7 +7,7 @@ from django.core.paginator import UnorderedObjectListWarning
 from rest_framework.test import APITestCase
 
 from apps.academic.models import ClassLevel, Group, Subject
-from apps.core.testing import bearer, make_user
+from apps.core.testing import bearer, make_user, next_slug
 from apps.courses.models import Course
 from apps.identity.models import User
 
@@ -15,10 +15,13 @@ from apps.identity.models import User
 class StablePaginationTests(APITestCase):
     def setUp(self):
         self.auth = bearer(make_user(role=User.Role.ADMIN))
-        level, group = ClassLevel.objects.create(name="HSC"), Group.objects.create(name="Science")
+        level, group = (
+            ClassLevel.objects.create(slug=next_slug("classlevel"), name="HSC"),
+            Group.objects.create(slug=next_slug("group"), name="Science"),
+        )
         for i in range(3):
             Course.objects.create(title=f"Course {i}", slug=f"stable-{i}")
-            Subject.objects.create(name=f"Subject {i}", class_level=level, group=group)
+            Subject.objects.create(slug=next_slug("subject"), name=f"Subject {i}", class_level=level, group=group)
 
     def test_the_lists_are_ordered(self):
         for url in ("/api/private/courses/", "/api/private/subjects/"):

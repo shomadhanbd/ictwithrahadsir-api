@@ -1,10 +1,9 @@
 from django.db import models
-from django.utils.translation import gettext_lazy as _
 
-from apps.core.models import NameSlugMixin, PkSlugMixin, TimestampModel
+from apps.core.models import TimestampModel
 
 
-class QuestionSource(NameSlugMixin, TimestampModel):
+class QuestionSource(TimestampModel):
     """One exam a question appeared in: ঢাকা বোর্ড ২০১৯, ঢাবি ক-ইউনিট ২০২১."""
 
     class Kind(models.TextChoices):
@@ -18,7 +17,6 @@ class QuestionSource(NameSlugMixin, TimestampModel):
     name = models.CharField("Name", max_length=150)
     year = models.PositiveSmallIntegerField("Year", null=True, blank=True)
     unit = models.CharField("Unit", max_length=20, blank=True)
-    slug = models.SlugField(max_length=200, unique=True, blank=True, verbose_name=_("slug"))
     is_active = models.BooleanField("Active", default=True)
 
     class Meta:
@@ -47,11 +45,8 @@ class QuestionSource(NameSlugMixin, TimestampModel):
             parts.append(str(self.year))
         return " ".join(parts)
 
-    def slug_base(self):
-        return self.label
 
-
-class QuestionBlock(PkSlugMixin, TimestampModel):
+class QuestionBlock(TimestampModel):
     """One item in a chapter feed: a standalone question, or a stimulus group."""
 
     class Kind(models.TextChoices):
@@ -77,13 +72,10 @@ class QuestionBlock(PkSlugMixin, TimestampModel):
     kind = models.CharField(max_length=20, choices=Kind.choices, default=Kind.STANDALONE)
     order_in_chapter = models.PositiveSmallIntegerField("Order In Chapter", default=0)
     question_count = models.PositiveSmallIntegerField("Question Count", default=0)
-    slug = models.SlugField("Slug", max_length=32, unique=True, blank=True)
 
     sources = models.ManyToManyField(QuestionSource, blank=True, related_name="question_blocks")
 
     is_active = models.BooleanField("Active", default=True)
-
-    slug_prefix = "b"
 
     class Meta:
         ordering = ["order_in_chapter", "id"]
@@ -99,7 +91,7 @@ class QuestionBlock(PkSlugMixin, TimestampModel):
         return f"{self.get_kind_display()} block #{self.pk}"
 
 
-class QuestionSet(PkSlugMixin, TimestampModel):
+class QuestionSet(TimestampModel):
     """The shared stimulus of a group block."""
 
     class StimulusType(models.TextChoices):
@@ -113,9 +105,6 @@ class QuestionSet(PkSlugMixin, TimestampModel):
     block = models.OneToOneField(QuestionBlock, on_delete=models.CASCADE, related_name="question_set")
     stimulus_type = models.CharField(max_length=20, choices=StimulusType.choices, blank=True)
     stimulus_content = models.TextField("Stimulus")
-    slug = models.SlugField("Slug", max_length=32, unique=True, blank=True)
-
-    slug_prefix = "qs"
 
     class Meta:
         verbose_name = "Question Set"
@@ -130,7 +119,7 @@ class QuestionSet(PkSlugMixin, TimestampModel):
         validate_set_block(self.block if self.block_id else None)
 
 
-class Question(PkSlugMixin, TimestampModel):
+class Question(TimestampModel):
     """One question, owned by either a block or a set -- never both, never neither."""
 
     class Type(models.TextChoices):
@@ -157,9 +146,6 @@ class Question(PkSlugMixin, TimestampModel):
     prompt_content = models.TextField("Prompt")
     model_answer = models.TextField("Model Answer", blank=True)
     explanation = models.TextField("Explanation", blank=True)
-    slug = models.SlugField("Slug", max_length=32, unique=True, blank=True)
-
-    slug_prefix = "q"
 
     class Meta:
         ordering = ["order_in_set", "id"]

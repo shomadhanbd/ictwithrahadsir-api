@@ -2,7 +2,6 @@ from django.urls import path
 
 from apps.courses.api.public.views import (
     ContentDetailAPIView,
-    ContentPdfAPIView,
     CourseMaterialListAPIView,
     CourseProgressAPIView,
     MyCourseListAPIView,
@@ -16,6 +15,5 @@ urlpatterns = [
     path('courses/<slug:slug>/progress/', CourseProgressAPIView.as_view(), name='course_progress'),
     path('courses/<slug:slug>/materials/', CourseMaterialListAPIView.as_view(), name='course_material_list'),
     path('contents/<slug:slug>/', ContentDetailAPIView.as_view(), name='content_detail'),
-    path('contents/<slug:slug>/pdf/', ContentPdfAPIView.as_view(), name='content_pdf'),
     path('me/courses/', MyCourseListAPIView.as_view(), name='my_course_list'),
 ]

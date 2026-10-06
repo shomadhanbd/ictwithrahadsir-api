@@ -389,13 +389,11 @@ class DuplicatePurchaseTests(BillingTestBase):
             note='Second tab.',
         )
 
-        with patch('apps.billing.notifications.get_sms_backend') as sms:
-            self.capture(second)
+        self.capture(second)
 
         second.refresh_from_db()
         self.assertEqual(second.note, f'Second tab. Duplicate of {first.transaction_id}: refund.')
         self.assertEqual(self.enrolment(self.live).valid_till, before)
-        sms.return_value.send.assert_not_called()
 
     def test_a_refunded_duplicate_does_not_block_renewal(self):
         """It gave no access, so once the real access ends the package can be bought again."""

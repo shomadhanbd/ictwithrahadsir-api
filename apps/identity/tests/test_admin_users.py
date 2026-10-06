@@ -5,10 +5,10 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from rest_framework.authtoken.models import Token
+from rest_framework.test import APITestCase
 
 from apps.billing.models import Payment, Product
-from apps.core.testing import bearer, make_user
-from apps.core.tests.base import ThrottledAPITestCase
+from apps.core.testing import bearer, make_user, next_slug
 from apps.courses.models import Course, CourseTeacher, Enrollment
 from apps.identity.models import OTP, User
 from apps.identity.tests.base import (
@@ -20,7 +20,7 @@ from apps.profiles.models import StudentProfile
 from apps.profiles.services import ensure_student_profile
 
 
-class AdminRoleEscalationTests(ThrottledAPITestCase):
+class AdminRoleEscalationTests(APITestCase):
     def setUp(self):
         super().setUp()
         self.teacher = User.objects.create_user(
@@ -121,7 +121,7 @@ class AdminRoleEscalationTests(ThrottledAPITestCase):
         self.assertTrue(student.is_active)
 
 
-class TeacherUserScopeTests(ThrottledAPITestCase):
+class TeacherUserScopeTests(APITestCase):
     def setUp(self):
         super().setUp()
         self.teacher = make_user(role=User.Role.TEACHER)
@@ -177,7 +177,7 @@ class TeacherUserScopeTests(ThrottledAPITestCase):
         self.assertEqual(response.status_code, 200)
 
 
-class AdminUserDeletionTests(ThrottledAPITestCase):
+class AdminUserDeletionTests(APITestCase):
     def setUp(self):
         super().setUp()
         self.admin = User.objects.create_user(
@@ -211,7 +211,9 @@ class AdminUserDeletionTests(ThrottledAPITestCase):
         self.assertTrue(self.student.is_active)
 
     def test_admin_delete_deactivates_and_keeps_the_payment_record(self):
-        product = Product.objects.create(title='Paid Bundle', price=500, base_price=500)
+        product = Product.objects.create(
+            product_id=next_slug("product"), title='Paid Bundle', price=500, base_price=500
+        )
         payment = Payment.objects.create(user=self.student, product=product, amount=500)
 
         self.assertEqual(self._delete(self.student, self.admin_auth).status_code, 204)
@@ -247,7 +249,7 @@ class AdminUserDeletionTests(ThrottledAPITestCase):
         self.assertTrue(self.student.is_active)
 
 
-class AdminUserTests(ThrottledAPITestCase):
+class AdminUserTests(APITestCase):
     def setUp(self):
         super().setUp()
         self.admin = User.objects.create_user(
@@ -440,7 +442,7 @@ class AdminUserTests(ThrottledAPITestCase):
 
     def test_creating_a_student_sends_no_otp(self):
         """An admin-created account sends no OTP."""
-        with mock.patch("apps.identity.services.get_sms_backend") as sms:
+        with mock.patch("apps.notifications.services.get_gateway") as sms:
             response = self.client.post(
                 ADMIN_USER_URL,
                 {
@@ -527,7 +529,7 @@ class AdminUserTests(ThrottledAPITestCase):
         self.assertTrue(created.check_password("Str0ngPass!23"))
 
 
-class AdminUserListQueryTests(ThrottledAPITestCase):
+class AdminUserListQueryTests(APITestCase):
     """The user list reads each student's guardian in the same query, however many students there are."""
 
     def setUp(self):
