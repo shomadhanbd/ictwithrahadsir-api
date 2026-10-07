@@ -1,17 +1,27 @@
 from django.urls import reverse
 from django.utils import timezone
 
+from rest_framework.test import APIClient
+
+from apps.academic.models import ClassLevel, Group
 from apps.billing.models import Payment, Product
 from apps.billing.tests.base import (
     BillingTestBase,
 )
 from apps.core.testing import bearer, make_user, next_slug
-from apps.courses.models import Course
+from apps.courses.models import Course, Enrollment
 from apps.identity.models import User
+from apps.profiles.models import StudentProfile
+
+
+def course_packages(course_slug, auth=None):
+    """The packages the course page offers, as `product_id`s."""
+    card = APIClient().get(reverse('api:courses:course_detail', args=[course_slug]), **(auth or {})).json()
+    return [package['product_id'] for package in card['packages']]
 
 
 class ProductTests(BillingTestBase):
-    def test_the_public_list_shows_products_on_sale(self):
+    def test_the_course_page_offers_only_products_on_sale(self):
         Product.objects.create(
             product_id=next_slug("product"), title='Retired', price=100, base_price=100, is_active=False
         ).courses.set([self.live])
@@ -25,9 +35,41 @@ class ProductTests(BillingTestBase):
         )
         ended.courses.set([self.live])
 
-        body = self.client.get(reverse('api:billing:product_list')).json()
-        self.assertEqual([row['product_id'] for row in body['data']], ['hsc-ict'])
-        self.assertEqual({row['slug'] for row in body['data'][0]['courses']}, {'ict-live', 'ict-rec'})
+        self.assertEqual(course_packages('ict-live'), ['hsc-ict'])
+
+
+class ProductAudienceTests(BillingTestBase):
+    """A signed-in student sees only packages whose every course is listed to them."""
+
+    def setUp(self):
+        super().setUp()
+        self.hsc = ClassLevel.objects.create(name='HSC', slug='hsc')
+        self.science = Group.objects.create(name='Science', slug='science')
+        self.commerce = Group.objects.create(name='Commerce', slug='commerce')
+        Course.objects.filter(pk=self.live.pk).update(class_level=self.hsc)
+        Course.objects.filter(pk=self.recorded.pk).update(class_level=self.hsc, group=self.science)
+
+    def product_ids(self, user=None):
+        return course_packages('ict-live', bearer(user) if user else None)
+
+    def student_in(self, group):
+        student = make_user()
+        StudentProfile.objects.update_or_create(user=student, defaults={'class_level': self.hsc, 'group': group})
+        return student
+
+    def test_a_package_with_a_course_hidden_from_the_student_is_hidden(self):
+        self.assertEqual(self.product_ids(self.student_in(self.commerce)), [])
+
+    def test_a_package_whose_every_course_is_for_the_student_is_shown(self):
+        self.assertEqual(self.product_ids(self.student_in(self.science)), ['hsc-ict'])
+
+    def test_a_package_for_a_course_the_student_is_enrolled_on_stays_to_renew_it(self):
+        student = self.student_in(self.commerce)
+        Enrollment.objects.create(user=student, course=self.recorded)
+        self.assertEqual(self.product_ids(student), ['hsc-ict'])
+
+    def test_visitors_see_every_package(self):
+        self.assertEqual(self.product_ids(), ['hsc-ict'])
 
 
 class AdminTests(BillingTestBase):
@@ -88,8 +130,7 @@ class EnrollmentDeadlineTests(BillingTestBase):
 
     def test_a_bundle_stops_selling_when_any_of_its_courses_closes(self):
         self.close(self.recorded)
-        body = self.client.get(reverse('api:billing:product_list')).json()
-        self.assertEqual(body['data'], [])
+        self.assertEqual(course_packages('ict-live'), [])
 
     def test_a_future_deadline_still_sells(self):
         Course.objects.filter(pk=self.live.pk).update(enrollment_deadline=timezone.now() + timezone.timedelta(days=3))
@@ -112,7 +153,7 @@ class UnpublishedCourseTests(BillingTestBase):
 
     def test_an_archived_course_stops_its_packages_selling(self):
         Course.objects.filter(pk=self.recorded.pk).update(status='archived')
-        self.assertEqual(self.client.get(reverse('api:billing:product_list')).json()['data'], [])
+        self.assertEqual(course_packages('ict-live'), [])
 
     def test_a_draft_course_preview_shows_no_price(self):
         Course.objects.filter(pk=self.live.pk).update(status='draft')
@@ -145,10 +186,11 @@ class DiscountEndTests(BillingTestBase):
         price = self.card_price()
         self.assertEqual((price['price'], price['base_price'], price['discount_ends_at']), (600, 600, None))
 
-    def test_the_public_list_shows_the_effective_price(self):
+    def test_the_admin_list_shows_the_effective_price(self):
         self.end_discount()
-        row = self.client.get(reverse('api:billing:product_list')).json()['data'][0]
-        self.assertEqual((row['price'], row['base_price']), (600, 600))
+        auth = bearer(make_user(role=User.Role.ADMIN))
+        row = self.client.get(reverse('api:billing:admin_product_list'), **auth).json()['data'][0]
+        self.assertEqual((row['price'], row['current_price']), (500, 600))
 
     def test_cheapest_follows_the_effective_price(self):
         rival = Product.objects.create(product_id=next_slug("product"), title='Year', price=550, base_price=550)

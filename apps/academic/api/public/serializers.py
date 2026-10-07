@@ -12,7 +12,7 @@ class PublicClassLevelSerializer(serializers.ModelSerializer):
 class PublicGroupSerializer(serializers.ModelSerializer):
     class Meta:
         model = Group
-        fields = ["id", "name", "slug"]
+        fields = ["id", "name", "slug", "is_common"]
 
 
 class PublicBatchSerializer(serializers.ModelSerializer):

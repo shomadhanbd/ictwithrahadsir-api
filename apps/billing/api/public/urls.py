@@ -6,11 +6,9 @@ from apps.billing.api.public.views import (
     PaymentCaptureView,
     PaymentInitiateView,
     PaymentIPNView,
-    ProductListView,
 )
 
 urlpatterns = [
-    path('products/', ProductListView.as_view(), name='product_list'),
     path('payments/initiate/', PaymentInitiateView.as_view(), name='payment_initiate'),
     path('payments/capture/', PaymentCaptureView.as_view(), name='payment_capture'),
     path('payments/ipn/', PaymentIPNView.as_view(), name='payment_ipn'),

@@ -23,6 +23,13 @@ class ProductQuerySet(models.QuerySet):
             .distinct()
         )
 
+    def visible_to(self, user):
+        """Packages whose every course the viewer would see in the course list, or is enrolled on (to renew)."""
+        hidden = Course.objects.exclude(pk__in=Course.objects.visible_to(user).values("pk"))
+        if user is not None and user.is_authenticated:
+            hidden = hidden.exclude(enrollments__user=user)
+        return self.exclude(courses__in=hidden)
+
 
 class PaymentQuerySet(models.QuerySet):
     def paid(self):

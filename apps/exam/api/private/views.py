@@ -11,6 +11,7 @@ from apps.exam.api.private.serializers import (
     AdminExamSectionSerializer,
     AdminExamSerializer,
     ExamSectionQuestionBulkSerializer,
+    WrittenMarksSerializer,
     attempt_review_payload,
     attempt_rows,
     exam_attempts_header,
@@ -153,6 +154,8 @@ class AdminExamAttemptListAPIView(ExamScopedAdminMixin, GenericAPIView):
             search=request.query_params.get("search"),
             official_only=request.query_params.get("official") in ("1", "true"),
         )
+        if request.query_params.get("to_mark") in ("1", "true"):
+            attempts = attempts.filter(awaiting_marking=True)
         page = self.paginate_queryset(attempts)
         response = self.get_paginated_response(attempt_rows(page, ranks=selectors.official_ranks(exam)))
         response.data = {**exam_attempts_header(exam, stats=selectors.exam_result_stats(exam)), **response.data}
@@ -179,6 +182,20 @@ class AdminExamAttemptDetailAPIView(ExamScopedAdminMixin, GenericAPIView):
     def get(self, request, pk, attempt_id):
         exam = self.get_exam()
         attempt = settled(exam.attempts.filter(pk=attempt_id)).select_related("user").get()
+        return Response(attempt_review_payload(exam, attempt))
+
+
+class AdminExamAttemptMarksAPIView(ExamScopedAdminMixin, GenericAPIView):
+    """A teacher's marks for the written (CQ) parts of one submitted attempt: PUT `{marks: [{question_id, marks}]}`."""
+
+    queryset = Exam.objects.all()
+
+    def put(self, request, pk, attempt_id):
+        exam = self.get_exam()
+        attempt = settled(exam.attempts.filter(pk=attempt_id)).select_related("user").get()
+        body = WrittenMarksSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        attempt = grading.mark_written(attempt, body.validated_data["marks"], by=request.user)
         return Response(attempt_review_payload(exam, attempt))
 
 

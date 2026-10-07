@@ -28,6 +28,7 @@ from django.db import connection, transaction
 from django.utils import timezone
 
 from apps.academic.models import Batch, Chapter, ClassLevel, Group, Subject, Topic
+from apps.academic.services import seed_curriculum
 from apps.billing.models import Payment, Product
 from apps.content.models import (
     Advertisement,
@@ -46,7 +47,16 @@ from apps.courses.models import (
     Routine,
     Section,
 )
+from apps.demo.builders import make_mcq
+from apps.demo.question_bank import EXAM_QUESTIONS, QUESTION_BANK, QUESTION_BANK_SUBJECTS
+from apps.exam.models import Exam, ExamAttempt, ExamSection
+from apps.exam.selectors import paper_questions
+from apps.exam.services.attempts import save_answers, start_attempt, submit
+from apps.exam.services.sections import set_section_blocks
+from apps.exam.validators import validate_publish
 from apps.profiles.models import StudentProfile, TeacherProfile
+from apps.question.models import Question, QuestionBlock, QuestionSet
+from apps.question.services import refresh_curriculum_question_counts, save_block
 
 User = get_user_model()
 
@@ -192,6 +202,15 @@ COURSES = [
     ),
 ]
 
+#: course slug -> (class level slug, group slug); a course left out is open to everyone.
+COURSE_AUDIENCES = {
+    "hsc-ict-full-course-2026": ("hsc", None),
+    "number-system-digital-device-crash": ("hsc", None),
+    "c-programming-zero-to-hero": ("hsc", "science"),
+    "html-web-design-masterclass": ("hsc", "science"),
+    "ssc-ict-full-preparation": ("ssc", None),
+}
+
 #: (title, description, icon) -- the landing page's highlight cards.
 COURSE_HIGHLIGHTS = [
     ("এককালীন পেমেন্ট", "একবার পেমেন্টে কোর্সের মেয়াদ পর্যন্ত পূর্ণ এক্সেস।", "wallet"),
@@ -216,29 +235,15 @@ COURSE_FAQS = [
     ("কোর্সের মেয়াদ কতদিন?", "কোর্স পেজে দেওয়া প্রাইস অনুযায়ী মেয়াদ নির্ধারিত হয়।"),
 ]
 
-#: name, slug -- the education levels, in academic order
-CLASS_LEVELS = [
-    ("এসএসসি", "ssc"),
-    ("এইচএসসি", "hsc"),
-]
-
-#: name, slug
-ACADEMIC_GROUPS = [
-    ("বিজ্ঞান", "science"),
-    ("মানবিক", "arts"),
-    ("ব্যবসায় শিক্ষা", "commerce"),
-    ("সাধারণ", "general"),
-]
-
-#: A subject is one row per education level and group.
+#: Demo-only subjects on top of the board curriculum (`apps.academic.curriculum`).
 #: name, slug stem, class level slug, group slug
 SUBJECTS = [
-    ("আইসিটি", "ict", "ssc", "science"),
-    ("আইসিটি", "ict", "hsc", "science"),
-    ("আইসিটি", "ict", "hsc", "commerce"),
     ("প্রোগ্রামিং", "programming", "hsc", "science"),
     ("ওয়েব ডিজাইন", "web-design", "hsc", "science"),
 ]
+
+#: The subjects the demo writes chapters and topics for.
+CHAPTER_SUBJECTS = (*QUESTION_BANK_SUBJECTS, "programming-hsc-science", "web-design-hsc-science")
 
 #: Chapters per subject, and the topics inside each. The names are Bengali,
 #: so their slugs are just the parent's slug plus a number.
@@ -269,7 +274,7 @@ TEACHERS = [
         "প্রতিষ্ঠাতা ও প্রধান পরিচালক",
         "permanent",
         "১২ বছরের বেশি সময় ধরে এইচএসসি আইসিটি পড়াচ্ছেন। ৫০,০০০+ শিক্ষার্থীর প্রিয় শিক্ষক।",
-        ["আইসিটি"],
+        ["তথ্য ও যোগাযোগ প্রযুক্তি"],
     ),
     (
         "তানভীর হাসান",
@@ -290,7 +295,7 @@ TEACHERS = [
         "ইন্সট্রাক্টর, ডেটাবেজ",
         "guest",
         "ঢাকা বিশ্ববিদ্যালয়ের আইআইটি থেকে স্নাতকোত্তর। ডেটাবেজ ও নেটওয়ার্কিং পড়ান।",
-        ["আইসিটি"],
+        ["তথ্য ও যোগাযোগ প্রযুক্তি"],
     ),
 ]
 
@@ -474,6 +479,7 @@ class Command(BaseCommand):
 
         self._seed_pages()
         self._seed_academic()
+        self._seed_question_bank()
         teachers = self._seed_teachers()
         self._seed_testimonials()
         self._seed_advertisements()
@@ -482,6 +488,7 @@ class Command(BaseCommand):
         courses = self._seed_courses(teachers)
         students = self._seed_students()
         self._seed_enrollments(courses, students)
+        self._seed_exams()
         products = self._seed_products(courses)
         self._seed_orders(courses, products, students)
         self._seed_materials(courses)
@@ -496,6 +503,10 @@ class Command(BaseCommand):
             ("subjects", Subject.objects.count()),
             ("chapters", Chapter.objects.count()),
             ("topics", Topic.objects.count()),
+            ("questions", Question.objects.count()),
+            ("practice chapters", Chapter.objects.filter(practice_enabled=True).count()),
+            ("published exams", Exam.objects.filter(status=Exam.Status.PUBLISHED).count()),
+            ("exam attempts", ExamAttempt.objects.count()),
             ("batches", Batch.objects.count()),
             ("teachers", TeacherProfile.objects.count()),
             ("testimonials", Testimonial.objects.count()),
@@ -513,6 +524,9 @@ class Command(BaseCommand):
     def _wipe(self):
         self.stdout.write("Removing existing demo rows...")
         for model in [
+            ExamAttempt,
+            Exam,
+            QuestionBlock,
             Payment,
             Product,
             Enrollment,
@@ -573,19 +587,12 @@ class Command(BaseCommand):
         self.stdout.write("  pages + homepage counters")
 
     def _seed_academic(self):
-        """Education levels, groups, subjects and batches.
+        """The board curriculum, the demo's own subjects, their chapters and topics, and batches."""
+        seed_curriculum()
+        levels = {level.slug: level for level in ClassLevel.objects.all()}
+        groups = {group.slug: group for group in Group.objects.all()}
 
-        Slugs are typed by staff, so the seed supplies English ones ("ssc", "science").
-        """
-        levels = {}
-        for order, (name, slug) in enumerate(CLASS_LEVELS):
-            levels[slug], _ = ClassLevel.objects.get_or_create(name=name, defaults={"slug": slug, "order": order})
-
-        groups = {}
-        for order, (name, slug) in enumerate(ACADEMIC_GROUPS):
-            groups[slug], _ = Group.objects.get_or_create(name=name, defaults={"slug": slug, "order": order})
-
-        for order, (name, stem, level_slug, group_slug) in enumerate(SUBJECTS):
+        for order, (name, stem, level_slug, group_slug) in enumerate(SUBJECTS, start=Subject.objects.count()):
             Subject.objects.get_or_create(
                 name=name,
                 class_level=levels[level_slug],
@@ -593,7 +600,8 @@ class Command(BaseCommand):
                 defaults={"slug": f"{stem}-{level_slug}-{group_slug}", "order": order},
             )
 
-        for subject in Subject.objects.all():
+        # A subject that already has chapters (the real HSC ICT ones, or staff's) keeps them.
+        for subject in Subject.objects.filter(slug__in=CHAPTER_SUBJECTS, chapters__isnull=True):
             for number, (chapter_name, topics) in enumerate(CHAPTERS, start=1):
                 chapter, _ = Chapter.objects.get_or_create(
                     name=chapter_name,
@@ -728,9 +736,12 @@ class Command(BaseCommand):
     # -- exams --------------------------------------------------------------
 
     def _seed_courses(self, teachers):
+        levels = {level.slug: level for level in ClassLevel.objects.all()}
+        groups = {group.slug: group for group in Group.objects.all()}
         courses = []
         for index, row in enumerate(COURSES):
             title, slug, subtitle, duration, featured, is_online, chapters = row
+            level_slug, group_slug = COURSE_AUDIENCES.get(slug, (None, None))
             course, created = Course.objects.get_or_create(
                 slug=slug,
                 defaults={
@@ -742,6 +753,8 @@ class Command(BaseCommand):
                     "is_online": is_online,
                     "delivery": Course.Delivery.HYBRID if is_online else Course.Delivery.LIVE,
                     "difficulty": Course.Difficulty.INTERMEDIATE,
+                    "class_level": levels.get(level_slug),
+                    "group": groups.get(group_slug),
                     "status": Course.Status.PUBLISHED,
                     "fake_student_count": self.rng.randint(400, 4200),
                     "description": (
@@ -762,7 +775,7 @@ class Command(BaseCommand):
             if created:
                 self._seed_course_packages(course, index)
                 self._seed_course_extras(course, teachers, index)
-                self._seed_course_tree(course, chapters, index, slug)
+                self._seed_course_tree(course, chapters, index)
             courses.append(course)
         self.stdout.write("  courses + sections + contents")
         return courses
@@ -805,15 +818,13 @@ class Command(BaseCommand):
                 link=f"{MEDIA_BASE}/{SEED_DIR}/course-{index}.png",
             )
 
-    def _seed_course_tree(self, course, chapters, course_index, course_slug):
+    def _seed_course_tree(self, course, chapters, course_index):
         """One section per chapter: video lessons, a lecture sheet, a note, a
         live class and a chapter exam wired to an MCQ folder."""
         for chapter_index, chapter in enumerate(chapters):
-            chapter_slug = f"{course_slug}-ch{chapter_index + 1}"
             section = Section.objects.create(
                 course=course,
                 title=chapter,
-                slug=chapter_slug,
                 order=chapter_index,
                 active=True,
             )
@@ -824,7 +835,6 @@ class Command(BaseCommand):
                     course=course,
                     section=section,
                     title=f"{chapter} — ক্লাস {lesson_index + 1}",
-                    slug=f"{chapter_slug}-video-{lesson_index + 1}",
                     type=Content.Type.VIDEO,
                     variant=Content.Variant.NEW,
                     paid=not (chapter_index == 0 and lesson_index == 0),
@@ -840,7 +850,6 @@ class Command(BaseCommand):
                 course=course,
                 section=section,
                 title=f"{chapter} — লেকচার শিট",
-                slug=f"{chapter_slug}-sheet",
                 type=Content.Type.PDF,
                 paid=True,
                 order=order,
@@ -852,7 +861,6 @@ class Command(BaseCommand):
                 course=course,
                 section=section,
                 title=f"{chapter} — হ্যান্ডনোট",
-                slug=f"{chapter_slug}-note",
                 type=Content.Type.NOTE,
                 paid=True,
                 order=order,
@@ -869,7 +877,6 @@ class Command(BaseCommand):
                 course=course,
                 section=section,
                 title=f"{chapter} — লাইভ প্রশ্নোত্তর",
-                slug=f"{chapter_slug}-live",
                 type=Content.Type.LIVE,
                 paid=True,
                 order=order,
@@ -882,11 +889,106 @@ class Command(BaseCommand):
                 course=course,
                 section=section,
                 title=f"{chapter} — অধ্যায়ভিত্তিক পরীক্ষা",
-                slug=f"{chapter_slug}-exam",
                 type=Content.Type.EXAM,
                 paid=True,
                 order=order,
             )
+
+    # -- question bank and exams -------------------------------------------
+
+    def _seed_question_bank(self):
+        """The ICT chapters get MCQs and a passage each; a chapter that already has questions is left alone."""
+        for subject in Subject.objects.filter(slug__in=QUESTION_BANK_SUBJECTS):
+            for chapter in subject.chapters.order_by("chapter_number"):
+                if chapter.question_blocks.exists() or chapter.chapter_number > len(QUESTION_BANK):
+                    continue
+                bank = QUESTION_BANK[chapter.chapter_number - 1]
+                topics = list(chapter.topics.order_by("id"))
+                for order, (topic, prompt, options, answer, explanation) in enumerate(bank["questions"]):
+                    block = save_block(
+                        None,
+                        {
+                            "subject": subject,
+                            "chapter": chapter,
+                            "kind": QuestionBlock.Kind.STANDALONE,
+                            "order_in_chapter": order,
+                            "topics": [topics[topic]],
+                        },
+                    )
+                    make_mcq({"block": block}, prompt, options, answer, explanation)
+
+                topic, stimulus, parts = bank["passage"]
+                block = save_block(
+                    None,
+                    {
+                        "subject": subject,
+                        "chapter": chapter,
+                        "kind": QuestionBlock.Kind.GROUP,
+                        "order_in_chapter": len(bank["questions"]),
+                        "topics": [topics[topic]],
+                        "question_set": {"stimulus_type": QuestionSet.StimulusType.TEXT, "stimulus_content": stimulus},
+                    },
+                )
+                for order, (prompt, options, answer, explanation) in enumerate(parts):
+                    owner = {"question_set": block.question_set, "label": str(order + 1), "order_in_set": order}
+                    make_mcq(owner, prompt, options, answer, explanation)
+
+                chapter.practice_enabled = True
+                chapter.save(update_fields=["practice_enabled"])
+        refresh_curriculum_question_counts()
+        self.stdout.write("  question bank + practice chapters")
+
+    def _seed_exams(self):
+        """Publishes each empty chapter exam with that chapter's exam MCQs; the first chapter's has results."""
+        subjects = {
+            subject.class_level.slug: subject for subject in Subject.objects.filter(slug__in=QUESTION_BANK_SUBJECTS)
+        }
+        drafts = Exam.objects.filter(scope=Exam.Scope.COURSE, status=Exam.Status.DRAFT, sections__isnull=True)
+        for exam in drafts.select_related("lesson__course__class_level", "lesson__section"):
+            course = exam.lesson.course
+            subject = subjects.get(course.class_level.slug if course.class_level else "hsc")
+            if subject is None:
+                continue
+            chapter = subject.chapters.get(chapter_number=exam.lesson.section.order % len(QUESTION_BANK) + 1)
+            blocks = list(
+                chapter.question_blocks.filter(kind=QuestionBlock.Kind.STANDALONE).order_by("order_in_chapter")[
+                    :EXAM_QUESTIONS
+                ]
+            )
+            exam.pass_marks = Decimal(len(blocks) // 2 + 1)
+            exam.duration_minutes = 10
+            exam.max_attempts = 2
+            exam.instructions = "প্রতিটি প্রশ্নের মান ১। ভুল উত্তরে নম্বর কাটা যাবে না।"
+            exam.save()
+            section = ExamSection.objects.create(
+                exam=exam, title="MCQ", question_type=ExamSection.Type.MCQ, subject=subject, marks=len(blocks)
+            )
+            set_section_blocks(section, blocks)
+            section.refresh_from_db()
+            validate_publish(exam=exam, sections=[section])
+            exam.status = Exam.Status.PUBLISHED
+            exam.save(update_fields=["status"])
+            if exam.lesson.section.order == 0:
+                self._seed_attempts(exam)
+        self.stdout.write("  chapter exams + attempts")
+
+    def _seed_attempts(self, exam):
+        """Most enrolled students have sat the first chapter's exam, each with their own hit rate."""
+        enrolled = User.objects.filter(course_enrollments__course=exam.lesson.course).order_by("id")
+        for student in enrolled:
+            if self.rng.random() < 0.3:
+                continue
+            started = self.now - timedelta(days=self.rng.randint(1, 20), minutes=self.rng.randint(0, 600))
+            attempt = start_attempt(exam, student, now=started)
+            skill = self.rng.uniform(0.3, 0.95)
+            answers = []
+            for question in Question.objects.filter(pk__in=paper_questions(exam)).prefetch_related("options"):
+                options = list(question.options.all())
+                correct = [option for option in options if option.is_correct]
+                pick = correct[0] if self.rng.random() < skill else self.rng.choice(options)
+                answers.append({"question_id": question.pk, "option_ids": [pick.pk]})
+            save_answers(attempt, answers, now=started + timedelta(minutes=2))
+            submit(attempt, now=started + timedelta(minutes=self.rng.randint(3, 9)))
 
     def _seed_materials(self, courses):
         for index, course in enumerate(courses[:4]):
@@ -900,7 +1002,7 @@ class Command(BaseCommand):
 
     def _seed_students(self):
         class_levels = list(ClassLevel.objects.all())
-        groups = list(Group.objects.all())
+        groups = list(Group.objects.filter(is_common=False))
         students = []
         for index, name in enumerate(STUDENT_NAMES):
             phone = student_phone(index)

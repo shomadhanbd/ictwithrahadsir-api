@@ -50,7 +50,7 @@ class ResultsTests(CourseExamTestCase):
         question = body["questions"][0]
         self.assertEqual(question["correct_option_ids"], [self.option(self.questions[0], 0)])
         self.assertEqual(question["explanation"], "Because.")
-        self.assertEqual(body["exam"]["lesson_slug"], exam.lesson.slug)
+        self.assertEqual(body["exam"]["lesson_id"], exam.lesson_id)
         self.assertEqual(body["exam"]["course_slug"], exam.lesson.course.slug)
 
     def test_ranking_orders_official_results_and_finds_me(self):

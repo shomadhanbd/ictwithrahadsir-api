@@ -1,5 +1,3 @@
-from datetime import datetime
-
 from django.utils import timezone
 
 from rest_framework import serializers
@@ -33,39 +31,12 @@ class ProductCourseSerializer(serializers.ModelSerializer):
         fields = ["id", "title", "slug", "is_online", "status"]
 
 
-class ProductSerializer(serializers.ModelSerializer):
-    courses = ProductCourseSerializer(many=True, read_only=True)
-    price = serializers.IntegerField(source="current_price", read_only=True)
-    base_price = serializers.SerializerMethodField()
-    discount_ends_at = serializers.SerializerMethodField()
-
-    class Meta:
-        model = Product
-        fields = [
-            "id",
-            "product_id",
-            "title",
-            "description",
-            "courses",
-            "price",
-            "base_price",
-            "discount_ends_at",
-            "access_days",
-            "access_ends_on",
-        ]
-        read_only_fields = fields
-
-    def get_base_price(self, product) -> int:
-        return product.base_price if product.discount_active else product.current_price
-
-    def get_discount_ends_at(self, product) -> datetime | None:
-        return product.discount_ends_at if product.discount_active else None
-
-
 class AdminProductSerializer(serializers.ModelSerializer):
     courses = ProductCourseSerializer(many=True, read_only=True)
     course_ids = serializers.PrimaryKeyRelatedField(source="courses", queryset=Course.objects.all(), many=True)
     payment_count = serializers.SerializerMethodField()
+    # What a sale charges today: `price` while its discount runs, else the higher of the two.
+    current_price = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = Product
@@ -78,6 +49,7 @@ class AdminProductSerializer(serializers.ModelSerializer):
             "course_ids",
             "price",
             "base_price",
+            "current_price",
             "discount_ends_at",
             "access_days",
             "access_ends_on",
@@ -204,7 +176,7 @@ class CashSaleRequestSerializer(serializers.Serializer):
         if not attrs["product"].courses.filter(pk=attrs["course"].pk).exists():
             raise serializers.ValidationError({"product_id": "This package does not include the course."})
         if not attrs.get("valid_till"):
-            ends = access_until(attrs["product"])
+            ends = access_until(attrs["product"], user=attrs["user"])
             if ends is not None and ends <= timezone.now():
                 raise serializers.ValidationError(
                     {"valid_till": "This package's access has already ended. Give the date access should run until."}

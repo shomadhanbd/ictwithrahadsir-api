@@ -173,7 +173,7 @@ class AdminSectionOrderTests(APITestCase):
         self.course = Course.objects.create(title='ICT', slug='ict-order')
 
     def create(self, title, **body):
-        body = {'course_id': self.course.pk, 'title': title, 'slug': next_slug('section'), **body}
+        body = {'course_id': self.course.pk, 'title': title, **body}
         return self.client.post('/api/private/sections/', body, format='json', **self.auth)
 
     def titles(self):
@@ -189,7 +189,7 @@ class AdminSectionOrderTests(APITestCase):
         """Its lessons would stay behind: the new course's students locked out, the old one's let in."""
         self.create('Chapter')
         section = Section.objects.get(title='Chapter')
-        lesson = Content.objects.create(course=self.course, section=section, title='L', slug='moving-l', type='video')
+        lesson = Content.objects.create(course=self.course, section=section, title='L', type='video')
         other = Course.objects.create(title='Other', slug='other-course')
 
         response = self.client.patch(
@@ -253,12 +253,11 @@ class AdminContentToggleTests(APITestCase):
         admin = make_user(role=User.Role.ADMIN)
         self.auth = bearer(admin)
         course = Course.objects.create(title='ICT', slug='ict')
-        section = Section.objects.create(course=course, title='Ch1', slug='ict-ch1')
+        section = Section.objects.create(course=course, title='Ch1')
         self.content = Content.objects.create(
             course=course,
             section=section,
             title='Lesson',
-            slug='ict-lesson',
             type=Content.Type.VIDEO,
             active=True,
             paid=True,
@@ -306,41 +305,33 @@ class TeacherCourseScopeTests(APITestCase):
         self.mine = Course.objects.create(title='Mine', slug='mine-scope')
         self.theirs = Course.objects.create(title='Theirs', slug='theirs-scope')
         CourseTeacher.objects.create(course=self.mine, user=self.teacher)
-        self.my_section = Section.objects.create(course=self.mine, title='Ch 1', slug='mine-ch1')
-        self.their_section = Section.objects.create(course=self.theirs, title='Ch 1', slug='theirs-ch1')
+        self.my_section = Section.objects.create(course=self.mine, title='Ch 1')
+        self.their_section = Section.objects.create(course=self.theirs, title='Ch 1')
 
     def post(self, path, **body):
         return self.client.post(f'/api/private/{path}/', body, format='json', **self.auth)
 
     def test_a_teacher_writes_only_into_their_own_course(self):
         writes = {
-            'sections': {'title': 'Ch 2', 'slug': None},
+            'sections': {'title': 'Ch 2'},
             'routines': {'title': 'Routine', 'link': 'https://example.com/r.pdf'},
             'course-materials': {'title': 'Sheet', 'type': 'pdf'},
         }
         for path, body in writes.items():
             with self.subTest(path=path):
-                if 'slug' in body:
-                    body['slug'] = next_slug(path)
                 self.assertEqual(self.post(path, course_id=self.theirs.pk, **body).status_code, 403)
                 self.assertEqual(self.post(path, course_id=self.mine.pk, **body).status_code, 201)
 
         lesson = {'title': 'Lesson', 'type': 'video'}
-        theirs = self.post(
-            'contents', course_id=self.theirs.pk, section_id=self.their_section.pk, slug=next_slug('lesson'), **lesson
-        )
+        theirs = self.post('contents', course_id=self.theirs.pk, section_id=self.their_section.pk, **lesson)
         self.assertEqual(theirs.status_code, 403)
-        mine = self.post(
-            'contents', course_id=self.mine.pk, section_id=self.my_section.pk, slug=next_slug('lesson'), **lesson
-        )
+        mine = self.post('contents', course_id=self.mine.pk, section_id=self.my_section.pk, **lesson)
         self.assertEqual(mine.status_code, 201)
 
     def test_a_lesson_cannot_be_moved_into_another_course(self):
-        lesson = Content.objects.create(
-            course=self.mine, section=self.my_section, title='L', slug='mine-l', type='video'
-        )
+        lesson = Content.objects.create(course=self.mine, section=self.my_section, title='L', type='video')
         response = self.client.patch(
-            f'/api/private/contents/{lesson.slug}/',
+            f'/api/private/contents/{lesson.pk}/',
             {'course_id': self.theirs.pk, 'section_id': self.their_section.pk},
             format='json',
             **self.auth,
@@ -351,7 +342,7 @@ class TeacherCourseScopeTests(APITestCase):
 
     def test_a_section_must_belong_to_the_course(self):
         response = self.post(
-            'contents', course_id=self.mine.pk, section_id=self.their_section.pk, title='L', slug='l', type='video'
+            'contents', course_id=self.mine.pk, section_id=self.their_section.pk, title='L', type='video'
         )
         self.assertEqual(response.status_code, 422)
         self.assertIn('section_id', response.json()['errors'])
@@ -420,7 +411,7 @@ class LessonVariantTests(APITestCase):
     def test_draft_is_not_a_lesson_variant(self):
         auth = bearer(make_user(role=User.Role.ADMIN))
         course = Course.objects.create(title='ICT', slug='ict-variant')
-        section = Section.objects.create(course=course, title='Ch 1', slug='ict-variant-ch1')
+        section = Section.objects.create(course=course, title='Ch 1')
         body = {'course_id': course.pk, 'section_id': section.pk, 'title': 'L', 'type': 'video', 'variant': 'Draft'}
         response = self.client.post('/api/private/contents/', body, format='json', **auth)
         self.assertEqual(response.status_code, 422)

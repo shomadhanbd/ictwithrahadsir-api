@@ -107,7 +107,6 @@ class AdminContentView(CourseScopedAdminMixin):
     permission_classes = [IsCourseTeacherAdminDeletes]
     queryset = Content.objects.select_related("exam").prefetch_related("exam__sections")
     serializer_class = AdminContentSerializer
-    lookup_field = "slug"
 
 
 class AdminContentListCreateAPIView(AdminContentView, ListCreateAPIView):

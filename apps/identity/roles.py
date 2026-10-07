@@ -32,6 +32,11 @@ def is_teaching_staff(user) -> bool:
     return _has_any_role(user, Role.ADMIN, Role.TEACHER)
 
 
+def is_staff_member(user) -> bool:
+    """Anyone who works in the back office: admin, moderator or teacher."""
+    return _has_any_role(user, Role.ADMIN, Role.MODERATOR, Role.TEACHER)
+
+
 def _has_any_role(user, *roles) -> bool:
     # Checks the role, not `is_staff`: that is also true for moderators.
     if not (user and user.is_authenticated):

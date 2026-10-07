@@ -46,7 +46,7 @@ class ExamAdmin(admin.ModelAdmin):
     list_filter = ('status', 'scope')
     search_fields = ('title',)
     autocomplete_fields = ('batch',)
-    readonly_fields = ('created_by',)
+    readonly_fields = ('created_by', 'total_marks')
     inlines = (ExamSectionInline,)
 
     def get_queryset(self, request):

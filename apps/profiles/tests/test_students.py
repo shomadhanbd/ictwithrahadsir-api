@@ -112,6 +112,20 @@ class StudentPayloadTests(TestCase):
         )
         self.assertEqual(response.status_code, 422)
 
+    def test_a_common_group_is_not_a_students_own(self):
+        hsc, general = (
+            ClassLevel.objects.create(slug=next_slug("classlevel"), name="HSC"),
+            Group.objects.create(slug=next_slug("group"), name="General", is_common=True),
+        )
+        response = self.client.post(
+            self.url,
+            {"student": {"class_level_id": hsc.pk, "group_id": general.pk}},
+            content_type="application/json",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("group_id", str(response.content))
+
     def test_clearing_the_class_clears_the_group(self):
         hsc, science = (
             ClassLevel.objects.create(slug=next_slug("classlevel"), name="HSC"),

@@ -54,15 +54,15 @@ class PublishTests(ExamTestCase):
         self.assertEqual(response.status_code, 422)
         self.assertIn("add up to", str(response.json()["errors"]))
 
-    def test_sections_that_do_not_fill_the_exam_block_publishing(self):
-        """Each section adds up, but together they fall short of the exam total."""
-        exam = self.exam(total_marks=100)
+    def test_pass_marks_above_the_paper_block_publishing(self):
+        """The total is what the sections add up to, so the pass mark is checked against it here."""
+        exam = self.exam(pass_marks=40)
         self.fill(self.section(exam=exam, marks=30), 30)
 
         response = self.publish(exam)
 
         self.assertEqual(response.status_code, 422)
-        self.assertIn("not the exam's", str(response.json()["errors"]))
+        self.assertIn("pass_marks", response.json()["errors"])
 
     def test_a_complete_exam_publishes(self):
         exam = self.exam(total_marks=30)
@@ -166,11 +166,14 @@ class PublishTests(ExamTestCase):
         self.assertIn("status", response.json()["errors"])
         self.assertEqual(self.client.delete(detail("exam_section", self.section_row.pk), **self.auth).status_code, 422)
 
-    def test_its_total_marks_cannot_be_changed(self):
+    def test_its_total_marks_cannot_be_typed(self):
+        """The total is derived from the sections; a sent value is ignored."""
+        before = self.exam_row.total_marks
         response = self.patch("exam", self.exam_row.pk, {"total_marks": "9"})
 
-        self.assertEqual(response.status_code, 422)
-        self.assertIn("total_marks", response.json()["errors"])
+        self.assertEqual(response.status_code, 200, response.content)
+        self.exam_row.refresh_from_db()
+        self.assertEqual(self.exam_row.total_marks, before)
 
     def test_but_it_can_still_be_renamed_and_rescheduled(self):
         response = self.patch(
@@ -467,8 +470,8 @@ class AdminSitePublishTests(ExamTestCase):
         from django.contrib import admin
 
         model_admin = admin.site._registry[Exam]
-        Form = model_admin.get_form(request=None, obj=exam, change=True, fields=["title", "status", "total_marks"])
-        data = {"title": exam.title, "status": exam.status, "total_marks": exam.total_marks, **changes}
+        Form = model_admin.get_form(request=None, obj=exam, change=True, fields=["title", "status", "scope"])
+        data = {"title": exam.title, "status": exam.status, "scope": exam.scope, **changes}
         return Form(data=data, instance=exam)
 
     def test_an_empty_paper_cannot_be_published_from_the_admin(self):
@@ -477,12 +480,11 @@ class AdminSitePublishTests(ExamTestCase):
         self.assertFalse(form.is_valid())
         self.assertIn("status", form.errors)
 
-    def test_a_published_exam_keeps_its_total_in_the_admin(self):
+    def test_a_published_exam_keeps_its_scope_in_the_admin(self):
         exam = self.exam()
         Exam.objects.filter(pk=exam.pk).update(status=Exam.Status.PUBLISHED)
         exam.refresh_from_db()
 
-        form = self.form(exam, total_marks=50)
+        form = self.form(exam, scope=Exam.Scope.STANDALONE if exam.scope != Exam.Scope.STANDALONE else Exam.Scope.BATCH)
 
         self.assertFalse(form.is_valid())
-        self.assertIn("total_marks", form.errors)

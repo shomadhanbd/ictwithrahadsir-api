@@ -104,11 +104,10 @@ class SectionAdmin(TimestampedAdmin):
     list_display = ('id', 'title', 'course', 'section', 'order', 'active')
     list_editable = ('order', 'active')
     list_filter = ('active', 'course')
-    search_fields = ('title', 'slug', 'course__title')
+    search_fields = ('title', 'course__title')
     ordering = ('course', 'order')
     list_select_related = ('course', 'section')
     autocomplete_fields = ('course', 'section')
-    prepopulated_fields = {'slug': ('title',)}
     inlines = [ContentInline]
 
 
@@ -117,11 +116,10 @@ class ContentAdmin(TimestampedAdmin):
     list_display = ('id', 'title', 'course', 'section', 'type', 'paid', 'active', 'order')
     list_editable = ('paid', 'active', 'order')
     list_filter = ('type', 'paid', 'active', 'course')
-    search_fields = ('title', 'slug', 'course__title')
+    search_fields = ('title', 'course__title')
     ordering = ('course', 'order')
     list_select_related = ('course', 'section')
     autocomplete_fields = ('course', 'section')
-    prepopulated_fields = {'slug': ('title',)}
 
 
 @admin.register(Routine)

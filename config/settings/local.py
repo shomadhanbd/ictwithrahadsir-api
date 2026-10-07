@@ -3,7 +3,7 @@
 import sys
 
 from config.settings.base import *  # noqa: F403
-from config.settings.base import BASE_DIR, LOGGING, LOGS_DIR, env
+from config.settings.base import LOGGING, LOGS_DIR, env
 
 # Core
 
@@ -13,10 +13,6 @@ CORS_ALLOW_ALL_ORIGINS = True
 
 # Kept out of base so production has no command that writes fake data.
 INSTALLED_APPS = [*INSTALLED_APPS, "apps.demo"]  # noqa: F405
-
-# Only the demo images `seed_demo` writes; served by runserver.
-MEDIA_URL = "/media/"
-MEDIA_ROOT = BASE_DIR / "media"
 
 # Integrations
 

@@ -6,9 +6,10 @@ from django.db.models import Q
 
 from apps.core.exceptions import Conflict
 from apps.courses.models import Content, ContentCompletion, Course, CourseTeacher, Enrollment, Section
-from apps.courses.notifications import expiry_reminder
+from apps.courses.notifications import access_ended, expiry_reminder
 from apps.courses.selectors import (
     completable_lesson,
+    enrollments_due_ended_notice,
     enrollments_due_reminder,
     has_students,
     next_section_order,
@@ -125,40 +126,57 @@ def move_section(section, *, direction) -> None:
             sibling.save(update_fields=["order", "updated_at"])
 
 
-def claim_reminder(enrollment) -> bool:
-    """Marks the enrolment reminded about its end date; False if another run already has, so it is texted once."""
+def _claim(enrollment, field) -> bool:
+    """Marks the enrolment texted about its end date in `field`; False if another run already has, so it goes once."""
     due = Enrollment.objects.filter(pk=enrollment.pk, valid_till=enrollment.valid_till).filter(
-        Q(expiry_reminded_for__isnull=True) | ~Q(expiry_reminded_for=enrollment.valid_till)
+        Q(**{f"{field}__isnull": True}) | ~Q(**{field: enrollment.valid_till})
     )
-    return bool(due.update(expiry_reminded_for=enrollment.valid_till))
+    return bool(due.update(**{field: enrollment.valid_till}))
 
 
-def release_reminder(enrollment) -> None:
+def _release(enrollment, field) -> None:
     """Undoes a claim whose text failed, so the next run tries again."""
-    Enrollment.objects.filter(pk=enrollment.pk).update(expiry_reminded_for=enrollment.expiry_reminded_for)
+    Enrollment.objects.filter(pk=enrollment.pk).update(**{field: getattr(enrollment, field)})
 
 
-def send_expiry_reminders(*, now=None, days=None, dry_run=False) -> int:
-    """Texts each student whose access ends soon, once per end date; returns how many were (or would be) sent."""
+def _text_each(enrollments, *, field, message, purpose, dry_run) -> int:
+    """Texts each enrolment once per end date; returns how many were (or would be) sent."""
     sent = 0
-    for enrollment in enrollments_due_reminder(now=now, days=days or settings.EXPIRY_REMINDER_DAYS):
+    for enrollment in enrollments:
         if dry_run:
             sent += 1
             continue
-        if not claim_reminder(enrollment):
+        if not _claim(enrollment, field):
             continue  # an overlapping run got it first
         if not enrollment.user.phone:
             continue  # nothing to text; claimed so it is not retried every run
         try:
-            send_sms(
-                enrollment.user.phone,
-                expiry_reminder(enrollment),
-                purpose=SmsMessage.Purpose.EXPIRY_REMINDER,
-                recipient=enrollment.user,
-            )
+            send_sms(enrollment.user.phone, message(enrollment), purpose=purpose, recipient=enrollment.user)
         except SmsError:
-            logger.warning("Expiry reminder failed for enrolment %s", enrollment.pk)
-            release_reminder(enrollment)
+            logger.warning("%s text failed for enrolment %s", purpose, enrollment.pk)
+            _release(enrollment, field)
             continue
         sent += 1
     return sent
+
+
+def send_expiry_reminders(*, now=None, days=None, dry_run=False) -> int:
+    """Texts each student whose access ends soon, once per end date."""
+    return _text_each(
+        enrollments_due_reminder(now=now, days=days or settings.EXPIRY_REMINDER_DAYS),
+        field="expiry_reminded_for",
+        message=expiry_reminder,
+        purpose=SmsMessage.Purpose.EXPIRY_REMINDER,
+        dry_run=dry_run,
+    )
+
+
+def send_access_ended_notices(*, now=None, dry_run=False) -> int:
+    """Texts each student whose access has just ended, once per end date."""
+    return _text_each(
+        enrollments_due_ended_notice(now=now, days=settings.ACCESS_ENDED_NOTICE_DAYS),
+        field="expiry_notice_sent_for",
+        message=access_ended,
+        purpose=SmsMessage.Purpose.ACCESS_ENDED,
+        dry_run=dry_run,
+    )

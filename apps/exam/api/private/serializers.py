@@ -259,6 +259,7 @@ def _attempt_row(attempt) -> dict:
         "number": attempt.number,
         "status": attempt.status,
         "is_official": attempt.is_official,
+        "awaiting_marking": attempt.awaiting_marking,
         "score": attempt.score,
         "correct": attempt.correct,
         "wrong": attempt.wrong,
@@ -293,4 +294,14 @@ def attempt_review_payload(exam, attempt) -> dict:
         **_attempt_row(attempt),
         "total_marks": exam.total_marks,
         "questions": selectors.attempt_review(attempt),
+        "written": selectors.written_review(attempt, reveal_answers=True),
     }
+
+
+class WrittenMarkSerializer(serializers.Serializer):
+    question_id = serializers.IntegerField()
+    marks = serializers.DecimalField(max_digits=6, decimal_places=2)
+
+
+class WrittenMarksSerializer(serializers.Serializer):
+    marks = WrittenMarkSerializer(many=True, allow_empty=False)

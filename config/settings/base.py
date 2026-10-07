@@ -53,6 +53,7 @@ LOCAL_APPS = [
     "apps.billing",
     "apps.content",
     "apps.dashboard",
+    "apps.uploads",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -96,6 +97,10 @@ DATABASES = {
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+
+# Uploaded files; Django serves them only under DEBUG, so production's web server must serve MEDIA_URL.
+MEDIA_URL = "/media/"
+MEDIA_ROOT = env("MEDIA_ROOT", default=str(BASE_DIR / "media"))
 
 STORAGES = {
     "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
@@ -158,6 +163,7 @@ BULKSMSBD_API_KEY = env("BULKSMSBD_API_KEY", default="")
 BULKSMSBD_SENDER_ID = env("BULKSMSBD_SENDER_ID", default="")
 SMS_OTP_TEMPLATE = "Your ICT with Rahad Sir verification code is {code}"
 EXPIRY_REMINDER_DAYS = 3  # how far ahead `send_expiry_reminders` texts the student
+ACCESS_ENDED_NOTICE_DAYS = 2  # how far back it tells students their access has ended
 
 # Payments (apps/billing/services/sslcommerz.py)
 

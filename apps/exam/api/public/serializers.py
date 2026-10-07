@@ -1,9 +1,11 @@
+from decimal import Decimal
+
 from django.utils import timezone
 
 from rest_framework import serializers
 
 from apps.exam.models import ExamAttempt
-from apps.exam.selectors import Standing, attempt_paper, attempt_review, results_available
+from apps.exam.selectors import Standing, attempt_paper, attempt_review, results_available, written_review
 from apps.question.api.public.serializers import OptionSerializer
 
 
@@ -51,15 +53,18 @@ def paper_payload(attempt) -> list[dict]:
                     "label": row["question"].label,
                     "prompt_content": row["question"].prompt_content,
                     "select_mode": row["question"].select_mode,
+                    "marks": row["question"].marks,
                     "options": OptionSerializer(row["options"], many=True).data,
                 }
                 for row in item["questions"]
             ]
-            items.append({"stimulus": stimulus, "questions": questions})
+            items.append({"section_question_id": item["placement"].pk, "stimulus": stimulus, "questions": questions})
         payload.append(
             {
                 "id": section.pk,
                 "title": section.title,
+                # "mcq" is answered by choosing options; "cq" by uploading photos of a handwritten answer.
+                "question_type": section.question_type,
                 "instructions": section.instructions,
                 # "Answer any N": saving an (N+1)th answer is refused, so the paper says N. None means all.
                 "answers_required": section.required_question_count,
@@ -84,7 +89,7 @@ def attempt_payload(attempt) -> dict:
             "total_marks": exam.total_marks,
             "duration_minutes": exam.duration_minutes,
             "course_slug": exam.lesson.course.slug,
-            "lesson_slug": exam.lesson.slug,
+            "lesson_id": exam.lesson_id,
         },
     }
 
@@ -93,19 +98,28 @@ def exam_detail_payload(exam, summary, attempts) -> dict:
     return {
         **summary,
         "course": {"id": exam.lesson.course_id, "slug": exam.lesson.course.slug},
-        "lesson": {"id": exam.lesson_id, "slug": exam.lesson.slug},
+        "lesson": {"id": exam.lesson_id},
         "attempts": AttemptSummarySerializer(attempts, many=True).data,
     }
 
 
 def attempt_detail_payload(attempt) -> dict:
     """The paper and the answers saved so far."""
-    answers = {a.question_id: a.selected_option_ids for a in attempt.answers.all()}
+    answers = {a.question_id: a.selected_option_ids for a in attempt.answers.all() if a.marked_at is None}
     return {
         **attempt_payload(attempt),
         "paper": paper_payload(attempt),
         "answers": [{"question_id": q, "option_ids": o} for q, o in answers.items()],
+        "sheets": sheets_payload(attempt),
     }
+
+
+def sheets_payload(attempt) -> list[dict]:
+    return [
+        {"section_question_id": sheet.section_question_id, "files": sheet.files}
+        for sheet in attempt.sheets.all()
+        if sheet.files
+    ]
 
 
 def submitted_payload(attempt) -> dict:
@@ -118,21 +132,30 @@ def submitted_payload(attempt) -> dict:
 
 
 def result_payload(attempt) -> dict:
+    """The MCQ part is known at once; the total and pass/fail wait until every written answer is marked."""
     exam = attempt.exam
+    questions = attempt_review(attempt)
+    written = written_review(attempt, reveal_answers=not attempt.awaiting_marking)
+    mcq_score = sum((Decimal(q["marks_awarded"]) for q in questions), Decimal(0))
+    waiting = attempt.awaiting_marking
     return {
         **attempt_payload(attempt),
-        "score": attempt.score,
+        "awaiting_marking": waiting,
+        "score": None if waiting else attempt.score,
+        "mcq_score": mcq_score,
+        "cq_score": None if waiting else attempt.score - mcq_score,
         "total_marks": exam.total_marks,
         "pass_marks": exam.pass_marks,
-        "passed": None if exam.pass_marks is None else attempt.score >= exam.pass_marks,
+        "passed": None if waiting or exam.pass_marks is None else attempt.score >= exam.pass_marks,
         "correct": attempt.correct,
         "wrong": attempt.wrong,
         "skipped": attempt.skipped,
-        "questions": attempt_review(attempt),
+        "questions": questions,
+        "written": written,
     }
 
 
-def ranking_payload(total, top, mine, *, viewer) -> dict:
+def ranking_payload(total, top, mine, *, viewer, pending=0) -> dict:
     """The top official results, and the viewer's own row; each attempt carries its `rank`."""
 
     def row(attempt):
@@ -146,6 +169,8 @@ def ranking_payload(total, top, mine, *, viewer) -> dict:
 
     return {
         "total": total,
+        # Official answers still waiting for a teacher's marks; they join the ranking once marked.
+        "pending": pending,
         "top": [row(a) for a in top],
         "me": row(mine) if mine else None,
     }
@@ -161,7 +186,7 @@ def student_exams_payload(rows) -> dict:
             "id": exam.pk,
             "title": exam.title,
             "course": {"slug": exam.lesson.course.slug, "title": exam.lesson.course.title},
-            "lesson_slug": exam.lesson.slug,
+            "lesson_id": exam.lesson_id,
             "start_time": row["opens_at"],
             "end_time": exam.end_time,
             "result_publish_time": exam.result_publish_time or exam.end_time,
@@ -171,7 +196,8 @@ def student_exams_payload(rows) -> dict:
             "status": row["standing"],
             "open_attempt_id": row["open_attempt"].pk if row["open_attempt"] else None,
             "official_attempt_id": official.pk if official else None,
-            "score": official.score if released and official else None,
+            "score": official.score if released and official and not official.awaiting_marking else None,
+            "awaiting_marking": bool(official and official.awaiting_marking),
         }
 
     return {"data": [item(row) for row in rows]}

@@ -10,7 +10,7 @@ from rest_framework.test import APITestCase
 
 from apps.core.testing import bearer, make_user
 from apps.courses.models import Content, ContentCompletion, Course, CourseTeacher, Enrollment, Section
-from apps.courses.services import send_expiry_reminders
+from apps.courses.services import send_access_ended_notices, send_expiry_reminders
 from apps.identity.models import User
 from apps.notifications.gateways import SmsError
 
@@ -78,16 +78,36 @@ class ExpiryReminderTests(APITestCase):
         backend.return_value.send.assert_not_called()
         self.assertIn('1 student(s) would be reminded', out.getvalue())
 
+    def test_access_that_just_ended_is_told_once(self):
+        ended = self.enrol(self.now - timezone.timedelta(hours=5))
+        self.enrol(self.now - timezone.timedelta(days=30))  # ended long ago: not texted now
+        self.enrol(self.now + timezone.timedelta(days=1))
+
+        with sms_outbox() as backend:
+            self.assertEqual(send_access_ended_notices(), 1)
+            self.assertEqual(send_access_ended_notices(), 0)
+
+        backend.return_value.send.assert_called_once()
+        phone, message = backend.return_value.send.call_args.args
+        self.assertEqual(phone, ended.user.phone)
+        self.assertTrue(message.isascii())
+        self.assertIn('ended on', message)
+        self.assertIn('/course/hsc-ict-remind', message)
+
+    def test_a_renewal_that_ends_again_is_told_again(self):
+        enrolment = self.enrol(self.now - timezone.timedelta(hours=5))
+        with sms_outbox():
+            send_access_ended_notices()
+            Enrollment.objects.filter(pk=enrolment.pk).update(valid_till=self.now - timezone.timedelta(hours=1))
+            self.assertEqual(send_access_ended_notices(), 1)
+
 
 class StudentsExportTests(APITestCase):
     def setUp(self):
         self.course = Course.objects.create(title='HSC ICT', slug='hsc-ict-export', status='published')
-        section = Section.objects.create(course=self.course, title='Ch 1', slug='hsc-ict-export-ch1')
+        section = Section.objects.create(course=self.course, title='Ch 1')
         self.lessons = [
-            Content.objects.create(
-                course=self.course, section=section, title=f'L{i}', slug=f'export-l{i}', type='video'
-            )
-            for i in range(4)
+            Content.objects.create(course=self.course, section=section, title=f'L{i}', type='video') for i in range(4)
         ]
         self.student = make_user(name='Rahim')
         Enrollment.objects.create(course=self.course, user=self.student, payment_type='paid')

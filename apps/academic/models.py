@@ -31,6 +31,11 @@ class Group(OrderedModel):
 
     name = models.CharField("Name", max_length=100, unique=True)
     slug = models.SlugField(max_length=120, unique=True, verbose_name=_("slug"))
+    is_common = models.BooleanField(
+        "Common to Every Group",
+        default=False,
+        help_text="Taken by every student on top of their own group, e.g. General (Bangla, English).",
+    )
     question_count = models.PositiveIntegerField("Question Count", default=0)
     is_active = models.BooleanField("Active", default=True)
 

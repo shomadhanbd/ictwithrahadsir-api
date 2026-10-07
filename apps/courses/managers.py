@@ -22,7 +22,7 @@ class CourseQuerySet(models.QuerySet):
         return self.filter(is_featured=True)
 
     def visible_to(self, user):
-        """Students with a class level see open courses and those for their level and group."""
+        """Students with a class level see open courses and those for their level, their group or a common group."""
         if user is None or not user.is_authenticated:
             return self
 
@@ -31,7 +31,7 @@ class CourseQuerySet(models.QuerySet):
             return self
 
         for_level = models.Q(class_level_id=profile.class_level_id) & (
-            models.Q(group__isnull=True) | models.Q(group_id=profile.group_id)
+            models.Q(group__isnull=True) | models.Q(group__is_common=True) | models.Q(group_id=profile.group_id)
         )
         return self.filter(models.Q(class_level__isnull=True) | for_level)
 

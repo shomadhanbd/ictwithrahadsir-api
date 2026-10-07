@@ -23,7 +23,7 @@ class CourseInstructorSerializer(serializers.ModelSerializer):
 class ContentListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Content
-        fields = ["id", "title", "slug", "type", "variant", "paid", "available_from", "order"]
+        fields = ["id", "title", "type", "variant", "paid", "available_from", "order"]
 
 
 class SectionSerializer(serializers.ModelSerializer):
@@ -36,8 +36,8 @@ class SectionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Section
-        fields = ["id", "course_id", "section_id", "title", "slug", "order", "active", "contents", "sub_sections"]
-        read_only_fields = ["id", "slug"]
+        fields = ["id", "course_id", "section_id", "title", "order", "active", "contents", "sub_sections"]
+        read_only_fields = ["id"]
 
     def get_contents(self, obj):
         return ContentListSerializer(self.context["section_contents"][obj.pk], many=True, context=self.context).data
@@ -63,7 +63,6 @@ class ContentDetailSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "title",
-            "slug",
             "type",
             "variant",
             "paid",
@@ -202,6 +201,7 @@ class CourseListSerializer(serializers.ModelSerializer):
             "status": enrollment.status,
             "valid_till": enrollment.valid_till,
             "payment_type": enrollment.payment_type,
+            "renewable": selectors.renewable(enrollment),
         }
 
     def get_has_purchased(self, obj) -> bool:

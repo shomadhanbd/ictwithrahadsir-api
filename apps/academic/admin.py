@@ -23,13 +23,14 @@ class GroupAdmin(admin.ModelAdmin):
     list_display = (
         'name',
         'slug',
+        'is_common',
         'question_count',
         'is_active',
         'order',
     )
-    list_editable = ('is_active', 'order')
+    list_editable = ('is_common', 'is_active', 'order')
     readonly_fields = ('question_count',)
-    list_filter = ('is_active',)
+    list_filter = ('is_common', 'is_active')
     search_fields = ('name', 'slug')
 
 

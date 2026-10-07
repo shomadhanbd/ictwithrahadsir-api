@@ -22,6 +22,7 @@ api_patterns = (
         path('', include('apps.billing.api.urls')),
         path('', include('apps.content.api.urls')),
         path('', include('apps.dashboard.api.urls')),
+        path('', include('apps.uploads.api.urls')),
     ],
     'api',
 )

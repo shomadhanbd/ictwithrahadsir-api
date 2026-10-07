@@ -133,7 +133,6 @@ class Section(TimestampModel, OrderedModel):
     course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="sections")
     section = models.ForeignKey("self", null=True, blank=True, on_delete=models.CASCADE, related_name="sub_sections")
     title = models.CharField(max_length=255)
-    slug = models.SlugField(max_length=280, unique=True, verbose_name=_("slug"))
     active = models.BooleanField(default=True)
 
     objects = ActiveQuerySet.as_manager()
@@ -163,7 +162,6 @@ class Content(TimestampModel, OrderedModel):
     course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="contents")
     section = models.ForeignKey(Section, on_delete=models.CASCADE, related_name="contents")
     title = models.CharField(max_length=255)
-    slug = models.SlugField(max_length=280, unique=True, verbose_name=_("slug"))
     type = models.CharField(max_length=20, choices=Type.choices)
     variant = models.CharField(max_length=20, choices=Variant.choices, default=Variant.NEW)
     available_from = models.DateTimeField(null=True, blank=True)
@@ -236,8 +234,9 @@ class Enrollment(TimestampModel):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="course_enrollments")
     valid_till = models.DateTimeField(null=True, blank=True)
     payment_type = models.CharField(max_length=20, choices=PaymentType.choices, default=PaymentType.FREE)
-    # The `valid_till` the student was last reminded about.
+    # The `valid_till` the student was last reminded about, and last told had passed.
     expiry_reminded_for = models.DateTimeField(null=True, blank=True)
+    expiry_notice_sent_for = models.DateTimeField(null=True, blank=True)
 
     objects = EnrollmentQuerySet.as_manager()
 

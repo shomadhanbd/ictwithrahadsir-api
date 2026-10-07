@@ -35,6 +35,7 @@ class GroupSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "slug",
+            "is_common",
             "subject_count",
             "question_count",
             "chapter_count",

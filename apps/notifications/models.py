@@ -11,6 +11,7 @@ class SmsMessage(TimestampModel):
         PHONE_VERIFY = "phone_verify", "Phone verification"
         PASSWORD_RESET = "password_reset", "Password reset"
         EXPIRY_REMINDER = "expiry_reminder", "Expiry reminder"
+        ACCESS_ENDED = "access_ended", "Access ended notice"
         PURCHASE = "purchase", "Purchase / renewal notice"
         GUARDIAN = "guardian", "Message to a guardian"
         CUSTOM = "custom", "Custom message"

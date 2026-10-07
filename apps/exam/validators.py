@@ -1,7 +1,7 @@
 import copy
 
 from django.core.exceptions import ValidationError
-from django.db.models import Sum
+from django.db.models import Q, Sum
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
@@ -11,8 +11,8 @@ from apps.question import kinds
 from apps.question.models import Question
 from apps.question.selectors import block_question_types
 
-FROZEN_ONCE_PUBLISHED = ("total_marks", "scope", "batch", "lesson")
-FROZEN_ONCE_ATTEMPTED = ("total_marks", "pass_marks", "duration_minutes", "start_time", "scope", "batch", "lesson")
+FROZEN_ONCE_PUBLISHED = ("scope", "batch", "lesson")
+FROZEN_ONCE_ATTEMPTED = ("pass_marks", "duration_minutes", "start_time", "scope", "batch", "lesson")
 RESULT_NEEDS_END = "Set when the exam ends: until then students can still sit it after the results."
 ATTEMPTED_MESSAGE = "Students have taken this exam; only the answer key can change (then Regrade)."
 
@@ -25,7 +25,6 @@ def _validate_negative_marks_sign(negative_marks):
 
 def validate_exam(
     *,
-    total_marks,
     pass_marks,
     max_attempts,
     duration_minutes,
@@ -39,10 +38,9 @@ def validate_exam(
     `result_needs_end=False` spares an edit that touches neither time, so an exam saved before that rule
     existed can still be renamed.
     """
-    if total_marks is not None and total_marks <= ZERO:
-        raise ValidationError({"total_marks": "Total marks must be greater than zero."})
-    if pass_marks is not None and total_marks is not None and pass_marks > total_marks:
-        raise ValidationError({"pass_marks": "Pass marks cannot exceed total marks."})
+    # The total is whatever the sections add up to, so pass marks are checked against it at publish.
+    if pass_marks is not None and pass_marks <= ZERO:
+        raise ValidationError({"pass_marks": "Pass marks must be greater than zero."})
 
     if max_attempts is not None and max_attempts < 1:
         raise ValidationError({"max_attempts": "An exam allows at least one attempt."})
@@ -159,10 +157,6 @@ def _validate_section_fits_exam(*, exam, subject, marks, duration_minutes, insta
     """What the section may be, given the other sections already on the paper."""
     totals = _sibling_totals(exam, instance)
 
-    if marks is not None and totals["marks"] + marks > exam.total_marks:
-        raise ValidationError(
-            {"marks": f"The sections together are worth more than the exam's {exam.total_marks:g} marks."}
-        )
     if (
         duration_minutes is not None
         and exam.duration_minutes is not None
@@ -171,9 +165,6 @@ def _validate_section_fits_exam(*, exam, subject, marks, duration_minutes, insta
         raise ValidationError(
             {"duration_minutes": f"The sections together run longer than the exam's {exam.duration_minutes} minutes."}
         )
-
-    if exam.scope == Exam.Scope.COURSE and question_type is not None and question_type != Question.Type.MCQ:
-        raise ValidationError({"question_type": "A course exam is taken online, so its parts must be MCQ."})
 
     if (
         exam.scope == Exam.Scope.BATCH
@@ -221,6 +212,9 @@ def validate_section_blocks(*, section, blocks):
             label = ExamSection.Type(wanted).label
             raise ValidationError({"block_ids": f"Block #{block.pk} is not {label} content."})
 
+    if section.exam.scope == Exam.Scope.COURSE and not kinds.kind(wanted).auto_graded:
+        _validate_written_block_marks(section=section, ids=ids)
+
     clash = (
         ExamSectionQuestion.objects.filter(section__exam_id=section.exam_id, block_id__in=ids)
         .exclude(section_id=section.pk)
@@ -229,6 +223,27 @@ def validate_section_blocks(*, section, blocks):
     )
     if clash is not None:
         raise ValidationError({"block_ids": f"Block #{clash.block_id} is already in section “{clash.section.title}”."})
+
+
+def _validate_written_block_marks(*, section, ids):
+    """Online, a teacher marks each part out of its own marks, so a question's parts must add up to its value."""
+    owner = Coalesce("block_id", "question_set__block_id")
+    totals = dict(
+        Question.objects.filter(Q(block_id__in=ids) | Q(question_set__block_id__in=ids))
+        .annotate(owner=owner)
+        .values("owner")
+        .annotate(total=Sum("marks"))
+        .values_list("owner", "total")
+    )
+    for block_id in ids:
+        total = totals.get(block_id, ZERO)
+        if total != section.marks_per_question:
+            raise ValidationError(
+                {
+                    "block_ids": f"Block #{block_id}'s parts add up to {total:g} marks, "
+                    f"not this section's {section.marks_per_question:g} per question."
+                }
+            )
 
 
 def validate_pick_marks(*, section, block, marks):
@@ -272,9 +287,9 @@ def paper_problems(*, exam, sections):
         yield "status", "An exam needs at least one section before it can be published."
         return
 
-    declared = sum((section.marks for section in sections), ZERO)
-    if declared != exam.total_marks:
-        yield "status", f"The sections add up to {declared:g}, not the exam's {exam.total_marks:g}."
+    total = sum((section.marks for section in sections), ZERO)
+    if exam.pass_marks is not None and exam.pass_marks > total:
+        yield "pass_marks", f"Pass marks ({exam.pass_marks:g}) are more than the paper's {total:g} marks."
 
     if exam.scope == Exam.Scope.BATCH and exam.start_time is None:
         yield "start_time", "A batch exam needs a start time before it is published."
@@ -337,7 +352,6 @@ def validate_publish(*, exam, sections):
 def validate_exam_update(instance, attrs, after):
     """Every rule on an exam edit, including the checks a move to published triggers."""
     validate_exam(
-        total_marks=after("total_marks"),
         pass_marks=after("pass_marks"),
         max_attempts=after("max_attempts"),
         duration_minutes=after("duration_minutes"),
@@ -352,7 +366,7 @@ def validate_exam_update(instance, attrs, after):
 
     if after("status", Exam.Status.DRAFT) == Exam.Status.PUBLISHED and instance.status != Exam.Status.PUBLISHED:
         prospective = copy.copy(instance)
-        for field in ("total_marks", "scope", "start_time"):
+        for field in ("pass_marks", "scope", "start_time"):
             setattr(prospective, field, after(field))
         validate_publish(exam=prospective, sections=instance.sections.all())
 
@@ -392,3 +406,37 @@ def validate_required_answers(answered, *, sections):
 def validate_course_exam_deletable(exam):
     if exam.lesson_id is not None:
         raise ValidationError({"exam": "This is a course exam. Delete its lesson instead."})
+
+
+MAX_SHEET_FILES = 10
+
+
+def validate_sheet_target(placement):
+    """A student uploads an answer only for a creative question on their own paper."""
+    if placement is None:
+        raise ValidationError({"section_question_id": "That question is not on this paper."})
+    if kinds.kind(placement.section.question_type).auto_graded:
+        raise ValidationError({"section_question_id": "This question is answered by choosing an option."})
+
+
+def validate_sheet_room(sheet, *, answered_in_section):
+    """At most `MAX_SHEET_FILES` per question, and an "answer any N" section takes N uploaded answers."""
+    if len(sheet.files) >= MAX_SHEET_FILES:
+        raise ValidationError({"file": f"A question takes at most {MAX_SHEET_FILES} files."})
+    limit = sheet.section_question.section.required_question_count
+    if limit and not sheet.files and answered_in_section >= limit:
+        raise ValidationError({"file": f"This section takes {limit} answers. Remove one before answering another."})
+
+
+def validate_written_marks(attempt, marks, *, paper):
+    """Marks only for written parts on this paper, each within the part's own marks, once submitted."""
+    if attempt.status != attempt.Status.SUBMITTED:
+        raise ValidationError({"marks": "Only a submitted attempt can be marked."})
+    for item in marks:
+        found = paper.questions.get(item["question_id"])
+        if found is None or found[0].section_id not in paper.written:
+            raise ValidationError({"marks": f"Question {item['question_id']} is not a written question on this paper."})
+        question = found[1]
+        if item["marks"] < ZERO or item["marks"] > question.marks:
+            label = question.label or question.pk
+            raise ValidationError({"marks": f"Part {label} is marked out of {question.marks:g}."})

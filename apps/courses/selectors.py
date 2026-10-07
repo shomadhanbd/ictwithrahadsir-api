@@ -5,6 +5,7 @@ from django.db.models import Count, F, Max, Q
 from django.http import Http404
 from django.utils import timezone
 
+from apps.billing.selectors import renewal_window
 from apps.core import providers
 from apps.courses.models import Content, ContentCompletion, Course, Enrollment, Section
 from apps.identity.roles import is_full_admin, is_teaching_staff
@@ -18,12 +19,12 @@ def ordered_course_ids(user, course_ids) -> set:
     return provider(user, course_ids)
 
 
-def course_packages(course_ids) -> dict:
-    """The packages each of `course_ids` is sold in. Absent means not for sale."""
+def course_packages(course_ids, user=None) -> dict:
+    """The packages each of `course_ids` is sold in to `user`. Absent means not for sale."""
     provider = providers.get("courses.course_packages")
     if provider is None or not course_ids:
         return {}
-    return provider(course_ids)
+    return provider(course_ids, user)
 
 
 def has_students(course) -> bool:
@@ -100,7 +101,7 @@ def visible_lessons():
 def lesson_is_visible(content) -> bool:
     """Active, in an active section under an active parent, on a published or archived course.
 
-    A free lesson of a draft course, or one inside a section switched off, is not reachable by its slug.
+    A free lesson of a draft course, or one inside a section switched off, is not reachable by its id.
     """
     section = content.section
     return (
@@ -111,9 +112,9 @@ def lesson_is_visible(content) -> bool:
     )
 
 
-def accessible_content(user, slug) -> Content:
+def accessible_content(user, pk) -> Content:
     """An active lesson `user` may open; raises 404 or 403 otherwise. Its teachers may preview a draft's."""
-    content = Content.objects.select_related("course", "section__section").filter(slug=slug).first()
+    content = Content.objects.select_related("course", "section__section").filter(pk=pk).first()
     if content is None:
         raise Http404
     signed_in = user is not None and user.is_authenticated
@@ -242,7 +243,7 @@ def course_card_stats(courses, user=None) -> dict:
 
     return {
         "content_counts": content_counts,
-        "packages": course_packages(ids),
+        "packages": course_packages(ids, user),
         "enrollment_counts": enrollment_counts,
         "enrollments": enrollments,
         "ordered": ordered,
@@ -257,6 +258,17 @@ def section_siblings(section):
 def next_section_order(*, course, parent=None) -> int:
     last = Section.objects.filter(course=course, section=parent).aggregate(last=Max("order"))["last"]
     return 0 if last is None else last + 1
+
+
+def enrollments_due_ended_notice(*, now=None, days):
+    """Access that ended within the last `days`, not yet told about this end date; older ends are left alone."""
+    now = now or timezone.now()
+    return (
+        Enrollment.objects.filter(valid_till__lt=now, valid_till__gte=now - timezone.timedelta(days=days))
+        .filter(Q(expiry_notice_sent_for__isnull=True) | ~Q(expiry_notice_sent_for=F("valid_till")))
+        .select_related("user", "course")
+        .order_by("valid_till")
+    )
 
 
 def enrollments_due_reminder(*, now=None, days):
@@ -284,3 +296,10 @@ def course_students_export(course) -> list[dict]:
         {"enrollment": enrollment, "progress": progress_percent(done.get(enrollment.user_id, 0), total)}
         for enrollment in Enrollment.objects.filter(course=course).select_related("user").order_by("-created_at")
     ]
+
+
+def renewable(enrollment) -> bool:
+    """Access that ends soon enough to renew now; renewing adds to its end rather than starting today."""
+    if not enrollment.is_current or enrollment.valid_till is None:
+        return False
+    return enrollment.valid_till - renewal_window() <= timezone.now()

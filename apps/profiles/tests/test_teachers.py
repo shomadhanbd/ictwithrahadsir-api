@@ -92,6 +92,21 @@ class TeacherWriteTests(TestCase):
         self.assertEqual(profile.user.name, "New Teacher")
         self.assertEqual(profile.designation, "Senior Teacher")
 
+    def test_a_teacher_can_be_created_without_a_photo(self):
+        self.assertEqual(self._post(image=None).status_code, 201)
+        self.assertEqual(TeacherProfile.objects.get(user__phone="01710004444").user.image, "")
+
+    def test_removing_the_photo_clears_it(self):
+        self._post(image="https://cdn.example.com/a.png")
+        profile = TeacherProfile.objects.get(user__phone="01710004444")
+        response = self.client.patch(
+            self._detail(profile), {"image": None}, content_type="application/json", **self.auth
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertIsNone(response.json()["image"])
+        profile.user.refresh_from_db()
+        self.assertEqual(profile.user.image, "")
+
     def test_a_new_teacher_lands_in_the_teacher_group(self):
         """Creating a roster entry gives the account the teacher role."""
         self._post()

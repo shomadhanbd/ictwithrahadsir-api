@@ -69,8 +69,8 @@ class MyCourseListAPIView(CourseCardsMixin, UnpaginatedDataListMixin, ListAPIVie
 class ContentDetailAPIView(APIView):
     permission_classes = [AllowAny]
 
-    def get(self, request, slug):
-        content = selectors.accessible_content(request.user, slug)
+    def get(self, request, pk):
+        content = selectors.accessible_content(request.user, pk)
         return Response(ContentDetailSerializer(content, context={"request": request}).data)
 
 

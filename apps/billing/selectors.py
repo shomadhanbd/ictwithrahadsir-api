@@ -1,5 +1,6 @@
 from collections import defaultdict
 
+from django.conf import settings
 from django.db.models import Count, F, OuterRef, Q, Subquery
 from django.utils import timezone
 
@@ -22,12 +23,24 @@ def running_purchase(user, product, *, exclude=None):
     return payments.order_by(F("access_until").desc(nulls_first=True)).first()
 
 
-def access_until(product):
-    """When a purchase made now stops giving access; None is lifetime."""
+def renewal_window():
+    """How long before a running purchase ends it may be renewed; the expiry reminder goes out as it opens."""
+    return timezone.timedelta(days=settings.EXPIRY_REMINDER_DAYS)
+
+
+def access_until(product, *, user=None):
+    """When a purchase made now stops giving access; None is lifetime.
+
+    A renewal of `user`'s running purchase of a fixed-days package adds its days to that purchase's end.
+    """
     if product.access_ends_at:
         return product.access_ends_at
     if product.access_days:
-        return timezone.now() + timezone.timedelta(days=product.access_days)
+        start = timezone.now()
+        running = running_purchase(user, product) if user is not None else None
+        if running is not None and running.access_until is not None:
+            start = max(start, running.access_until)
+        return start + timezone.timedelta(days=product.access_days)
     return None
 
 
@@ -83,8 +96,8 @@ def package_summary(product, course_count) -> dict:
     }
 
 
-def course_packages(course_ids) -> dict[int, list[dict]]:
-    """The packages on sale for each of `course_ids`, cheapest first."""
+def course_packages(course_ids, user=None) -> dict[int, list[dict]]:
+    """The packages on sale to `user` for each of `course_ids`, cheapest first."""
     link = Product.courses.through
     course_count = (
         link.objects.filter(product_id=OuterRef('product_id'))
@@ -94,7 +107,7 @@ def course_packages(course_ids) -> dict[int, list[dict]]:
         .values('total')
     )
     rows = (
-        link.objects.filter(course_id__in=course_ids, product__in=Product.objects.on_sale())
+        link.objects.filter(course_id__in=course_ids, product__in=Product.objects.on_sale().visible_to(user))
         .select_related('product')
         .annotate(course_count=Subquery(course_count))
     )

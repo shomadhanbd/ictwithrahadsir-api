@@ -11,6 +11,7 @@ from apps.courses.models import (
     Enrollment,
     Section,
 )
+from apps.identity.models import User
 
 
 class ContentAccessTests(APITestCase):
@@ -18,12 +19,11 @@ class ContentAccessTests(APITestCase):
         self.student = make_user()
         self.auth = bearer(self.student)
         self.course = Course.objects.create(status='published', title='ICT', slug='ict')
-        self.section = Section.objects.create(course=self.course, title='Ch1', slug='ict-ch1')
+        self.section = Section.objects.create(course=self.course, title='Ch1')
         self.paid = Content.objects.create(
             course=self.course,
             section=self.section,
             title='Paid lesson',
-            slug='ict-paid',
             type=Content.Type.VIDEO,
             paid=True,
         )
@@ -31,26 +31,25 @@ class ContentAccessTests(APITestCase):
             course=self.course,
             section=self.section,
             title='Free lesson',
-            slug='ict-free',
             type=Content.Type.VIDEO,
             paid=False,
         )
 
-    def url(self, slug):
-        return reverse('api:courses:content_detail', args=[slug])
+    def url(self, lesson_id):
+        return reverse('api:courses:content_detail', args=[lesson_id])
 
     def test_free_content_is_open_to_anonymous(self):
-        self.assertEqual(self.client.get(self.url('ict-free')).status_code, 200)
+        self.assertEqual(self.client.get(self.url(self.free.pk)).status_code, 200)
 
     def test_paid_content_is_closed_to_anonymous(self):
-        self.assertEqual(self.client.get(self.url('ict-paid')).status_code, 403)
+        self.assertEqual(self.client.get(self.url(self.paid.pk)).status_code, 403)
 
     def test_paid_content_is_closed_without_enrolment(self):
-        self.assertEqual(self.client.get(self.url('ict-paid'), **self.auth).status_code, 403)
+        self.assertEqual(self.client.get(self.url(self.paid.pk), **self.auth).status_code, 403)
 
     def test_enrolment_opens_paid_content(self):
         Enrollment.objects.create(course=self.course, user=self.student)
-        self.assertEqual(self.client.get(self.url('ict-paid'), **self.auth).status_code, 200)
+        self.assertEqual(self.client.get(self.url(self.paid.pk), **self.auth).status_code, 200)
 
     def test_expired_enrolment_closes_paid_content(self):
         Enrollment.objects.create(
@@ -58,10 +57,10 @@ class ContentAccessTests(APITestCase):
             user=self.student,
             valid_till=timezone.now() - timezone.timedelta(days=1),
         )
-        self.assertEqual(self.client.get(self.url('ict-paid'), **self.auth).status_code, 403)
+        self.assertEqual(self.client.get(self.url(self.paid.pk), **self.auth).status_code, 403)
 
     def test_unknown_content_is_404(self):
-        self.assertEqual(self.client.get(self.url('nope')).status_code, 404)
+        self.assertEqual(self.client.get(self.url(999999)).status_code, 404)
 
     def test_each_type_fills_only_its_own_block(self):
         Enrollment.objects.create(course=self.course, user=self.student)
@@ -73,20 +72,23 @@ class ContentAccessTests(APITestCase):
             'live': {'live_url': 'https://meet.example.com/x', 'live_scheduled_at': when},
         }
         blocks = ('video', 'note', 'pdf', 'link', 'live')
+        created = {}
         for kind, fields in lessons.items():
             with self.subTest(kind=kind):
-                Content.objects.create(
-                    course=self.course, section=self.section, title=kind, slug=f'ict-{kind}', type=kind, **fields
+                created[kind] = Content.objects.create(
+                    course=self.course, section=self.section, title=kind, type=kind, **fields
                 )
-                body = self.client.get(self.url(f'ict-{kind}'), **self.auth).json()
+                body = self.client.get(self.url(created[kind].pk), **self.auth).json()
                 self.assertEqual([b for b in blocks if body[b] is not None], [kind])
 
-        self.assertEqual(self.client.get(self.url('ict-note'), **self.auth).json()['note'], {'body': '<p>Read me</p>'})
         self.assertEqual(
-            self.client.get(self.url('ict-pdf'), **self.auth).json()['pdf'],
+            self.client.get(self.url(created['note'].pk), **self.auth).json()['note'], {'body': '<p>Read me</p>'}
+        )
+        self.assertEqual(
+            self.client.get(self.url(created['pdf'].pk), **self.auth).json()['pdf'],
             {'url': 'https://files.example.com/secret.pdf'},
         )
-        live = self.client.get(self.url('ict-live'), **self.auth).json()['live']
+        live = self.client.get(self.url(created['live'].pk), **self.auth).json()['live']
         self.assertEqual(live['url'], 'https://meet.example.com/x')
         self.assertIsNotNone(live['scheduled_at'])
 
@@ -96,21 +98,20 @@ class LessonReleaseTests(APITestCase):
         self.student = make_user()
         self.auth = bearer(self.student)
         self.course = Course.objects.create(status='published', title='ICT', slug='ict-release')
-        section = Section.objects.create(slug=next_slug("section"), course=self.course, title='Ch1')
+        section = Section.objects.create(course=self.course, title='Ch1')
         Enrollment.objects.create(course=self.course, user=self.student)
         self.later = timezone.now() + timezone.timedelta(days=2)
         self.lesson = Content.objects.create(
             course=self.course,
             section=section,
             title='Next week',
-            slug='next-week',
             type=Content.Type.VIDEO,
             paid=False,
             available_from=self.later,
         )
 
     def detail(self):
-        return self.client.get(reverse('api:courses:content_detail', args=['next-week']), **self.auth)
+        return self.client.get(reverse('api:courses:content_detail', args=[self.lesson.pk]), **self.auth)
 
     def test_an_unreleased_lesson_cannot_be_opened(self):
         response = self.detail()
@@ -124,7 +125,7 @@ class LessonReleaseTests(APITestCase):
     def test_an_unreleased_lesson_is_still_listed_on_the_course(self):
         body = self.client.get(reverse('api:courses:course_detail', args=['ict-release'])).json()
         lesson = body['curriculum'][0]['contents'][0]
-        self.assertEqual(lesson['slug'], 'next-week')
+        self.assertEqual(lesson['id'], self.lesson.pk)
         self.assertIsNotNone(lesson['available_from'])
 
     def test_an_unreleased_lesson_cannot_be_marked_complete(self):
@@ -180,3 +181,28 @@ class CourseMaterialListTests(APITestCase):
         Enrollment.objects.create(course=self.course, user=self.student)
         response = self.client.get(self.url('no-such-course'), **self.auth)
         self.assertEqual(response.status_code, 404)
+
+
+class LessonByIdTests(APITestCase):
+    """A lesson is addressed by its id: there is no slug to type or keep unique."""
+
+    def setUp(self):
+        admin = make_user(role=User.Role.ADMIN)
+        self.auth = bearer(admin)
+        self.course = Course.objects.create(status='published', title='ICT', slug=next_slug('course'))
+
+    def test_a_section_and_a_lesson_need_only_a_title(self):
+        section = self.client.post(
+            '/api/private/sections/', {'course_id': self.course.pk, 'title': 'অধ্যায় ১'}, format='json', **self.auth
+        )
+        self.assertEqual(section.status_code, 201, section.content)
+        self.assertNotIn('slug', section.json())
+        lesson = self.client.post(
+            '/api/private/contents/',
+            {'course_id': self.course.pk, 'section_id': section.json()['id'], 'title': 'ক্লাস ১', 'type': 'video'},
+            format='json',
+            **self.auth,
+        )
+        self.assertEqual(lesson.status_code, 201, lesson.content)
+        lesson_id = lesson.json()['id']
+        self.assertEqual(self.client.get(f'/api/private/contents/{lesson_id}/', **self.auth).status_code, 200)

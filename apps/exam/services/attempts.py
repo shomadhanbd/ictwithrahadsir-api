@@ -1,17 +1,27 @@
 import logging
 from collections import Counter
+from uuid import uuid4
 
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.core.files.storage import default_storage
 from django.db import transaction
 from django.db.models import Max
 from django.utils import timezone
 
 from apps.courses.services import complete_lesson
-from apps.exam.models import Exam, ExamAnswer, ExamAttempt
+from apps.exam.models import Exam, ExamAnswer, ExamAnswerSheet, ExamAttempt, ExamSectionQuestion
 from apps.exam.selectors import assert_may_sit, is_open, lesson_exam_summary, paper_questions, valid_option_ids
 from apps.exam.services.grading import frozen_marking, grade_attempt, paper_key
 from apps.exam.utils import paper_seed
-from apps.exam.validators import validate_answers, validate_may_start, validate_required_answers
+from apps.exam.validators import (
+    validate_answers,
+    validate_may_start,
+    validate_required_answers,
+    validate_sheet_room,
+    validate_sheet_target,
+)
+from apps.uploads.links import public_link
+from apps.uploads.validators import image_extension, pdf_extension
 
 logger = logging.getLogger(__name__)
 
@@ -148,3 +158,59 @@ def lesson_exam(content, user):
     if user is not None and user.is_authenticated:
         finalize_expired(ExamAttempt.objects.filter(exam__lesson=content, user=user))
     return lesson_exam_summary(content, user)
+
+
+def _sheet_for(attempt, section_question_id):
+    """The open attempt's answer sheet for one creative question on its paper, made on first use."""
+    if not is_open(attempt):
+        raise ValidationError({"attempt": ATTEMPT_OVER})
+    placement = (
+        ExamSectionQuestion.objects.select_related("section")
+        .filter(pk=section_question_id, section__exam_id=attempt.exam_id)
+        .first()
+    )
+    validate_sheet_target(placement)
+    sheet, _ = ExamAnswerSheet.objects.select_for_update().get_or_create(attempt=attempt, section_question=placement)
+    return sheet
+
+
+def _sheet_file_kind(upload):
+    """("pdf" | "image", extension), from the file's own content rather than the name it came with."""
+    if upload.name.lower().endswith(".pdf") or getattr(upload, "content_type", "") == "application/pdf":
+        return "pdf", pdf_extension(upload)
+    return "image", image_extension(upload)
+
+
+@transaction.atomic
+def add_sheet_file(attempt, section_question_id, upload):
+    """Stores one photo or PDF of a handwritten answer."""
+    attempt = ExamAttempt.objects.select_for_update().get(pk=attempt.pk)
+    sheet = _sheet_for(attempt, section_question_id)
+    answered = (
+        ExamAnswerSheet.objects.filter(attempt=attempt, section_question__section_id=sheet.section_question.section_id)
+        .exclude(pk=sheet.pk)
+        .exclude(files=[])
+        .count()
+    )
+    validate_sheet_room(sheet, answered_in_section=answered)
+    kind, extension = _sheet_file_kind(upload)
+    name = default_storage.save(f"uploads/exam-answers/{attempt.pk}/{uuid4().hex}.{extension}", upload)
+    sheet.files = [*sheet.files, {"link": public_link(name), "name": upload.name[:120], "kind": kind}]
+    sheet.save(update_fields=["files", "updated_at"])
+    return sheet
+
+
+@transaction.atomic
+def remove_sheet_file(attempt, section_question_id, link):
+    """Takes one file off an answer sheet while the attempt is open."""
+    attempt = ExamAttempt.objects.select_for_update().get(pk=attempt.pk)
+    sheet = _sheet_for(attempt, section_question_id)
+    kept = [item for item in sheet.files if item["link"] != link]
+    if len(kept) == len(sheet.files):
+        raise ValidationError({"link": "That file is not on this answer."})
+    sheet.files = kept
+    sheet.save(update_fields=["files", "updated_at"])
+    stored = link.split(default_storage.base_url, 1)[-1] if default_storage.base_url in link else None
+    if stored and stored.startswith(f"uploads/exam-answers/{attempt.pk}/"):
+        default_storage.delete(stored)
+    return sheet

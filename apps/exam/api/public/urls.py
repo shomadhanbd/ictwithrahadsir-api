@@ -4,6 +4,7 @@ from apps.exam.api.public.views import (
     AttemptAnswersAPIView,
     AttemptDetailAPIView,
     AttemptResultAPIView,
+    AttemptSheetFilesAPIView,
     AttemptSubmitAPIView,
     ExamDetailAPIView,
     ExamRankingAPIView,
@@ -20,4 +21,9 @@ urlpatterns = [
     path('exam-attempts/<int:pk>/answers/', AttemptAnswersAPIView.as_view(), name='attempt_answers'),
     path('exam-attempts/<int:pk>/submit/', AttemptSubmitAPIView.as_view(), name='attempt_submit'),
     path('exam-attempts/<int:pk>/result/', AttemptResultAPIView.as_view(), name='attempt_result'),
+    path(
+        'exam-attempts/<int:pk>/sheets/<int:section_question_id>/files/',
+        AttemptSheetFilesAPIView.as_view(),
+        name='attempt_sheet_files',
+    ),
 ]

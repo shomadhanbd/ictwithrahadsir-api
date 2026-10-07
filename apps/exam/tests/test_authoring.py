@@ -54,11 +54,8 @@ class ExamConfigurationRuleTests(ExamTestCase):
         self.assertEqual(response.status_code, 422, response.content)
         self.assertIn(field, response.json()["errors"])
 
-    def test_pass_marks_cannot_exceed_the_total(self):
-        self.assert_refused("pass_marks", pass_marks="120.00")
-
-    def test_total_marks_must_be_positive(self):
-        self.assert_refused("total_marks", total_marks="0.00")
+    def test_pass_marks_must_be_positive(self):
+        self.assert_refused("pass_marks", pass_marks="0.00")
 
     def test_an_exam_cannot_end_before_it_starts(self):
         self.assert_refused("end_time", start_time="2026-10-01T10:00:00Z", end_time="2026-10-01T09:00:00Z")
@@ -84,11 +81,6 @@ class ExamConfigurationRuleTests(ExamTestCase):
         batch = Batch.objects.create(name="SSC-2027", class_level=self.ssc, slug="ssc-2027")
 
         self.assert_refused("scope", scope="standalone", batch_id=batch.pk)
-
-    def test_the_database_refuses_pass_marks_above_the_total(self):
-        """Exercises the constraint itself; the serializer normally refuses first."""
-        with self.assertRaises(IntegrityError), transaction.atomic():
-            Exam.objects.create(title="Raw", total_marks=10, pass_marks=20)
 
     def test_the_database_refuses_a_zero_attempt_exam(self):
         with self.assertRaises(IntegrityError), transaction.atomic():

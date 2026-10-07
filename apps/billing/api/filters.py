@@ -5,14 +5,6 @@ from django_filters import rest_framework as filters
 from apps.billing.models import Product
 
 
-class PublicProductFilter(filters.FilterSet):
-    course = filters.CharFilter(field_name='courses__slug')
-
-    class Meta:
-        model = Product
-        fields = ['course']
-
-
 class AdminProductFilter(filters.FilterSet):
     course_id = filters.NumberFilter(field_name='courses__id')
     is_active = filters.BooleanFilter()

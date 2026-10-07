@@ -14,7 +14,7 @@ from apps.profiles.validators import clean_student_audience
 
 
 class UserSerializer(serializers.ModelSerializer):
-    image = MediaField(required=False)
+    image = MediaField(required=False, null_as="")
     role = serializers.CharField(read_only=True)
     student = StudentProfileSerializer(read_only=True, allow_null=True)
 

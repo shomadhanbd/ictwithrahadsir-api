@@ -1,6 +1,8 @@
+from django.core.exceptions import ValidationError
 from django.utils import timezone
 
 from rest_framework import status
+from rest_framework.parsers import JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -86,6 +88,27 @@ class AttemptResultAPIView(APIView):
         return Response(result_payload(attempt))
 
 
+class AttemptSheetFilesAPIView(APIView):
+    """A photo or PDF of a handwritten (CQ) answer: POST one file, or DELETE `{link}`, while the attempt is open."""
+
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, JSONParser]
+
+    def post(self, request, pk, section_question_id):
+        attempt = attempt_service.own_attempt(request.user, pk)
+        attempt_service.end_if_access_lost(attempt, request.user)
+        upload = request.FILES.get("file")
+        if upload is None:
+            raise ValidationError({"file": "Choose a photo or PDF to upload."})
+        sheet = attempt_service.add_sheet_file(attempt, section_question_id, upload)
+        return Response({"section_question_id": sheet.section_question_id, "files": sheet.files}, status=201)
+
+    def delete(self, request, pk, section_question_id):
+        attempt = attempt_service.own_attempt(request.user, pk)
+        sheet = attempt_service.remove_sheet_file(attempt, section_question_id, request.data.get("link", ""))
+        return Response({"section_question_id": sheet.section_question_id, "files": sheet.files})
+
+
 class ExamRankingAPIView(APIView):
     """Official results, best first, and where the caller stands."""
 
@@ -96,7 +119,8 @@ class ExamRankingAPIView(APIView):
         selectors.assert_ranking_visible(exam)
         attempt_service.settled(exam.attempts.all())
         total, top, mine = selectors.ranking(exam, request.user, size=RANKING_SIZE)
-        return Response(ranking_payload(total, top, mine, viewer=request.user))
+        pending = selectors.pending_marking_count(exam)
+        return Response(ranking_payload(total, top, mine, viewer=request.user, pending=pending))
 
 
 class MyExamListAPIView(APIView):

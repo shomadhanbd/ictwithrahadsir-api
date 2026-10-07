@@ -6,28 +6,18 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.billing.api.filters import PublicProductFilter
 from apps.billing.api.serializers import (
     PaymentInitiateRequestSerializer,
     PaymentInitiateResponseSerializer,
     PaymentSerializer,
-    ProductSerializer,
 )
-from apps.billing.models import Payment, Product
+from apps.billing.models import Payment
 from apps.billing.services import (
     initiate_payment,
     process_capture,
     process_ipn,
 )
 from apps.core.api.views.generics import UnpaginatedDataListMixin
-
-
-class ProductListView(ListAPIView):
-    permission_classes = [AllowAny]
-    serializer_class = ProductSerializer
-    queryset = Product.objects.on_sale().prefetch_related("courses")
-    search_fields = ["title", "description"]
-    filterset_class = PublicProductFilter
 
 
 class PaymentInitiateView(APIView):

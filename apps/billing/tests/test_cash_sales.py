@@ -65,7 +65,7 @@ class CashSaleTests(BillingTestBase):
         self.assertEqual(self.record().status_code, 201)
         response = self.record()
         self.assertEqual(response.status_code, 422)
-        self.assertIn('renew it after that', str(response.json()['errors']))
+        self.assertIn('renew it from', str(response.json()['errors']))
         self.assertEqual(Payment.objects.count(), 1)
 
     def test_no_end_date_on_a_lifetime_package_is_lifetime(self):

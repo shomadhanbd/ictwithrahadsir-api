@@ -49,14 +49,16 @@ class SectionCompositionTests(ExamTestCase):
 
         self.assertEqual(body["question_types"], ["mcq", "cq"])
 
-    def test_the_sections_cannot_outgrow_the_exam(self):
-        exam = self.exam(total_marks=100)
-        self.section(exam=exam, title="MCQ", marks=80)
+    def test_the_exam_total_follows_its_sections(self):
+        exam = self.exam()
+        mcq = self.section(exam=exam, title="MCQ", marks=25)
+        self.assertEqual(self.post(exam=exam, title="CQ", marks="40.00").status_code, 201)
+        exam.refresh_from_db()
+        self.assertEqual(exam.total_marks, 65)
 
-        response = self.post(exam=exam, title="Extra", marks="30.00")
-
-        self.assertEqual(response.status_code, 422)
-        self.assertIn("marks", response.json()["errors"])
+        mcq.delete()
+        exam.refresh_from_db()
+        self.assertEqual(exam.total_marks, 40)
 
     def test_the_sections_cannot_outrun_the_exam(self):
         exam = self.exam(duration_minutes=90)

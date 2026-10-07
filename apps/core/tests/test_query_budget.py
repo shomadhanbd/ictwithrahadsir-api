@@ -56,15 +56,12 @@ class QueryBudgetTests(APITestCase):
             Payment.objects.create(user=cls.user, product=product, amount=1000, status=Payment.Status.VALID)
 
             for s in range(cls.SECTIONS_PER_COURSE):
-                parent = Section.objects.create(slug=next_slug("section"), course=course, title=f"C{i} Section {s}")
+                parent = Section.objects.create(course=course, title=f"C{i} Section {s}")
                 # One nested level, so the recursive serializer is exercised.
-                child = Section.objects.create(
-                    slug=next_slug("section"), course=course, section=parent, title=f"C{i} Sub {s}"
-                )
+                child = Section.objects.create(course=course, section=parent, title=f"C{i} Sub {s}")
                 for c in range(cls.CONTENTS_PER_SECTION):
                     for target in (parent, child):
                         Content.objects.create(
-                            slug=next_slug("content"),
                             course=course,
                             section=target,
                             title=f"C{i}S{s}-{target.id}-{c}",
@@ -94,7 +91,8 @@ class QueryBudgetTests(APITestCase):
 
     def test_my_courses(self):
         self.authenticate()
-        with self.assertNumQueries(8):
+        # One is the student profile, read once to offer only the packages meant for them.
+        with self.assertNumQueries(9):
             response = self.client.get("/api/public/me/courses/")
         self.assertEqual(len(response.data["data"]), self.COURSES)
 

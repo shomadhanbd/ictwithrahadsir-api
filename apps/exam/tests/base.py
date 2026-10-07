@@ -134,7 +134,7 @@ class CourseExamTestCase(APITestCase):
         group = Group.objects.create(name="Science", slug="science")
         self.subject = Subject.objects.create(name="ICT", class_level=level, group=group, slug="ict-hsc")
         self.course = Course.objects.create(title="ICT", slug="ict", status="published")
-        self.chapter = Section.objects.create(slug=next_slug("section"), course=self.course, title="Ch 1")
+        self.chapter = Section.objects.create(course=self.course, title="Ch 1")
         Enrollment.objects.create(course=self.course, user=self.student)
         Enrollment.objects.create(course=self.course, user=self.other)
 
@@ -144,7 +144,6 @@ class CourseExamTestCase(APITestCase):
             section=self.chapter,
             type="exam",
             title=fields.pop("title", "Model test"),
-            slug=fields.pop("slug", None) or next_slug("lesson"),
             **fields,
         )
 

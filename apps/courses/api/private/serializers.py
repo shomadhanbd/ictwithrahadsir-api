@@ -76,7 +76,6 @@ class AdminContentSerializer(CourseOwnedSerializer):
             "course_id",
             "section_id",
             "title",
-            "slug",
             "type",
             "variant",
             "available_from",
@@ -188,7 +187,7 @@ class AdminSectionSerializer(CourseOwnedSerializer):
 
     class Meta:
         model = Section
-        fields = ["id", "course_id", "section_id", "title", "slug", "order", "active"]
+        fields = ["id", "course_id", "section_id", "title", "order", "active"]
         read_only_fields = ["id"]
 
     def validate(self, attrs):

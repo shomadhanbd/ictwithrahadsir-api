@@ -30,7 +30,7 @@ class AttemptedExamLockTests(CourseExamTestCase):
         self.assertEqual(Exam.objects.get(pk=self.exam.pk).status, Exam.Status.PUBLISHED)
 
     def test_marks_and_timing_are_frozen(self):
-        for field, value in (("total_marks", "10.00"), ("pass_marks", "1.00"), ("duration_minutes", 90)):
+        for field, value in (("pass_marks", "1.00"), ("duration_minutes", 90)):
             with self.subTest(field=field):
                 self.assertEqual(self.patch_exam(**{field: value}).status_code, 422)
 

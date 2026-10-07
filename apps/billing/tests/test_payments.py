@@ -65,7 +65,7 @@ class InitiatePaymentTests(BillingTestBase):
 
         response, create_session = self.initiate(product_id='hsc-ict')
         self.assertEqual(response.status_code, 422)
-        self.assertIn('renew it after that', str(response.json()['errors']['product_id']))
+        self.assertIn('renew it from', str(response.json()['errors']['product_id']))
         create_session.assert_not_called()
 
     def test_a_package_ending_today_is_not_sold(self):

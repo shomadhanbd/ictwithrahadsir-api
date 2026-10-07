@@ -163,6 +163,11 @@ def paper_placements(exam):
     return sections, placements
 
 
+def written_section_ids(exam) -> set:
+    """The sections a teacher marks by hand (CQ) rather than against an option key."""
+    return {pk for pk, kind in exam.sections.values_list("pk", "question_type") if not kinds.kind(kind).auto_graded}
+
+
 def paper_questions(exam):
     """`{question_id: (placement, question)}` for every question on the paper."""
     _, placements = paper_placements(exam)
@@ -263,15 +268,16 @@ def attempt_paper(attempt) -> list[dict]:
                 if section.shuffle_options and options:
                     options = seeded_shuffle(options, seed=attempt.seed + question.pk)
                 questions.append({"question": question, "options": options})
-            items.append({"question_set": question_set, "questions": questions})
+            items.append({"placement": row, "question_set": question_set, "questions": questions})
         paper.append({"section": section, "marking": attempt.marking.get(str(section.pk), {}), "items": items})
     return paper
 
 
 def attempt_review(attempt) -> list[dict]:
-    """Every question on the paper with the attempt's answer, the key and the explanation."""
+    """Every auto-marked question on the paper with the attempt's answer, the key and the explanation."""
     chosen = {a.question_id: a for a in attempt.answers.all()}
-    on_paper = paper_questions(attempt.exam)
+    written = written_section_ids(attempt.exam)
+    on_paper = {q: row for q, row in paper_questions(attempt.exam).items() if row[0].section_id not in written}
     keys = answer_keys(list(on_paper))
 
     review = []
@@ -293,14 +299,56 @@ def attempt_review(attempt) -> list[dict]:
     return review
 
 
+def written_review(attempt, *, reveal_answers) -> list[dict]:
+    """Each creative question on the paper: the student's uploaded sheet and every part's marks so far."""
+    sections, placements = paper_placements(attempt.exam)
+    sheets = {sheet.section_question_id: sheet.files for sheet in attempt.sheets.all()}
+    answers = {answer.question_id: answer for answer in attempt.answers.all()}
+    review = []
+    for section in sections:
+        if kinds.kind(section.question_type).auto_graded:
+            continue
+        for row in placements[section.pk]:
+            block = row.block
+            question_set = getattr(block, "question_set", None) if block.kind == QuestionBlock.Kind.GROUP else None
+            parts = []
+            for question in block_questions(block):
+                answer = answers.get(question.pk)
+                marked = answer is not None and answer.marked_at is not None
+                parts.append(
+                    {
+                        "id": question.pk,
+                        "label": question.label,
+                        "prompt_content": question.prompt_content,
+                        "max_marks": question.marks,
+                        "marks": answer.marks_awarded if marked else None,
+                        "model_answer": question.model_answer if reveal_answers else "",
+                    }
+                )
+            review.append(
+                {
+                    "section_question_id": row.pk,
+                    "section_title": section.title,
+                    "stimulus": (
+                        {"type": question_set.stimulus_type, "content": question_set.stimulus_content}
+                        if question_set is not None
+                        else None
+                    ),
+                    "files": sheets.get(row.pk, []),
+                    "parts": parts,
+                }
+            )
+    return review
+
+
 def official_ranks(exam) -> dict:
     """Each official attempt's rank, `{attempt pk: rank}`: higher score first, then quicker; ties share a rank.
 
     Reads four columns per attempt, not whole rows, so a paged table or a CSV can rank against everyone.
     """
     rows = []
-    for pk, score, started_at, submitted_at in exam.attempts.official().values_list(
-        "pk", "score", "started_at", "submitted_at"
+    for pk, score, started_at, submitted_at in (
+        exam.attempts.official().filter(awaiting_marking=False).values_list("pk", "score", "started_at", "submitted_at")
     ):
         took = submitted_at - started_at if submitted_at else None
         rows.append((pk, score, took))
@@ -314,8 +362,13 @@ def official_ranks(exam) -> dict:
 
 
 def _timed_official(exam):
+    """Official results that are final: one still waiting for a teacher's marks is not ranked yet."""
     took = ExpressionWrapper(F("submitted_at") - F("started_at"), output_field=DurationField())
-    return exam.attempts.official().annotate(took=took)
+    return exam.attempts.official().filter(awaiting_marking=False).annotate(took=took)
+
+
+def pending_marking_count(exam) -> int:
+    return exam.attempts.official().filter(awaiting_marking=True).count()
 
 
 def ranking(exam, viewer, *, size):
@@ -337,12 +390,14 @@ def ranking(exam, viewer, *, size):
 
 def exam_result_stats(exam) -> dict:
     """The official results' figures, aggregated in the database."""
-    passing = Q(score__gte=exam.pass_marks) if exam.pass_marks is not None else Q(pk__in=[])
+    # Every official answer counts as submitted; the figures read only those whose marking is finished.
+    final = Q(awaiting_marking=False)
+    passing = final & Q(score__gte=exam.pass_marks) if exam.pass_marks is not None else Q(pk__in=[])
     figures = exam.attempts.official().aggregate(
         submitted=Count("pk"),
-        scored=Count("score"),
-        average=Avg("score"),
-        highest=Max("score"),
+        scored=Count("score", filter=final),
+        average=Avg("score", filter=final),
+        highest=Max("score", filter=final),
         passed=Count("pk", filter=passing),
     )
     scored = figures["scored"]
@@ -352,6 +407,7 @@ def exam_result_stats(exam) -> dict:
         "average": round(Decimal(figures["average"]), 2) if scored else None,
         "highest": figures["highest"] if scored else None,
         "passed": figures["passed"] if exam.pass_marks is not None and scored else None,
+        "to_mark": exam.attempts.filter(status=ExamAttempt.Status.SUBMITTED, awaiting_marking=True).count(),
     }
 
 

@@ -14,9 +14,9 @@ ENROLMENT_URL = reverse("api:courses:admin_enrollment")
 class CurriculumRulesTests(APITestCase):
     def setUp(self):
         self.course = Course.objects.create(title="ICT", slug="ict-rules", status="published")
-        self.section = Section.objects.create(course=self.course, title="Ch 1", slug="ict-rules-ch1")
+        self.section = Section.objects.create(course=self.course, title="Ch 1")
         self.lesson = Content.objects.create(
-            course=self.course, section=self.section, title="L1", slug="ict-rules-l1", type="video", paid=False
+            course=self.course, section=self.section, title="L1", type="video", paid=False
         )
         self.teacher = make_user(role=User.Role.TEACHER)
         CourseTeacher.objects.create(course=self.course, user=self.teacher)
@@ -25,7 +25,7 @@ class CurriculumRulesTests(APITestCase):
         self.student = make_user()
 
     def test_a_teacher_edits_but_cannot_delete_lessons_or_sections(self):
-        lesson_url = f"/api/private/contents/{self.lesson.slug}/"
+        lesson_url = f"/api/private/contents/{self.lesson.pk}/"
         section_url = f"/api/private/sections/{self.section.pk}/"
         self.assertEqual(
             self.client.patch(lesson_url, {"title": "L1b"}, format="json", **self.teacher_auth).status_code, 200
@@ -59,9 +59,7 @@ class CurriculumRulesTests(APITestCase):
         self.assertEqual(self.client.post(ENROLMENT_URL, body, format="json", **self.admin_auth).status_code, 201)
 
     def lesson_status(self, auth=None):
-        return self.client.get(
-            reverse("api:courses:content_detail", args=[self.lesson.slug]), **(auth or {})
-        ).status_code
+        return self.client.get(reverse("api:courses:content_detail", args=[self.lesson.pk]), **(auth or {})).status_code
 
     def test_a_free_lesson_of_a_draft_course_is_not_reachable(self):
         self.assertEqual(self.lesson_status(), 200)
@@ -74,16 +72,14 @@ class CurriculumRulesTests(APITestCase):
         self.assertEqual(self.lesson_status(), 404)
 
     def test_a_lesson_under_a_switched_off_parent_section_is_not_reachable(self):
-        parent = Section.objects.create(course=self.course, title="Part", slug="ict-rules-part", active=False)
+        parent = Section.objects.create(course=self.course, title="Part", active=False)
         Section.objects.filter(pk=self.section.pk).update(section=parent)
         self.assertEqual(self.lesson_status(), 404)
 
     def test_course_cards_count_only_lessons_students_can_see(self):
-        Content.objects.create(
-            course=self.course, section=self.section, title="Off", slug="ict-rules-off", type="video", active=False
-        )
-        hidden = Section.objects.create(course=self.course, title="Hidden", slug="ict-rules-hidden", active=False)
-        Content.objects.create(course=self.course, section=hidden, title="H", slug="ict-rules-h", type="video")
+        Content.objects.create(course=self.course, section=self.section, title="Off", type="video", active=False)
+        hidden = Section.objects.create(course=self.course, title="Hidden", active=False)
+        Content.objects.create(course=self.course, section=hidden, title="H", type="video")
         card = next(
             c for c in self.client.get(reverse("api:courses:course_list")).json()["data"] if c["slug"] == "ict-rules"
         )
@@ -95,15 +91,11 @@ class VisibleLessonCountTests(APITestCase):
 
     def setUp(self):
         self.course = Course.objects.create(title="ICT", slug="ict-visible", status="published")
-        shown = Section.objects.create(course=self.course, title="Shown", slug="ict-visible-shown")
-        hidden_parent = Section.objects.create(course=self.course, title="Off", slug="ict-visible-off", active=False)
-        under_hidden = Section.objects.create(
-            course=self.course, section=hidden_parent, title="Sub", slug="ict-visible-sub"
-        )
-        self.lesson = Content.objects.create(
-            course=self.course, section=shown, title="L", slug="ict-visible-l", type="video", paid=False
-        )
-        Content.objects.create(course=self.course, section=under_hidden, title="H", slug="ict-visible-h", type="video")
+        shown = Section.objects.create(course=self.course, title="Shown")
+        hidden_parent = Section.objects.create(course=self.course, title="Off", active=False)
+        under_hidden = Section.objects.create(course=self.course, section=hidden_parent, title="Sub")
+        self.lesson = Content.objects.create(course=self.course, section=shown, title="L", type="video", paid=False)
+        Content.objects.create(course=self.course, section=under_hidden, title="H", type="video")
         self.student = make_user()
         Enrollment.objects.create(course=self.course, user=self.student)
 
@@ -124,10 +116,10 @@ class VisibleLessonCountTests(APITestCase):
 class TeacherPreviewTests(APITestCase):
     def test_a_teacher_previews_a_paid_lesson_of_their_draft(self):
         course = Course.objects.create(title="Draft", slug="draft-preview", status="draft")
-        section = Section.objects.create(course=course, title="Ch", slug="draft-preview-ch")
-        lesson = Content.objects.create(course=course, section=section, title="Paid", slug="draft-paid", type="video")
+        section = Section.objects.create(course=course, title="Ch")
+        lesson = Content.objects.create(course=course, section=section, title="Paid", type="video")
         teacher = make_user(role=User.Role.TEACHER)
         CourseTeacher.objects.create(course=course, user=teacher)
-        url = reverse("api:courses:content_detail", args=[lesson.slug])
+        url = reverse("api:courses:content_detail", args=[lesson.pk])
         self.assertEqual(self.client.get(url, **bearer(teacher)).status_code, 200)
         self.assertEqual(self.client.get(url, **bearer(make_user())).status_code, 404)

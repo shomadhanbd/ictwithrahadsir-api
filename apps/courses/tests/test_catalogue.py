@@ -158,6 +158,18 @@ class CourseAudienceTests(APITestCase):
         StudentProfile.objects.filter(user=self.student).update(group=None)
         self.assertEqual(self.titles(**self.auth), ['HSC all', 'Open'])
 
+    def test_a_common_group_course_reaches_every_student_of_its_level(self):
+        general = Group.objects.create(name='General', slug='general', is_common=True)
+        Course.objects.create(
+            status='published', title='HSC general', slug='hsc-general', class_level=self.hsc, group=general
+        )
+        Course.objects.create(
+            status='published', title='SSC general', slug='ssc-general', class_level=self.ssc, group=general
+        )
+        self.assertEqual(self.titles(**self.auth), ['HSC all', 'HSC general', 'HSC science', 'Open'])
+        StudentProfile.objects.filter(user=self.student).update(group=None)
+        self.assertEqual(self.titles(**self.auth), ['HSC all', 'HSC general', 'Open'])
+
     def test_filters_by_batch_level_and_group(self):
         self.assertEqual(self.titles({'batch': self.hsc_2027.slug}), ['HSC all'])
         self.assertEqual(self.titles({'class_level': 'ssc'}), ['SSC'])
@@ -252,13 +264,12 @@ class CourseListQueryCountTests(APITestCase):
     def make_courses(self, count):
         for i in range(count):
             course = Course.objects.create(status='published', title=f'Course {i}', slug=f'course-{i}')
-            section = Section.objects.create(course=course, title='Ch1', slug=f'course-{i}-ch1')
+            section = Section.objects.create(course=course, title='Ch1')
             for j, content_type in enumerate([Content.Type.VIDEO, Content.Type.EXAM, Content.Type.NOTE]):
                 Content.objects.create(
                     course=course,
                     section=section,
                     title=f'C{j}',
-                    slug=f'course-{i}-c{j}',
                     type=content_type,
                 )
             package = Product.objects.create(

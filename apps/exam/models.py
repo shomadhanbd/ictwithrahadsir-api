@@ -49,7 +49,8 @@ class Exam(TimestampModel):
         blank=True,
         related_name="exam",
     )
-    total_marks = models.DecimalField("Total Marks", max_digits=6, decimal_places=2, default=100)
+    # The sum of the sections' marks, kept by `apps.exam.signals`; never typed.
+    total_marks = models.DecimalField("Total Marks", max_digits=6, decimal_places=2, default=0, editable=False)
     pass_marks = models.DecimalField("Pass Marks", max_digits=6, decimal_places=2, null=True, blank=True)
     duration_minutes = models.PositiveSmallIntegerField("Duration", null=True, blank=True)
     start_time = models.DateTimeField("Starts", null=True, blank=True)
@@ -65,10 +66,6 @@ class Exam(TimestampModel):
         verbose_name = "Exam"
         verbose_name_plural = "Exams"
         constraints = [
-            models.CheckConstraint(
-                condition=(models.Q(pass_marks__isnull=True) | models.Q(pass_marks__lte=models.F("total_marks"))),
-                name="exam_pass_marks_within_total",
-            ),
             models.CheckConstraint(
                 condition=(
                     models.Q(start_time__isnull=True)
@@ -93,11 +90,20 @@ class Exam(TimestampModel):
     def __str__(self):
         return self.title
 
+    def save(self, *args, **kwargs):
+        # `total_marks` is written only by `sync_exam_total`; an instance loaded earlier must not save a stale one.
+        if self.pk and not kwargs.get("force_insert") and kwargs.get("update_fields") is None:
+            kwargs["update_fields"] = [
+                field.name
+                for field in self._meta.concrete_fields
+                if not field.primary_key and field.name != "total_marks"
+            ]
+        super().save(*args, **kwargs)
+
     def clean(self):
         from apps.exam import validators  # validators import this module
 
         validators.validate_exam(
-            total_marks=self.total_marks,
             pass_marks=self.pass_marks,
             max_attempts=self.max_attempts,
             duration_minutes=self.duration_minutes,
@@ -273,6 +279,8 @@ class ExamAttempt(TimestampModel):
     skipped = models.PositiveSmallIntegerField(default=0)
     # The first submitted attempt; the one that is ranked.
     is_official = models.BooleanField(default=False)
+    # A written (CQ) answer is waiting for a teacher; the score so far is only the auto-marked part.
+    awaiting_marking = models.BooleanField(default=False)
     # Section rates frozen at the start: {section_id: {"positive": .., "negative": ..}}.
     marking = models.JSONField(default=dict)
 
@@ -316,6 +324,11 @@ class ExamAnswer(TimestampModel):
     selected_option_ids = models.JSONField(default=list)
     is_correct = models.BooleanField(null=True, blank=True)
     marks_awarded = models.DecimalField(max_digits=6, decimal_places=2, default=0)
+    # Set when a teacher marks a written (CQ) part; auto-marked answers leave them empty.
+    marked_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    marked_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         constraints = [
@@ -324,3 +337,20 @@ class ExamAnswer(TimestampModel):
 
     def __str__(self):
         return f"{self.attempt} — Q{self.question_id}"
+
+
+class ExamAnswerSheet(TimestampModel):
+    """The photos or PDF of a student's handwritten answer to one creative question on their paper."""
+
+    attempt = models.ForeignKey(ExamAttempt, on_delete=models.CASCADE, related_name="sheets")
+    section_question = models.ForeignKey(ExamSectionQuestion, on_delete=models.PROTECT, related_name="answer_sheets")
+    # [{"link": url, "name": original file name, "kind": "image" | "pdf"}], in upload order.
+    files = models.JSONField(default=list)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["attempt", "section_question"], name="unique_sheet_per_question"),
+        ]
+
+    def __str__(self):
+        return f"{self.attempt} — sheet for pick {self.section_question_id}"

@@ -134,19 +134,17 @@ class ResponseShapeTests(TestCase):
             defaults={'slug': 'homeBannerImage', 'value_type': Page.ValueType.IMAGE},
         )
 
-        self.section = Section.objects.create(course=self.course, title='Ch1', slug='ict-ch1')
+        self.section = Section.objects.create(course=self.course, title='Ch1')
         self.exam_content = Content.objects.create(
             course=self.course,
             section=self.section,
             title='Exam',
-            slug='ict-exam',
             type=Content.Type.EXAM,
         )
         self.video_content = Content.objects.create(
             course=self.course,
             section=self.section,
             title='Video',
-            slug='ict-video',
             type=Content.Type.VIDEO,
         )
 

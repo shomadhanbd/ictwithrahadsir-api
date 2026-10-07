@@ -242,6 +242,7 @@ class EveryAdminPathHasADecidedTierTests(APITestCase):
         'api/private/enrollments/',
         'api/private/payments/cash/',
         'api/private/teachers/lookup/',
+        'api/private/uploads/',
     }
 
     def test_the_matrix_covers_every_admin_collection(self):
@@ -318,9 +319,9 @@ class TeacherCourseScopingTests(APITestCase):
         self.auth = self._auth(self.teacher_user)
         self.admin_auth = self._auth(self.admin)
 
-        section = Section.objects.create(slug=next_slug("section"), course=self.theirs, title='Week 1')
+        section = Section.objects.create(course=self.theirs, title='Week 1')
         self.their_content = Content.objects.create(
-            slug=next_slug("content"), course=self.theirs, section=section, title='Lesson', type=Content.Type.NOTE
+            course=self.theirs, section=section, title='Lesson', type=Content.Type.NOTE
         )
 
     def _auth(self, user):

@@ -234,7 +234,7 @@ def initiate_payment(*, user, product_id: str) -> dict:
             return {"transaction_id": pending.transaction_id, "gateway_page_url": pending.gateway_page_url}
 
         _throttle_initiate(user)
-        fields = {"user": user, "product": product, "amount": amount, "access_until": access_until(product)}
+        fields = {"user": user, "product": product, "amount": amount, "access_until": access_until(product, user=user)}
         if amount == 0:
             payment = Payment.objects.create(status=Payment.Status.VALID, transaction_date=timezone.now(), **fields)
             return {"transaction_id": payment.transaction_id, "gateway_page_url": None}

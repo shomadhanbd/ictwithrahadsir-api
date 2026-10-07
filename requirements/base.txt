@@ -6,6 +6,7 @@ django-filter==26.1
 django-phonenumber-field==8.5.0
 phonenumbers==9.0.38
 nh3==0.3.7
+pillow==12.3.0
 requests==2.34.2
 sslcommerz-lib==1.0.0
 whitenoise==6.12.0

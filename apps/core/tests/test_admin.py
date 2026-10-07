@@ -136,11 +136,11 @@ class AdminQueryBudgetTests(TestCase):
         from apps.courses.models import Content, Course, Section
 
         course = Course.objects.create(slug=next_slug("course"), title='ICT', status='published')
-        section = Section.objects.create(slug=next_slug("section"), course=course, title='S1')
+        section = Section.objects.create(course=course, title='S1')
         counter = iter(range(1000))
 
         def make_row():
             i = next(counter)
-            Content.objects.create(slug=next_slug("content"), course=course, section=section, title=f'Lesson {i}')
+            Content.objects.create(course=course, section=section, title=f'Lesson {i}')
 
         self._assert_flat('courses', 'content', make_row)

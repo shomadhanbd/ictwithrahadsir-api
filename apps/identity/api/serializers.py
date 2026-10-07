@@ -8,7 +8,7 @@ from apps.core.api.serializers.fields import MediaField
 class UserWriteSerializer(serializers.ModelSerializer):
     """What the admin user form and the user's own profile form share."""
 
-    image = MediaField(required=False)
+    image = MediaField(required=False, null_as="")
     password = serializers.CharField(write_only=True, required=False, allow_blank=True)
 
     def validate_password(self, value):

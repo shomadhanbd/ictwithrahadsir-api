@@ -4,7 +4,7 @@ from django.db.models.signals import post_delete, post_save, pre_delete, pre_sav
 from django.dispatch import receiver
 
 from apps.exam.models import ExamSection, ExamSectionQuestion
-from apps.exam.services.exams import create_course_exam
+from apps.exam.services.exams import create_course_exam, sync_exam_total
 from apps.exam.services.sections import reprice_block_picks, reprice_section, sync_section_totals
 from apps.question.models import QuestionBlock
 
@@ -58,6 +58,12 @@ def reprice_on_section_rate(sender, instance, created, **kwargs):
     if created or old_rate is None or old_rate == Decimal(instance.marks_per_question):
         return
     reprice_section(instance, old_rate=old_rate)
+
+
+@receiver(post_save, sender=ExamSection, dispatch_uid="exam.sync_exam_total_on_section_save")
+@receiver(post_delete, sender=ExamSection, dispatch_uid="exam.sync_exam_total_on_section_delete")
+def sync_exam_total_on_section_change(sender, instance, **kwargs):
+    sync_exam_total(instance.exam_id)
 
 
 @receiver(post_save, sender=QuestionBlock, dispatch_uid="exam.sync_totals_on_block_parts")

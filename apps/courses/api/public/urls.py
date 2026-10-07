@@ -14,6 +14,6 @@ urlpatterns = [
     path('courses/<slug:slug>/', PublicCourseDetailAPIView.as_view(), name='course_detail'),
     path('courses/<slug:slug>/progress/', CourseProgressAPIView.as_view(), name='course_progress'),
     path('courses/<slug:slug>/materials/', CourseMaterialListAPIView.as_view(), name='course_material_list'),
-    path('contents/<slug:slug>/', ContentDetailAPIView.as_view(), name='content_detail'),
+    path('contents/<int:pk>/', ContentDetailAPIView.as_view(), name='content_detail'),
     path('me/courses/', MyCourseListAPIView.as_view(), name='my_course_list'),
 ]

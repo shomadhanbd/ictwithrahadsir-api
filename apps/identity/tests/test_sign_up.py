@@ -137,6 +137,24 @@ class AuthFlowTests(FixedOtpCodeTestCase):
         student = User.objects.get(phone=self.phone).student
         self.assertEqual((student.class_level_id, student.group_id), (hsc.pk, science.pk))
 
+    def test_register_refuses_a_common_group(self):
+        hsc, general = (
+            ClassLevel.objects.create(slug=next_slug("classlevel"), name="HSC"),
+            Group.objects.create(slug=next_slug("group"), name="General", is_common=True),
+        )
+        auth = self._verified_phone()
+        body = {
+            "name": "New Student",
+            "phone": self.phone,
+            "class_level_id": hsc.pk,
+            "group_id": general.pk,
+            "password": "Str0ngPass!23",
+            "password_confirmation": "Str0ngPass!23",
+        }
+        response = self.client.post(REGISTER_URL, body, **auth)
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("group_id", response.json()["errors"])
+
     def test_register_requires_a_verified_session(self):
         response = self.client.post(
             REGISTER_URL,

@@ -37,6 +37,11 @@ class MeAndLogoutTests(APITestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["data"]["name"], "Renamed")
 
+    def test_removing_the_avatar_clears_it(self):
+        response = self.client.post(ME_URL, {"image": None}, format="json", **self.auth)
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertIsNone(response.json()["data"]["image"])
+
     def test_logout_deletes_the_token(self):
         response = self.client.post(LOGOUT_URL, **self.auth)
         self.assertEqual(response.status_code, 200)

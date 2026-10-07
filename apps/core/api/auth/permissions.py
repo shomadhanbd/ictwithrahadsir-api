@@ -2,7 +2,7 @@
 
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 
-from apps.identity.roles import is_content_staff, is_full_admin, is_teaching_staff
+from apps.identity.roles import is_content_staff, is_full_admin, is_staff_member, is_teaching_staff
 
 
 class IsFullAdmin(BasePermission):
@@ -24,6 +24,13 @@ class IsTeachingStaff(BasePermission):
 
     def has_permission(self, request, view):
         return is_teaching_staff(request.user)
+
+
+class IsStaffMember(BasePermission):
+    message = "Only back-office staff may do this."
+
+    def has_permission(self, request, view):
+        return is_staff_member(request.user)
 
 
 class IsTeachingStaffAdminDeletes(BasePermission):
