@@ -75,8 +75,6 @@ DJANGO_SETTINGS_MODULE=config.settings.production venv/bin/python manage.py migr
 ```
 # Submit and mark exam attempts whose time ran out.
 * * * * * cd /path/to/backend && DJANGO_SETTINGS_MODULE=config.settings.production venv/bin/python manage.py finalize_exam_attempts
-# Clear old OTP codes (keeps the last hour, which the per-phone send cap counts).
-0 * * * * cd /path/to/backend && DJANGO_SETTINGS_MODULE=config.settings.production venv/bin/python manage.py purge_expired_otps
 # Text students whose access ends within EXPIRY_REMINDER_DAYS, with a renew link to FRONTEND_URL.
 0 9 * * * cd /path/to/backend && DJANGO_SETTINGS_MODULE=config.settings.production venv/bin/python manage.py send_expiry_reminders
 ```

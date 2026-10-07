@@ -4,14 +4,6 @@ from rest_framework.permissions import SAFE_METHODS, BasePermission
 
 from apps.identity.roles import is_content_staff, is_full_admin, is_teaching_staff
 
-SUPERUSER_ACCOUNT_MESSAGE = "Only a superuser may change a superuser's account."
-
-
-def may_change_account(actor, account) -> bool:
-    """A superuser's account is changed only by a superuser: anyone else could set its phone, then reset its
-    password by OTP. Every path that writes an account (user API, teachers API, Django admin) asks this."""
-    return account is None or not account.is_superuser or bool(getattr(actor, "is_superuser", False))
-
 
 class IsFullAdmin(BasePermission):
     message = "Only an admin may perform this action."

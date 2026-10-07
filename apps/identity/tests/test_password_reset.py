@@ -3,11 +3,9 @@ from unittest import mock
 from rest_framework.authtoken.models import Token
 
 from apps.identity.models import OTP, User
-from apps.identity.services import issue_otp
 from apps.identity.tests.base import (
     FORGET_PASSWORD_URL,
     ME_URL,
-    PASSWORD_RESET_CHECK_URL,
     PASSWORD_RESET_URL,
     FixedOtpCodeTestCase,
     latest_code,
@@ -28,12 +26,9 @@ class PasswordResetTests(FixedOtpCodeTestCase):
         self.assertEqual(replies[0].json(), replies[1].json())
         self.assertEqual([c.args[0] for c in backend.return_value.send.call_args_list], [known])
 
-    def test_an_unknown_phone_is_held_to_the_same_cooldown(self):
-        statuses = [
-            [self.client.post(FORGET_PASSWORD_URL, {"phone": phone}).status_code for _ in range(2)]
-            for phone in ("01800000000", self.user.phone)
-        ]
-        self.assertEqual(statuses, [[200, 429], [200, 429]])
+    def test_an_unknown_phone_issues_no_code(self):
+        self.client.post(FORGET_PASSWORD_URL, {"phone": "01800000000"})
+        self.assertFalse(OTP.objects.filter(phone="01800000000").exists())
 
     def test_forget_password_issues_otp(self):
         response = self.client.post(
@@ -62,33 +57,6 @@ class PasswordResetTests(FixedOtpCodeTestCase):
         self.assertTrue(response.json()["token"])
         self.user.refresh_from_db()
         self.assertTrue(self.user.check_password("N3wStr0ng!pass"))
-
-    def test_a_reset_code_is_checked_without_being_spent(self):
-        self.client.post(FORGET_PASSWORD_URL, {"phone": self.user.phone})
-        code = latest_code(self.user.phone)
-
-        wrong = self.client.post(PASSWORD_RESET_CHECK_URL, {"phone": self.user.phone, "otp": "000000"})
-        self.assertEqual(wrong.status_code, 422)
-        self.assertEqual(OTP.objects.get(phone=self.user.phone).attempts, 1)
-
-        right = self.client.post(PASSWORD_RESET_CHECK_URL, {"phone": self.user.phone, "otp": code})
-        self.assertEqual(right.status_code, 200)
-        reset = self.client.post(
-            PASSWORD_RESET_URL,
-            {
-                "phone": self.user.phone,
-                "otp": code,
-                "password": "N3wStr0ng!pass",
-                "password_confirmation": "N3wStr0ng!pass",
-            },
-        )
-        self.assertEqual(reset.status_code, 200)
-
-    def test_a_sign_up_code_does_not_pass_the_reset_check(self):
-        issue_otp(self.user.phone, OTP.Purpose.VERIFY)
-        code = latest_code(self.user.phone)
-        response = self.client.post(PASSWORD_RESET_CHECK_URL, {"phone": self.user.phone, "otp": code})
-        self.assertEqual(response.status_code, 422)
 
     def test_password_reset_rejects_mismatch(self):
         response = self.client.post(

@@ -15,15 +15,12 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     phone = models.CharField("Phone Number", max_length=20, unique=True, validators=[validate_phone])
     email = models.EmailField("Email Address", unique=True, null=True, blank=True)
+
     name = models.CharField("Full Name", max_length=150, blank=True)
     image = models.URLField("Profile Image", blank=True)
 
-    fcm_token = models.CharField("FCM Token", max_length=255, blank=True)
-
-    phone_verified_at = models.DateTimeField("Phone Verified At", null=True, blank=True)
-    email_verified_at = models.DateTimeField("Email Verified At", null=True, blank=True)
-
     is_active = models.BooleanField("Active", default=True)
+    phone_verified_at = models.DateTimeField("Phone Verified At", null=True, blank=True)
     date_joined = models.DateTimeField("Date Joined", default=timezone.now)
 
     objects = UserManager()
@@ -45,25 +42,32 @@ class User(AbstractBaseUser, PermissionsMixin):
         self.email = self.email.lower() if self.email else None
         super().save(*args, **kwargs)
 
+    # Roles are `auth.Group` memberships, one role group per user.
+
     @cached_property
     def role(self) -> str | None:
-        """The primary role, from group membership. Prefetch `groups` on lists."""
-        names = {group.name for group in self.groups.all()}
-        return next((role for role in Role.values if role in names), None)
+        """The user's role group. Prefetch `groups` when listing users."""
+        group_names = {group.name for group in self.groups.all()}
+        for role in Role.values:
+            if role in group_names:
+                return role
+        return None
 
     def has_role(self, *roles: str) -> bool:
         return self.role in roles
 
     @transaction.atomic
     def set_role(self, role: str) -> None:
-        """Make `role` the only role group; other groups are left alone."""
+        """Replace the user's role group; groups that are not roles are left alone."""
         self.groups.remove(*Group.objects.filter(name__in=Role.values))
         self.groups.add(Group.objects.get(name=role))
         self.__dict__.pop("role", None)
 
+    # Access
+
     @property
     def is_staff(self) -> bool:
-        """Django admin access, derived so it cannot drift from the role."""
+        """Django admin access, derived from the role so the two cannot disagree."""
         return self.is_superuser or self.role in BACK_OFFICE_ROLES
 
     @property
@@ -78,11 +82,13 @@ class OTP(models.Model):
         PASSWORD_RESET = "password_reset", "Password Reset"
 
     phone = models.CharField("Phone Number", max_length=20)
-    code = models.CharField("Code", max_length=8)
     purpose = models.CharField("Purpose", max_length=20, choices=Purpose.choices, default=Purpose.VERIFY)
+    code = models.CharField("Code", max_length=8)
+
+    attempts = models.PositiveSmallIntegerField("Attempts", default=0)
     created_at = models.DateTimeField("Issued At", auto_now_add=True)
     consumed_at = models.DateTimeField("Consumed At", null=True, blank=True)
-    attempts = models.PositiveSmallIntegerField("Failed Attempts", default=0)
+
     meta = models.JSONField("Request Meta", default=dict, blank=True)  # debugging only
 
     objects = OTPQuerySet.as_manager()
@@ -98,7 +104,9 @@ class OTP(models.Model):
 
     @property
     def is_usable(self) -> bool:
-        age = (timezone.now() - self.created_at).total_seconds()
-        return (
-            self.consumed_at is None and self.attempts < settings.OTP_MAX_ATTEMPTS and age <= settings.OTP_TTL_SECONDS
-        )
+        if self.consumed_at is not None:
+            return False
+        if self.attempts >= settings.OTP_MAX_ATTEMPTS:
+            return False
+        age = timezone.now() - self.created_at
+        return age.total_seconds() <= settings.OTP_TTL_SECONDS

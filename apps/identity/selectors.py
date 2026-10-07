@@ -5,10 +5,49 @@ from apps.core.text.phones import normalize_phone
 from apps.identity.models import OTP, User
 from apps.identity.roles import is_full_admin
 
-ANY = "all"
+ALL = "all"
 
 
-def users_visible_to(viewer, users):
+# Users, for the admin user API
+
+
+def account_detail_queryset(viewer):
+    """Every account the viewer may see, with the role and student profile loaded."""
+    users = User.objects.prefetch_related("groups").select_related("student")
+    return _visible_to(viewer, users)
+
+
+def roster(viewer, *, role=None, status=None):
+    """The admin user list. `status` is "active" (the default), "inactive" or "all"; `role` may be "all" too."""
+    users = account_detail_queryset(viewer)
+
+    if role and role != ALL:
+        users = users.filter(groups__name=role)
+
+    if status == "inactive":
+        users = users.filter(is_active=False)
+    elif status != ALL:
+        users = users.filter(is_active=True)
+
+    return users
+
+
+def search_students(viewer, term, *, limit):
+    """Active students matching `term`. A teacher also finds any student whose full phone number they type."""
+    students = User.objects.students().filter(is_active=True)
+
+    found = _visible_to(viewer, students)
+    if term:
+        found = found.search(term)
+
+    phone = normalize_phone(term)
+    if phone:
+        found = found | students.filter(phone=phone)
+
+    return found[:limit]
+
+
+def _visible_to(viewer, users):
     """Admins see every account; a teacher sees only students enrolled, now or before, on a course they teach."""
     if is_full_admin(viewer):
         return users
@@ -16,50 +55,24 @@ def users_visible_to(viewer, users):
     return users.filter(pk__in=own_students)
 
 
-def roster(viewer, *, role=None, status=None):
-    """The admin user list; `status` defaults to active, and `"all"` skips a filter."""
-    users = User.objects.registered().prefetch_related("groups").select_related("student")
-    users = users_visible_to(viewer, users)
-    if role and role != ANY:
-        users = users.filter(groups__name=role)
-    if status == "inactive":
-        users = users.filter(is_active=False)
-    elif status != ANY:
-        users = users.filter(is_active=True)
-    return users
-
-
-def account_detail_queryset(viewer):
-    return users_visible_to(viewer, User.objects.prefetch_related("groups").select_related("student"))
-
-
-def search_students(viewer, term, *, limit):
-    """Admins search every student; a teacher searches their own, or finds any other by full phone number."""
-    students = User.objects.students().filter(is_active=True)
-    if is_full_admin(viewer):
-        return (students.search(term) if term else students)[:limit]
-    found = users_visible_to(viewer, students)
-    if term:
-        found = found.search(term)
-    phone = normalize_phone(term)
-    if phone:
-        found = found | students.filter(phone=phone)
-    return found[:limit]
+# One-time codes
 
 
 def seconds_until_resend(phone) -> int:
-    """0 if a code may be sent now, otherwise how long to wait."""
+    """0 if a code may be sent to `phone` now, otherwise how many seconds to wait."""
     now = timezone.now()
-    recent = OTP.objects.filter(phone=phone, created_at__gte=now - timezone.timedelta(hours=1)).order_by("created_at")
+    one_hour_ago = now - timezone.timedelta(hours=1)
+    last_hour = OTP.objects.filter(phone=phone, created_at__gte=one_hour_ago).order_by("created_at")
+    wait = 0
 
-    waits = [0]
-    newest = recent.last()
+    newest = last_hour.last()
     if newest and settings.OTP_RESEND_COOLDOWN_SECONDS:
-        elapsed = (now - newest.created_at).total_seconds()
-        waits.append(int(settings.OTP_RESEND_COOLDOWN_SECONDS - elapsed))
+        cooldown_ends = newest.created_at + timezone.timedelta(seconds=settings.OTP_RESEND_COOLDOWN_SECONDS)
+        wait = max(wait, int((cooldown_ends - now).total_seconds()))
 
     cap = settings.OTP_RATE_LIMIT_PER_PHONE_PER_HOUR
-    if cap and recent.count() >= cap:
-        waits.append(int(3600 - (now - recent.first().created_at).total_seconds()))
+    if cap and last_hour.count() >= cap:
+        oldest_drops_out = last_hour.first().created_at + timezone.timedelta(hours=1)
+        wait = max(wait, int((oldest_drops_out - now).total_seconds()))
 
-    return max(waits)
+    return wait

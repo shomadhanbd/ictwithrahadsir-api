@@ -1,5 +1,9 @@
+"""Signing up with OTP: request a code, verify it, register."""
+
 from django.conf import settings
 from django.utils import timezone
+
+from rest_framework.test import APITestCase
 
 from apps.academic.models import ClassLevel, Group
 from apps.core.testing import next_slug
@@ -240,3 +244,21 @@ class OtpVerifyRepeatTests(FixedOtpCodeTestCase):
     def test_a_registered_user_is_returned(self):
         User.objects.create_user(phone=self.phone, name="Done", password="Str0ngPass!23")
         self.assertEqual(self._verify().json()["user"]["name"], "Done")
+
+
+class RegistrationTests(APITestCase):
+    def test_registration_cannot_be_spammed_without_verified_sessions(self):
+        statuses = []
+        for i in range(15):
+            response = self.client.post(
+                REGISTER_URL,
+                {
+                    'name': 'Spam',
+                    'phone': f'018100600{i:02d}',
+                    'password': 'Str0ngPass!23',
+                    'password_confirmation': 'Str0ngPass!23',
+                },
+                format='json',
+            )
+            statuses.append(response.status_code)
+        self.assertEqual(set(statuses), {401}, f'unauthenticated register got through: {statuses}')

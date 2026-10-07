@@ -23,7 +23,7 @@ class Migration(migrations.Migration):
                 ('purpose', models.CharField(choices=[('verify', 'Phone Verification'), ('password_reset', 'Password Reset')], default='verify', max_length=20, verbose_name='Purpose')),
                 ('created_at', models.DateTimeField(auto_now_add=True, verbose_name='Issued At')),
                 ('consumed_at', models.DateTimeField(blank=True, null=True, verbose_name='Consumed At')),
-                ('attempts', models.PositiveSmallIntegerField(default=0, verbose_name='Failed Attempts')),
+                ('attempts', models.PositiveSmallIntegerField(default=0, verbose_name='Attempts')),
                 ('meta', models.JSONField(blank=True, default=dict, verbose_name='Request Meta')),
             ],
             options={
@@ -44,9 +44,7 @@ class Migration(migrations.Migration):
                 ('email', models.EmailField(blank=True, max_length=254, null=True, unique=True, verbose_name='Email Address')),
                 ('name', models.CharField(blank=True, max_length=150, verbose_name='Full Name')),
                 ('image', models.URLField(blank=True, verbose_name='Profile Image')),
-                ('fcm_token', models.CharField(blank=True, max_length=255, verbose_name='FCM Token')),
                 ('phone_verified_at', models.DateTimeField(blank=True, null=True, verbose_name='Phone Verified At')),
-                ('email_verified_at', models.DateTimeField(blank=True, null=True, verbose_name='Email Verified At')),
                 ('is_active', models.BooleanField(default=True, verbose_name='Active')),
                 ('date_joined', models.DateTimeField(default=django.utils.timezone.now, verbose_name='Date Joined')),
                 ('groups', models.ManyToManyField(blank=True, help_text='The groups this user belongs to. A user will get all permissions granted to each of their groups.', related_name='user_set', related_query_name='user', to='auth.group', verbose_name='groups')),

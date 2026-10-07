@@ -8,16 +8,9 @@ from apps.identity.models import User
 from apps.profiles.api.serializers import AdminStudentProfileSerializer
 
 
-class UserOptionSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = User
-        fields = ["id", "name", "phone", "email"]
-
-
 class AdminUserSerializer(UserWriteSerializer):
-    """The roster; what a teacher may change is decided by `CanManageUsers`."""
+    """A user on the admin user list and form. What a teacher may change is decided by `CanManageUsers`."""
 
-    phone = PhoneField(max_length=20, validators=[UniqueValidator(queryset=User.objects.all())])
     name = serializers.CharField(max_length=150)
     email = EmailField(
         required=False,
@@ -25,6 +18,7 @@ class AdminUserSerializer(UserWriteSerializer):
         allow_blank=True,
         validators=[UniqueValidator(queryset=User.objects.all(), lookup="iexact")],
     )
+    phone = PhoneField(max_length=20, validators=[UniqueValidator(queryset=User.objects.all())])
     role = serializers.ChoiceField(choices=User.Role.choices, required=False)
     student = AdminStudentProfileSerializer(required=False, allow_null=True)
 
@@ -57,3 +51,11 @@ class AdminUserSerializer(UserWriteSerializer):
 
     def update(self, instance, validated_data):
         return services.update_account(instance, validated_data)
+
+
+class UserOptionSerializer(serializers.ModelSerializer):
+    """A student in the search results of the enrolment screens."""
+
+    class Meta:
+        model = User
+        fields = ["id", "name", "phone", "email"]

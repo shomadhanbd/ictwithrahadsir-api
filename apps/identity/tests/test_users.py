@@ -1,137 +1,13 @@
-from django.conf import settings
+"""The user model and manager: creating accounts, roles, and the role groups' permissions."""
+
 from django.contrib.auth.models import Group, Permission
 from django.db import IntegrityError, transaction
 from django.test import TestCase
-from django.utils import timezone
 
-from apps.identity.models import OTP, User
-from apps.identity.selectors import seconds_until_resend
-from apps.identity.services import issue_otp, verify_otp
+from apps.identity.models import User
 from apps.profiles.models import StudentProfile
 
 PHONE = "01810005555"
-
-
-def backdate(otp, seconds):
-    stale = timezone.now() - timezone.timedelta(seconds=seconds)
-    OTP.objects.filter(pk=otp.pk).update(created_at=stale)
-    otp.refresh_from_db()
-    return otp
-
-
-class OtpIssueTests(TestCase):
-    def test_the_code_is_digits_of_the_configured_length(self):
-        otp = issue_otp(PHONE, OTP.Purpose.VERIFY)
-        self.assertEqual(len(otp.code), settings.OTP_LENGTH)
-        self.assertTrue(otp.code.isdigit())
-
-    def test_issuing_records_the_purpose(self):
-        otp = issue_otp(PHONE, OTP.Purpose.PASSWORD_RESET)
-        self.assertEqual(otp.purpose, OTP.Purpose.PASSWORD_RESET)
-
-    def test_a_fresh_code_is_usable(self):
-        self.assertTrue(issue_otp(PHONE, OTP.Purpose.VERIFY).is_usable)
-
-    def test_repeated_issues_do_not_return_one_fixed_code(self):
-        codes = {issue_otp(PHONE, OTP.Purpose.VERIFY).code for _ in range(25)}
-        self.assertGreater(len(codes), 20)
-
-
-class OtpUsabilityTests(TestCase):
-    def setUp(self):
-        self.otp = issue_otp(PHONE, OTP.Purpose.VERIFY)
-
-    def test_a_consumed_code_is_not_usable(self):
-        self.otp.consumed_at = timezone.now()
-        self.assertFalse(self.otp.is_usable)
-
-    def test_a_code_at_the_attempt_cap_is_not_usable(self):
-        self.otp.attempts = settings.OTP_MAX_ATTEMPTS
-        self.assertFalse(self.otp.is_usable)
-
-    def test_expiry_is_measured_from_when_the_code_was_issued(self):
-        self.assertTrue(backdate(self.otp, settings.OTP_TTL_SECONDS - 5).is_usable)
-        self.assertFalse(backdate(self.otp, settings.OTP_TTL_SECONDS + 5).is_usable)
-
-    def test_an_expired_code_is_not_usable(self):
-        self.assertFalse(backdate(self.otp, settings.OTP_TTL_SECONDS + 5).is_usable)
-
-
-class OtpPurposeScopingTests(TestCase):
-    def test_verify_reads_the_newest_code_for_that_purpose(self):
-        issue_otp(PHONE, OTP.Purpose.VERIFY)
-        newest = issue_otp(PHONE, OTP.Purpose.VERIFY)
-        self.assertTrue(verify_otp(PHONE, newest.code, OTP.Purpose.VERIFY))
-
-    def test_a_reset_code_does_not_satisfy_a_verify(self):
-        reset = issue_otp(PHONE, OTP.Purpose.PASSWORD_RESET)
-        issue_otp(PHONE, OTP.Purpose.VERIFY)
-        self.assertFalse(verify_otp(PHONE, reset.code, OTP.Purpose.VERIFY))
-
-
-class OtpVerifyTests(TestCase):
-    def setUp(self):
-        self.otp = issue_otp(PHONE, OTP.Purpose.VERIFY)
-
-    def test_the_right_code_is_accepted_and_marked_consumed(self):
-        self.assertTrue(verify_otp(PHONE, self.otp.code, OTP.Purpose.VERIFY))
-        self.otp.refresh_from_db()
-        self.assertIsNotNone(self.otp.consumed_at)
-
-    def test_a_code_cannot_be_spent_twice(self):
-        verify_otp(PHONE, self.otp.code, OTP.Purpose.VERIFY)
-        self.assertFalse(verify_otp(PHONE, self.otp.code, OTP.Purpose.VERIFY))
-
-    def test_a_wrong_guess_is_counted_in_the_database(self):
-        self.assertFalse(verify_otp(PHONE, "000000", OTP.Purpose.VERIFY))
-        self.otp.refresh_from_db()
-        self.assertEqual(self.otp.attempts, 1)
-
-    def test_every_wrong_guess_lands(self):
-        for expected in range(1, 4):
-            verify_otp(PHONE, "000000", OTP.Purpose.VERIFY)
-            self.otp.refresh_from_db()
-            self.assertEqual(self.otp.attempts, expected)
-
-    def test_the_code_dies_at_the_attempt_cap(self):
-        for _ in range(settings.OTP_MAX_ATTEMPTS):
-            verify_otp(PHONE, "000000", OTP.Purpose.VERIFY)
-        self.assertFalse(verify_otp(PHONE, self.otp.code, OTP.Purpose.VERIFY))
-
-    def test_an_expired_code_is_refused(self):
-        backdate(self.otp, settings.OTP_TTL_SECONDS + 5)
-        self.assertFalse(verify_otp(PHONE, self.otp.code, OTP.Purpose.VERIFY))
-
-    def test_a_missing_code_is_refused_rather_than_raising(self):
-        self.assertFalse(verify_otp(PHONE, None, OTP.Purpose.VERIFY))
-        self.assertFalse(verify_otp(PHONE, "", OTP.Purpose.VERIFY))
-
-    def test_the_wrong_purpose_is_refused(self):
-        self.assertFalse(verify_otp(PHONE, self.otp.code, OTP.Purpose.PASSWORD_RESET))
-
-    def test_the_wrong_purpose_does_not_burn_the_real_code(self):
-        verify_otp(PHONE, self.otp.code, OTP.Purpose.PASSWORD_RESET)
-        self.otp.refresh_from_db()
-        self.assertEqual(self.otp.attempts, 0)
-        self.assertTrue(verify_otp(PHONE, self.otp.code, OTP.Purpose.VERIFY))
-
-
-class OtpResendCooldownTests(TestCase):
-    def test_no_wait_for_a_number_that_has_never_asked(self):
-        self.assertEqual(seconds_until_resend(PHONE), 0)
-
-    def test_a_fresh_code_starts_the_cooldown(self):
-        issue_otp(PHONE, OTP.Purpose.VERIFY)
-        self.assertGreater(seconds_until_resend(PHONE), 0)
-
-    def test_the_cooldown_lapses(self):
-        otp = issue_otp(PHONE, OTP.Purpose.VERIFY)
-        backdate(otp, settings.OTP_RESEND_COOLDOWN_SECONDS + 1)
-        self.assertEqual(seconds_until_resend(PHONE), 0)
-
-    def test_the_cooldown_is_shared_across_purposes(self):
-        issue_otp(PHONE, OTP.Purpose.PASSWORD_RESET)
-        self.assertGreater(seconds_until_resend(PHONE), 0)
 
 
 class UserManagerCreateTests(TestCase):
@@ -159,10 +35,6 @@ class UserManagerCreateTests(TestCase):
         user = User.objects.create_user(phone=PHONE, name="Student")
         self.assertEqual(user.role, User.Role.STUDENT)
 
-    def test_a_deliberate_account_counts_as_registered(self):
-        user = User.objects.create_user(phone=PHONE, name="Student")
-        self.assertIn(user, User.objects.registered())
-
     def test_an_account_made_without_a_password_cannot_sign_in_with_one(self):
         user = User.objects.create_user(phone=PHONE, name="Student")
         self.assertFalse(user.has_usable_password())
@@ -171,9 +43,6 @@ class UserManagerCreateTests(TestCase):
 class UserManagerPlaceholderTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_unverified("+8801810002222")
-
-    def test_a_placeholder_is_not_registered(self):
-        self.assertNotIn(self.user, User.objects.registered())
 
     def test_a_placeholder_is_a_student_with_a_canonical_phone(self):
         self.assertEqual(self.user.role, User.Role.STUDENT)
@@ -260,30 +129,9 @@ class UserQuerySetTests(TestCase):
         self.teacher = User.objects.create_user(phone="01810002222", name="Teacher", role=User.Role.TEACHER)
         self.placeholder = User.objects.create_unverified("01810003333")
 
-    def test_registered_excludes_abandoned_sign_ups(self):
-        registered = User.objects.registered()
-        self.assertIn(self.student, registered)
-        self.assertNotIn(self.placeholder, registered)
-
-    def test_students_excludes_other_roles_and_placeholders(self):
+    def test_students_excludes_other_roles(self):
         students = User.objects.students()
-        self.assertEqual(list(students), [self.student])
-
-
-class OtpStorageTests(TestCase):
-    def test_the_code_survives_a_field_refresh(self):
-        otp = issue_otp(PHONE, OTP.Purpose.VERIFY)
-        code = otp.code
-        otp.refresh_from_db()
-        self.assertEqual(otp.code, code)
-
-    def test_meta_is_recorded_when_given(self):
-        otp = issue_otp(PHONE, OTP.Purpose.VERIFY, meta={"platform": "android"})
-        self.assertEqual(OTP.objects.get(pk=otp.pk).meta, {"platform": "android"})
-
-    def test_meta_defaults_to_an_empty_dict(self):
-        otp = issue_otp(PHONE, OTP.Purpose.VERIFY)
-        self.assertEqual(OTP.objects.get(pk=otp.pk).meta, {})
+        self.assertCountEqual(students, [self.student, self.placeholder])
 
 
 class RoleGroupPermissionTests(TestCase):

@@ -380,24 +380,12 @@ class AdminUserTests(APITestCase):
         self.assertEqual(response.status_code, 422)
         self.assertIn("phone", response.json()["errors"])
 
-    def test_an_abandoned_registration_stays_off_the_roster(self):
+    def test_an_unfinished_sign_up_is_on_the_roster(self):
+        """Phone is the identity, so an account still without a name is listed and can be found."""
         User.objects.create_unverified("01810009999")
 
-        body = self.client.get(ADMIN_USER_URL, **self.auth).json()
-        self.assertEqual(body["meta"]["total"], 2)
-        self.assertNotIn("01810009999", [row["phone"] for row in body["data"]])
-
-    def test_completing_registration_puts_them_on_the_roster(self):
-        user = User.objects.create_unverified("01810009998")
-        self.assertEqual(User.objects.students().count(), 1)
-
-        user.name = "Finished"
-        user.set_password("Str0ngPass!23")
-        user.save()
-
-        self.assertEqual(User.objects.students().count(), 2)
-        body = self.client.get(ADMIN_USER_URL, **self.auth).json()
-        self.assertIn("01810009998", [row["phone"] for row in body["data"]])
+        body = self.client.get(ADMIN_USER_URL, {"search": "01810009999"}, **self.auth).json()
+        self.assertEqual([(row["phone"], row["name"]) for row in body["data"]], [("01810009999", "")])
 
     def test_updating_the_student_block_is_reflected_in_the_response(self):
         """The response must show the new values, not the cached ones."""
@@ -440,6 +428,19 @@ class AdminUserTests(APITestCase):
         target.refresh_from_db()
         self.assertEqual(target.name, "Renamed")
         self.assertTrue(target.check_password("Str0ngPass!23"))
+
+    def test_an_admin_password_change_signs_the_account_out(self):
+        target = User.objects.create_user(phone="01812340102", name="Existing", password="Str0ngPass!23")
+        Token.objects.create(user=target)
+
+        response = self.client.patch(
+            reverse("api:identity:admin_user_detail", args=[target.pk]),
+            {"password": "N3wStr0ng!pass"},
+            **self.auth,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(Token.objects.filter(user=target).exists())
 
     def test_creating_a_student_sends_no_otp(self):
         """An admin-created account sends no OTP."""

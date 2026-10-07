@@ -1,5 +1,3 @@
-"""Keeps each role group's Django permissions in step with the models."""
-
 from django.apps import apps as django_apps
 from django.contrib.auth.management import create_permissions
 from django.contrib.auth.models import Group, Permission
@@ -11,21 +9,24 @@ from apps.identity.roles import MODERATOR_APP_LABELS, Role
 
 
 @receiver(post_migrate)
-def sync_role_group_permissions(sender, **kwargs):
-    """Grants the back-office groups their permissions, so the Django admin is not empty for them."""
-    if sender.label != "identity":  # post_migrate fires once per app
+def sync_role_group_permissions(sender, using=DEFAULT_DB_ALIAS, **kwargs):
+    """After every migrate, gives the admin group every permission and the moderator group those of the
+    apps it manages, so the Django admin is not empty for them."""
+    # post_migrate fires once per app; once is enough.
+    if sender.label != "identity":
         return
 
     # Other apps' permissions may not exist yet when identity's signal fires.
-    using = kwargs.get("using", DEFAULT_DB_ALIAS)
     for app_config in django_apps.get_app_configs():
         create_permissions(app_config, verbosity=0, using=using)
 
-    groups = {group.name: group for group in Group.objects.using(using).filter(name__in=Role.values)}
+    groups = Group.objects.using(using)
     permissions = Permission.objects.using(using)
 
-    if admin_group := groups.get(Role.ADMIN):
-        admin_group.permissions.set(permissions.all())
+    admin = groups.filter(name=Role.ADMIN).first()
+    if admin is not None:
+        admin.permissions.set(permissions.all())
 
-    if moderator := groups.get(Role.MODERATOR):
+    moderator = groups.filter(name=Role.MODERATOR).first()
+    if moderator is not None:
         moderator.permissions.set(permissions.filter(content_type__app_label__in=MODERATOR_APP_LABELS))

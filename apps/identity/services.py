@@ -16,10 +16,14 @@ from apps.notifications.services import send_sms
 from apps.profiles.services import ensure_student_profile, save_student_profile
 
 BAD_CODE = {"otp": ["Invalid or expired OTP."]}
+
 OTP_SMS_PURPOSE = {
     OTP.Purpose.VERIFY: SmsMessage.Purpose.PHONE_VERIFY,
     OTP.Purpose.PASSWORD_RESET: SmsMessage.Purpose.PASSWORD_RESET,
 }
+
+
+# Tokens
 
 
 def revoke_tokens(user: User) -> None:
@@ -43,125 +47,72 @@ def issue_token(user: User, *, rotate: bool = False) -> str:
         return Token.objects.create(user=user).key
 
 
-def authenticate_user(*, password: str, phone: str) -> User:
-    user = User.objects.filter(phone=phone).first()
-    if user is None or not user.check_password(password):
-        raise ValidationError({"password": ["Invalid credentials."]})
-    if not user.is_active:
-        raise ValidationError({"password": ["This account has been deactivated."]})
-    return user
-
-
-def deactivate_user(user: User) -> None:
-    user.is_active = False
-    user.save(update_fields=["is_active"])
-    revoke_tokens(user)
-
-
-def _apply_account_fields(user, data):
-    password = data.pop("password", None)
-    if password:
-        user.set_password(password)
-    for field, value in data.items():
-        setattr(user, field, value)
-    user.save()
-
-
-@transaction.atomic
-def create_account(data) -> User:
-    data = dict(data)
-    student = data.pop("student", None)
-    user = User.objects.create_user(password=data.pop("password"), role=data.pop("role", None), **data)
-    save_student_profile(user, student)
-    return user
-
-
-@transaction.atomic
-def update_account(user, data) -> User:
-    data = dict(data)
-    role, student = data.pop("role", None), data.pop("student", None)
-    _apply_account_fields(user, data)
-    if role:
-        user.set_role(role)
-    save_student_profile(user, student)
-    return user
-
-
-@transaction.atomic
-def update_profile(user, data) -> User:
-    data = dict(data)
-    data.pop("current_password", None)
-    student = data.pop("student", None)
-    _apply_account_fields(user, data)
-    save_student_profile(user, student)
-    return user
-
-
-def is_demo_phone(phone: str) -> bool:
-    """The reviewer number, which skips the send and takes a fixed code."""
-    return bool(settings.DEMO_PHONE) and phone == settings.DEMO_PHONE
-
-
-def _is_demo_code(phone, code, purpose) -> bool:
-    """The reviewer's fixed code signs in; it never resets a password, or anyone could lock the reviewer out."""
-    return purpose == OTP.Purpose.VERIFY and is_demo_phone(phone) and str(code or "") == settings.DEMO_OTP_CODE
+# One-time codes
 
 
 def issue_otp(phone: str, purpose: str, meta: dict | None = None) -> OTP:
     return OTP.objects.create(
         phone=phone,
-        code=get_random_string(settings.OTP_LENGTH, allowed_chars=string.digits),
         purpose=purpose,
+        code=get_random_string(settings.OTP_LENGTH, allowed_chars=string.digits),
         meta=meta or {},
     )
 
 
-def match_otp(phone: str, code: str, purpose: str) -> OTP | None:
-    """The matching usable code, without spending it; a wrong guess still counts as an attempt."""
+def verify_otp(phone: str, code: str, purpose: str) -> bool:
+    """Spends the matching usable code; every guess counts as an attempt."""
     otp = OTP.objects.latest_for(phone, purpose)
     if otp is None or not otp.is_usable:
-        return None
+        return False
+
     # Claim the attempt in the database first, so concurrent guesses cannot all pass the cap.
     claimed = OTP.objects.filter(pk=otp.pk, consumed_at__isnull=True, attempts__lt=settings.OTP_MAX_ATTEMPTS).update(
         attempts=models.F("attempts") + 1
     )
     if not claimed:
-        return None
-    if not constant_time_compare(otp.code, str(code or "")):
-        return None
-    # A right guess is not a failed attempt.
-    OTP.objects.filter(pk=otp.pk).update(attempts=models.F("attempts") - 1)
-    return otp
-
-
-def verify_otp(phone: str, code: str, purpose: str) -> bool:
-    otp = match_otp(phone, code, purpose)
-    if otp is None:
         return False
+    if not constant_time_compare(otp.code, str(code or "")):
+        return False
+
     # Conditional, so two concurrent verifies cannot both succeed.
-    return bool(OTP.objects.filter(pk=otp.pk, consumed_at__isnull=True).update(consumed_at=timezone.now()))
+    spent = OTP.objects.filter(pk=otp.pk, consumed_at__isnull=True).update(consumed_at=timezone.now())
+    return bool(spent)
 
 
-def send_otp(phone: str, purpose: str, meta: dict | None = None) -> OTP | None:
-    if is_demo_phone(phone):
-        return None
+def _send_otp(phone: str, purpose: str, meta: dict | None = None) -> None:
+    if _is_demo_phone(phone):
+        return
     otp = issue_otp(phone, purpose, meta=meta)
     send_sms(phone, settings.SMS_OTP_TEMPLATE.format(code=otp.code), purpose=OTP_SMS_PURPOSE[purpose])
-    return otp
 
 
-def consume_otp(phone: str, code: str, purpose: str) -> None:
+def _consume_otp(phone: str, code: str, purpose: str) -> None:
     if _is_demo_code(phone, code, purpose):
         return
     if not verify_otp(phone, code, purpose):
         raise ValidationError(BAD_CODE)
 
 
+def _is_demo_phone(phone: str) -> bool:
+    """The app-store reviewer's number, which gets no SMS and takes a fixed code."""
+    return bool(settings.DEMO_PHONE) and phone == settings.DEMO_PHONE
+
+
+def _is_demo_code(phone: str, code: str, purpose: str) -> bool:
+    """The reviewer's fixed code signs in; it never resets a password, or anyone could lock the reviewer out."""
+    if purpose != OTP.Purpose.VERIFY or not _is_demo_phone(phone):
+        return False
+    return str(code or "") == settings.DEMO_OTP_CODE
+
+
+# Sign up and sign in
+
+
 def request_login_otp(phone: str, meta: dict | None = None) -> dict:
     user = User.objects.filter(phone=phone).first()
     wait = seconds_until_resend(phone)
     if not wait:
-        send_otp(phone, OTP.Purpose.VERIFY, meta=meta)
+        _send_otp(phone, OTP.Purpose.VERIFY, meta=meta)
     return {
         "user_exist": bool(user),
         "password_exist": bool(user and user.has_usable_password()),
@@ -171,7 +122,7 @@ def request_login_otp(phone: str, meta: dict | None = None) -> dict:
 
 def verify_phone(phone: str, code: str) -> tuple[User, bool]:
     """Consume a code; return the account and whether it is still to register."""
-    consume_otp(phone, code, OTP.Purpose.VERIFY)
+    _consume_otp(phone, code, OTP.Purpose.VERIFY)
 
     user = User.objects.filter(phone=phone).first()
     if user is None:
@@ -183,7 +134,8 @@ def verify_phone(phone: str, code: str) -> tuple[User, bool]:
 
     user.phone_verified_at = timezone.now()
     user.save(update_fields=["phone_verified_at"])
-    return user, not user.has_usable_password()
+    is_new = not user.has_usable_password()
+    return user, is_new
 
 
 def register_user(
@@ -220,32 +172,88 @@ def register_user(
     return user
 
 
+def authenticate_user(*, phone: str, password: str) -> User:
+    user = User.objects.filter(phone=phone).first()
+    if user is None or not user.check_password(password):
+        raise ValidationError({"password": ["Invalid credentials."]})
+    if not user.is_active:
+        raise ValidationError({"password": ["This account has been deactivated."]})
+    return user
+
+
+# Password reset
+
+
 def start_password_reset(phone: str, meta: dict | None = None) -> int:
-    """Sends a reset code to a known number; returns 0, or the seconds to wait when one was sent too recently.
-
-    An unknown number gets the same answer and no code, so the reply does not tell who has an account.
-    """
+    """Sends a reset code to a known number; returns 0, or the seconds to wait when one was sent too recently."""
     wait = seconds_until_resend(phone)
-    if wait:
-        return wait
-    if User.objects.filter(phone=phone).exists():
-        send_otp(phone, OTP.Purpose.PASSWORD_RESET, meta=meta)
-    else:
-        issue_otp(phone, OTP.Purpose.PASSWORD_RESET, meta=meta)  # never sent; starts the same cooldown
-    return 0
-
-
-def check_reset_code(phone: str, code: str) -> None:
-    """Confirms a reset code without spending it."""
-    if match_otp(phone, code, OTP.Purpose.PASSWORD_RESET) is None:
-        raise ValidationError(BAD_CODE)
+    if not wait and User.objects.filter(phone=phone).exists():
+        _send_otp(phone, OTP.Purpose.PASSWORD_RESET, meta=meta)
+    return wait
 
 
 def reset_password(*, phone: str, code: str, password: str) -> User:
     user = User.objects.filter(phone=phone).first()
     if not user:
         raise ValidationError(BAD_CODE)  # the same answer as a wrong code
-    consume_otp(phone, code, OTP.Purpose.PASSWORD_RESET)
+    _consume_otp(phone, code, OTP.Purpose.PASSWORD_RESET)
     user.set_password(password)
     user.save(update_fields=["password"])
     return user
+
+
+# Accounts: the admin user API and the user's own profile
+
+
+@transaction.atomic
+def create_account(data) -> User:
+    data = dict(data)
+    student = data.pop("student", None)
+    password = data.pop("password")
+    role = data.pop("role", None)
+
+    user = User.objects.create_user(password=password, role=role, **data)
+    save_student_profile(user, student)
+    return user
+
+
+@transaction.atomic
+def update_account(user: User, data) -> User:
+    data = dict(data)
+    student = data.pop("student", None)
+    role = data.pop("role", None)
+    password_changed = bool(data.get("password"))
+
+    _apply_account_fields(user, data)
+    if password_changed:
+        revoke_tokens(user)
+    if role:
+        user.set_role(role)
+    save_student_profile(user, student)
+    return user
+
+
+@transaction.atomic
+def update_profile(user: User, data) -> User:
+    data = dict(data)
+    data.pop("current_password", None)
+    student = data.pop("student", None)
+
+    _apply_account_fields(user, data)
+    save_student_profile(user, student)
+    return user
+
+
+def deactivate_user(user: User) -> None:
+    user.is_active = False
+    user.save(update_fields=["is_active"])
+    revoke_tokens(user)
+
+
+def _apply_account_fields(user: User, data: dict) -> None:
+    password = data.pop("password", None)
+    if password:
+        user.set_password(password)
+    for field, value in data.items():
+        setattr(user, field, value)
+    user.save()

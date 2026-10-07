@@ -2,21 +2,19 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 
 from apps.core.admin import ReadOnlyAdmin
-from apps.core.api.auth.permissions import may_change_account
 from apps.identity.models import OTP, User
+from apps.identity.roles import may_change_account
 from apps.profiles.models import StudentProfile, TeacherProfile
 
 
 class StudentProfileInline(admin.StackedInline):
     model = StudentProfile
-    can_delete = True
     extra = 0
     verbose_name_plural = 'Student Profile'
 
 
 class TeacherProfileInline(admin.StackedInline):
     model = TeacherProfile
-    can_delete = True
     extra = 0
     verbose_name_plural = 'Teacher Profile'
     filter_horizontal = ('subjects', 'levels')
@@ -24,13 +22,14 @@ class TeacherProfileInline(admin.StackedInline):
 
 @admin.register(User)
 class UserAdmin(DjangoUserAdmin):
-    ordering = ('-date_joined',)
+    # The list
     list_display = ('id', 'name', 'phone', 'email', 'role', 'is_active', 'date_joined')
     list_filter = ('groups', 'is_active', 'date_joined')
     search_fields = ('phone', 'name', 'email', 'student__institution')
+    ordering = ('-date_joined',)
     date_hierarchy = 'date_joined'
-    readonly_fields = ('date_joined', 'last_login', 'email_verified_at', 'phone_verified_at')
-    inlines = (StudentProfileInline, TeacherProfileInline)
+
+    # The edit form
     fieldsets = (
         (None, {'fields': ('phone', 'email', 'password')}),
         ('Profile', {'fields': ('name', 'image')}),
@@ -46,33 +45,16 @@ class UserAdmin(DjangoUserAdmin):
                 ),
             },
         ),
-        (
-            'Verification',
-            {
-                'classes': ('collapse',),
-                'fields': ('email_verified_at', 'phone_verified_at', 'last_login', 'date_joined'),
-                'description': (
-                    'An account with no name is an abandoned sign-up: the phone was '
-                    'verified but registration never finished, so it stays off the '
-                    'roster and out of the student counts.'
-                ),
-            },
-        ),
+        ('Dates', {'classes': ('collapse',), 'fields': ('phone_verified_at', 'last_login', 'date_joined')}),
     )
-    add_fieldsets = (
-        (
-            None,
-            {
-                'classes': ('wide',),
-                'fields': ('phone', 'email', 'name', 'password1', 'password2', 'groups'),
-            },
-        ),
-    )
+    readonly_fields = ('phone_verified_at', 'last_login', 'date_joined')
     filter_horizontal = ('groups', 'user_permissions')
+    inlines = (StudentProfileInline, TeacherProfileInline)
 
-    @admin.display(description='Role')
-    def role(self, user):
-        return user.role or '--'
+    # The add form
+    add_fieldsets = (
+        (None, {'classes': ('wide',), 'fields': ('phone', 'email', 'name', 'password1', 'password2', 'groups')}),
+    )
 
     def get_queryset(self, request):
         return super().get_queryset(request).prefetch_related('groups')
@@ -90,6 +72,10 @@ class UserAdmin(DjangoUserAdmin):
     def has_delete_permission(self, request, obj=None):
         return may_change_account(request.user, obj) and super().has_delete_permission(request, obj)
 
+    @admin.display(description='Role')
+    def role(self, user):
+        return user.role or '--'
+
 
 @admin.register(OTP)
 class OTPAdmin(ReadOnlyAdmin):
@@ -101,4 +87,4 @@ class OTPAdmin(ReadOnlyAdmin):
 
     @admin.display(description='Code')
     def masked_code(self, otp):
-        return '••••••' if otp.is_usable else 'spent'
+        return '••••••' if otp.is_usable else 'used or expired'

@@ -1,8 +1,8 @@
-"""One rule, on every path that writes an account: only a superuser changes a superuser's account."""
+"""Only a superuser changes a superuser's account, on every path that writes one."""
 
 from django.contrib import admin
 from django.core.exceptions import PermissionDenied
-from django.test import RequestFactory
+from django.test import RequestFactory, TestCase
 from django.urls import reverse
 
 from rest_framework.test import APITestCase
@@ -10,8 +10,6 @@ from rest_framework.test import APITestCase
 from apps.core.testing import bearer, make_user
 from apps.identity.models import User
 from apps.profiles.models import TeacherProfile
-
-TEACHERS_URL = reverse("api:profiles:admin_teacher_list")
 
 
 class SuperuserAccountTests(APITestCase):
@@ -68,3 +66,28 @@ class SuperuserAccountTests(APITestCase):
         with self.assertRaises(PermissionDenied):
             profile_admin.delete_queryset(request, TeacherProfile.objects.all())
         self.assertTrue(TeacherProfile.objects.filter(pk=profile.pk).exists())
+
+
+class UserAdminEscalationTests(TestCase):
+    """An admin-role account manages users but cannot make itself, or anyone, a superuser."""
+
+    def setUp(self):
+        self.user_admin = admin.site._registry[User]
+        self.admin = make_user(role=User.Role.ADMIN)
+        self.superuser = User.objects.create_superuser(phone="01700000010", password="Str0ngPass!23", name="Root")
+
+    def request(self, user):
+        request = RequestFactory().get("/")
+        request.user = user
+        return request
+
+    def test_only_a_superuser_can_grant_superuser(self):
+        self.assertIn("is_superuser", self.user_admin.get_readonly_fields(self.request(self.admin), self.admin))
+        self.assertIn("user_permissions", self.user_admin.get_readonly_fields(self.request(self.admin), self.admin))
+        self.assertNotIn("is_superuser", self.user_admin.get_readonly_fields(self.request(self.superuser), self.admin))
+
+    def test_an_admin_cannot_edit_or_delete_a_superuser(self):
+        request = self.request(self.admin)
+        self.assertFalse(self.user_admin.has_change_permission(request, self.superuser))
+        self.assertFalse(self.user_admin.has_delete_permission(request, self.superuser))
+        self.assertTrue(self.user_admin.has_change_permission(request, make_user()))

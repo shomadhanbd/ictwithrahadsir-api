@@ -4,8 +4,8 @@ from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
 
 from apps.academic.models import ClassLevel, Subject
-from apps.core.api.auth.permissions import SUPERUSER_ACCOUNT_MESSAGE, may_change_account
 from apps.core.api.serializers.fields import EmailField, MediaField, PhoneField
+from apps.identity.roles import SUPERUSER_ACCOUNT_MESSAGE, may_change_account
 from apps.profiles import services
 from apps.profiles.api.public.serializers import TeacherSerializer
 from apps.profiles.models import TeacherProfile

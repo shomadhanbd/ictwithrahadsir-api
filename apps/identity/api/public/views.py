@@ -21,7 +21,6 @@ from apps.identity.api.public.serializers import (
 )
 from apps.identity.services import (
     authenticate_user,
-    check_reset_code,
     issue_token,
     register_user,
     request_login_otp,
@@ -34,14 +33,11 @@ from apps.identity.services import (
 CLIENT_HINT_HEADERS = {"platform": "X-Platform", "app_version": "X-App-Version"}
 
 
-def request_meta(request) -> dict:
-    """Client hints sent with a request, kept for debugging only."""
-    hints = {key: request.headers.get(header) for key, header in CLIENT_HINT_HEADERS.items()}
-    return {key: value for key, value in hints.items() if value}
-
-
 class PublicAuthAPIView(SerializerAPIView):
     permission_classes = [AllowAny]
+
+
+# Sign up and sign in with OTP: request a code, verify it, then register if the account is new
 
 
 class OtpRequestAPIView(PublicAuthAPIView):
@@ -49,12 +45,12 @@ class OtpRequestAPIView(PublicAuthAPIView):
 
     def get(self, request):
         phone = self.validated_data(request, from_query=True)["phone"]
-        state = request_login_otp(phone, request_meta(request))
-        message = (
-            "OTP sent."
-            if not state["resend_in"]
-            else "A code was sent recently. Please wait before requesting another."
-        )
+        state = request_login_otp(phone, _client_hints(request))
+
+        if state["resend_in"]:
+            message = "A code was sent recently. Please wait before requesting another."
+        else:
+            message = "OTP sent."
         return Response(OtpRequestResponseSerializer({**state, "message": message}).data)
 
 
@@ -64,9 +60,11 @@ class OtpVerifyAPIView(PublicAuthAPIView):
     def post(self, request):
         data = self.validated_data(request)
         user, is_new = verify_phone(data["phone"], data["otp"])
-        return Response(
-            AuthTokenResponseSerializer({"token": issue_token(user), "user": None if is_new else user}).data
-        )
+
+        token = issue_token(user)
+        # A new account has nothing to show yet; the app sends it on to register.
+        body = {"token": token, "user": None if is_new else user}
+        return Response(AuthTokenResponseSerializer(body).data)
 
 
 class UserRegisterAPIView(SerializerAPIView):
@@ -86,10 +84,12 @@ class UserRegisterAPIView(SerializerAPIView):
             class_level=data.get("class_level"),
             group=data.get("group"),
         )
-        return Response(
-            AuthTokenResponseSerializer({"token": issue_token(user), "user": user}).data,
-            status=status.HTTP_201_CREATED,
-        )
+
+        body = {"token": issue_token(user), "user": user}
+        return Response(AuthTokenResponseSerializer(body).data, status=status.HTTP_201_CREATED)
+
+
+# Sign in with a password, and sign out
 
 
 class UserLoginAPIView(PublicAuthAPIView):
@@ -97,41 +97,10 @@ class UserLoginAPIView(PublicAuthAPIView):
 
     def post(self, request):
         data = self.validated_data(request)
-        user = authenticate_user(password=data["password"], phone=data["phone"])
-        return Response(AuthTokenResponseSerializer({"token": issue_token(user), "user": user}).data)
+        user = authenticate_user(phone=data["phone"], password=data["password"])
 
-
-class PasswordForgotAPIView(PublicAuthAPIView):
-    serializer_class = PhoneRequestSerializer
-
-    def post(self, request):
-        phone = self.validated_data(request)["phone"]
-        wait = start_password_reset(phone, request_meta(request))
-        if wait:
-            raise Throttled(wait=wait)
-        return Response({"message": "OTP sent."})
-
-
-class PasswordResetCheckAPIView(PublicAuthAPIView):
-    serializer_class = OtpVerifyRequestSerializer
-
-    def post(self, request):
-        data = self.validated_data(request)
-        check_reset_code(data["phone"], data["otp"])
-        return Response({"message": "OTP is valid."})
-
-
-class PasswordResetAPIView(PublicAuthAPIView):
-    serializer_class = PasswordResetRequestSerializer
-
-    def post(self, request):
-        data = self.validated_data(request)
-        user = reset_password(phone=data["phone"], code=data["otp"], password=data["password"])
-        return Response(
-            PasswordResetResponseSerializer(
-                {"token": issue_token(user, rotate=True), "message": "Password has been reset."}
-            ).data
-        )
+        body = {"token": issue_token(user), "user": user}
+        return Response(AuthTokenResponseSerializer(body).data)
 
 
 class UserLogoutAPIView(APIView):
@@ -140,6 +109,34 @@ class UserLogoutAPIView(APIView):
     def post(self, request):
         revoke_tokens(request.user)
         return Response({"ok": True})
+
+
+# Forgot password: request a reset code, then send it with the new password
+
+
+class PasswordForgotAPIView(PublicAuthAPIView):
+    serializer_class = PhoneRequestSerializer
+
+    def post(self, request):
+        phone = self.validated_data(request)["phone"]
+        wait = start_password_reset(phone, _client_hints(request))
+        if wait:
+            raise Throttled(wait=wait)
+        return Response({"message": "OTP sent."})
+
+
+class PasswordResetAPIView(PublicAuthAPIView):
+    serializer_class = PasswordResetRequestSerializer
+
+    def post(self, request):
+        data = self.validated_data(request)
+        user = reset_password(phone=data["phone"], code=data["otp"], password=data["password"])
+
+        body = {"token": issue_token(user, rotate=True), "message": "Password has been reset."}
+        return Response(PasswordResetResponseSerializer(body).data)
+
+
+# The signed-in user's own profile
 
 
 class CurrentUserAPIView(APIView):
@@ -153,13 +150,21 @@ class CurrentUserAPIView(APIView):
             request.user, data=request.data, partial=True, context={"request": request}
         )
         serializer.is_valid(raise_exception=True)
+        password_changed = bool(serializer.validated_data.get("password"))
+
         with transaction.atomic():
             user = serializer.save()
-            token = None
-            if serializer.validated_data.get("password"):
+            if password_changed:
                 # Signs every other session out; the caller carries on with the new token.
                 token = issue_token(user, rotate=True)
+
         body = {"data": UserSerializer(user).data}
-        if token:
+        if password_changed:
             body["token"] = token
         return Response(body)
+
+
+def _client_hints(request) -> dict:
+    """The app's platform and version headers, stored on the OTP for debugging only."""
+    hints = {key: request.headers.get(header) for key, header in CLIENT_HINT_HEADERS.items()}
+    return {key: value for key, value in hints.items() if value}

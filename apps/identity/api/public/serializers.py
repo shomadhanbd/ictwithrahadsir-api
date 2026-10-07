@@ -1,4 +1,4 @@
-from django.contrib.auth.password_validation import validate_password
+from django.contrib.auth import password_validation
 
 from rest_framework import serializers
 
@@ -10,16 +10,7 @@ from apps.identity.models import User
 from apps.profiles.api.serializers import StudentProfileSerializer
 from apps.profiles.validators import clean_student_audience
 
-
-class NewPasswordSerializer(serializers.Serializer):
-    password = serializers.CharField(write_only=True, validators=[validate_password])
-    password_confirmation = serializers.CharField(write_only=True)
-
-    def validate(self, attrs):
-        attrs = super().validate(attrs)
-        if attrs["password"] != attrs.pop("password_confirmation"):
-            raise serializers.ValidationError({"password_confirmation": ["Passwords do not match."]})
-        return attrs
+# Shared
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -34,27 +25,47 @@ class UserSerializer(serializers.ModelSerializer):
             "name",
             "email",
             "phone",
-            "fcm_token",
             "role",
             "student",
             "image",
-            "email_verified_at",
             "phone_verified_at",
             "date_joined",
         ]
-        read_only_fields = ["id", "role", "email_verified_at", "phone_verified_at", "date_joined"]
+        read_only_fields = ["id", "role", "phone_verified_at", "date_joined"]
 
 
 class PhoneRequestSerializer(serializers.Serializer):
     phone = PhoneField(max_length=20)
 
 
+class NewPasswordSerializer(serializers.Serializer):
+    password = serializers.CharField(write_only=True, validators=[password_validation.validate_password])
+    password_confirmation = serializers.CharField(write_only=True)
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        if attrs["password"] != attrs.pop("password_confirmation"):
+            raise serializers.ValidationError({"password_confirmation": ["Passwords do not match."]})
+        return attrs
+
+
+class AuthTokenResponseSerializer(serializers.Serializer):
+    token = serializers.CharField()
+    user = UserSerializer(allow_null=True)
+
+
+# Sign up and sign in with OTP
+
+
+class OtpRequestResponseSerializer(serializers.Serializer):
+    user_exist = serializers.BooleanField()
+    password_exist = serializers.BooleanField()
+    message = serializers.CharField()
+    resend_in = serializers.IntegerField()
+
+
 class OtpVerifyRequestSerializer(PhoneRequestSerializer):
     otp = serializers.CharField(max_length=10)
-
-
-class PasswordResetRequestSerializer(OtpVerifyRequestSerializer, NewPasswordSerializer):
-    pass
 
 
 class UserRegisterRequestSerializer(NewPasswordSerializer):
@@ -71,15 +82,33 @@ class UserRegisterRequestSerializer(NewPasswordSerializer):
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
-        signed_in_as = getattr(self.context["request"].user, "phone", None)
-        if attrs["phone"] != signed_in_as:
+        verified_phone = self.context["request"].user.phone
+        if attrs["phone"] != verified_phone:
             raise serializers.ValidationError({"phone": ["This number does not match the verified session."]})
         return clean_student_audience(attrs)
 
 
+# Sign in with a password
+
+
 class UserLoginRequestSerializer(serializers.Serializer):
-    phone = PhoneField()
+    phone = PhoneField(max_length=20)
     password = serializers.CharField(write_only=True)
+
+
+# Forgot password
+
+
+class PasswordResetRequestSerializer(OtpVerifyRequestSerializer, NewPasswordSerializer):
+    """Phone and code, plus the new password twice."""
+
+
+class PasswordResetResponseSerializer(serializers.Serializer):
+    token = serializers.CharField()
+    message = serializers.CharField()
+
+
+# The signed-in user's own profile
 
 
 class ProfileUpdateRequestSerializer(UserWriteSerializer):
@@ -93,27 +122,12 @@ class ProfileUpdateRequestSerializer(UserWriteSerializer):
     def validate(self, attrs):
         attrs = super().validate(attrs)
         # A token alone must not be enough to take the account over by setting a new password.
-        if attrs.get("password") and self.instance.has_usable_password():
-            if not self.instance.check_password(attrs.get("current_password") or ""):
+        changing_password = bool(attrs.get("password"))
+        if changing_password and self.instance.has_usable_password():
+            current_password = attrs.get("current_password") or ""
+            if not self.instance.check_password(current_password):
                 raise serializers.ValidationError({"current_password": ["Your current password is incorrect."]})
         return attrs
 
     def update(self, instance, validated_data):
         return services.update_profile(instance, validated_data)
-
-
-class OtpRequestResponseSerializer(serializers.Serializer):
-    user_exist = serializers.BooleanField()
-    password_exist = serializers.BooleanField()
-    message = serializers.CharField()
-    resend_in = serializers.IntegerField()
-
-
-class AuthTokenResponseSerializer(serializers.Serializer):
-    token = serializers.CharField()
-    user = UserSerializer(allow_null=True)
-
-
-class PasswordResetResponseSerializer(serializers.Serializer):
-    token = serializers.CharField()
-    message = serializers.CharField()

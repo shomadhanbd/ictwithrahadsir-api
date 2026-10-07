@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.core.exceptions import PermissionDenied
 
-from apps.core.api.auth.permissions import SUPERUSER_ACCOUNT_MESSAGE, may_change_account
+from apps.identity.roles import SUPERUSER_ACCOUNT_MESSAGE, may_change_account
 from apps.profiles.models import StudentProfile, TeacherProfile
 from apps.profiles.services import delete_teacher, ensure_teacher_role
 

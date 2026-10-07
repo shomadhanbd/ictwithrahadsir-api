@@ -103,9 +103,7 @@ class TeacherWriteTests(TestCase):
         self.assertIn("phone", response.json()["errors"])
 
     def test_a_new_account_needs_a_name(self):
-        response = self.client.post(
-            LIST_URL, {"phone": "01710004444"}, content_type="application/json", **self.auth
-        )
+        response = self.client.post(LIST_URL, {"phone": "01710004444"}, content_type="application/json", **self.auth)
         self.assertEqual(response.status_code, 422)
         self.assertIn("name", response.json()["errors"])
         self.assertFalse(User.objects.filter(phone="01710004444").exists())
