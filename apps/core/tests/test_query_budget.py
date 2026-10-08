@@ -72,7 +72,7 @@ class QueryBudgetTests(APITestCase):
 
         notice_category = NoticeCategory.objects.create(slug=next_slug("noticecategory"), title="Notice cat")
         for i in range(cls.NOTICES):
-            Notice.objects.create(slug=next_slug("notice"), title=f"Notice {i}").categories.add(notice_category)
+            Notice.objects.create(title=f"Notice {i}").categories.add(notice_category)
 
     def authenticate(self):
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.token.key}")

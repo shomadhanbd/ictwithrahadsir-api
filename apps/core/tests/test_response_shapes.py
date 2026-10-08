@@ -193,8 +193,8 @@ class AdminSearchTests(TestCase):
         admin = User.objects.create_user(phone='01899000111', name='Admin', role=User.Role.ADMIN, is_staff=True)
         self.auth = bearer(admin)
 
-        Notice.objects.create(slug=next_slug("notice"), title='Exam routine published')
-        Notice.objects.create(slug=next_slug("notice"), title='Holiday announcement')
+        Notice.objects.create(title='Exam routine published')
+        Notice.objects.create(title='Holiday announcement')
         Course.objects.create(slug=next_slug("course"), title='Physics crash course')
         Course.objects.create(slug=next_slug("course"), title='Chemistry masterclass')
         for i, (name, subject) in enumerate([('Rahim Uddin', 'Physics'), ('Karim Ahmed', 'Chemistry')]):

@@ -8,6 +8,7 @@ from apps.courses.models import CourseTeacher, Enrollment
 from apps.identity.models import User
 
 CASH_URL = reverse('api:billing:admin_cash_sale')
+PACKAGES_URL = reverse('api:billing:admin_cash_sale_packages')
 
 
 class CashSaleTests(BillingTestBase):
@@ -82,14 +83,58 @@ class CashSaleTests(BillingTestBase):
     def test_amount_must_be_positive(self):
         self.assertEqual(self.record(amount=0).status_code, 422)
 
-    def test_a_teacher_records_only_for_their_own_course(self):
+    def test_a_teacher_sells_only_a_package_whose_courses_they_all_teach(self):
         teacher = make_user(role=User.Role.TEACHER)
         self.assertEqual(self.record(auth=bearer(teacher)).status_code, 403)
         CourseTeacher.objects.create(course=self.live, user=teacher)
-        self.assertEqual(self.record(auth=bearer(teacher)).status_code, 201)
+        self.assertEqual(self.record(auth=bearer(teacher)).status_code, 403)
+        self.assertFalse(Payment.objects.exists())
+        CourseTeacher.objects.create(course=self.recorded, user=teacher)
+        self.assertEqual(self.record(auth=bearer(teacher), amount=300).status_code, 201)
 
     def test_a_free_enrolment_records_no_payment(self):
         body = {'slugOrId': self.course.pk, 'user_id': self.student.pk}
         response = self.client.post(reverse('api:courses:admin_enrollment'), body, format='json', **bearer(self.admin))
         self.assertEqual(response.status_code, 201)
         self.assertFalse(Payment.objects.exists())
+
+
+class CashSalePackageTests(BillingTestBase):
+    def setUp(self):
+        super().setUp()
+        self.live_only = Product.objects.create(title='Live only', product_id='live-only', price=300, base_price=300)
+        self.live_only.courses.set([self.live])
+        retired = Product.objects.create(
+            title='Retired', product_id='retired', price=100, base_price=100, is_active=False
+        )
+        retired.courses.set([self.live])
+
+    def titles(self, user, **params):
+        response = self.client.get(PACKAGES_URL, {'course_id': self.live.pk, **params}, **bearer(user))
+        self.assertEqual(response.status_code, 200, response.content)
+        return [package['title'] for package in response.json()['data']]
+
+    def test_an_admin_sees_every_active_package_with_the_course(self):
+        admin = make_user(role=User.Role.ADMIN)
+        self.assertEqual(self.titles(admin), ['Live only', self.product.title])
+
+    def test_a_teacher_sees_only_packages_whose_courses_they_all_teach(self):
+        teacher = make_user(role=User.Role.TEACHER)
+        CourseTeacher.objects.create(course=self.live, user=teacher)
+        self.assertEqual(self.titles(teacher), ['Live only'])
+
+    def test_each_package_says_what_a_sale_charges_today(self):
+        package = self.client.get(PACKAGES_URL, {'course_id': self.live.pk}, **bearer(make_user(role=User.Role.ADMIN)))
+        self.assertEqual(
+            set(package.json()['data'][0]), {'id', 'title', 'current_price', 'access_days', 'access_ends_on'}
+        )
+
+    def test_a_teacher_of_another_course_is_refused(self):
+        teacher = make_user(role=User.Role.TEACHER)
+        CourseTeacher.objects.create(course=self.course, user=teacher)
+        response = self.client.get(PACKAGES_URL, {'course_id': self.live.pk}, **bearer(teacher))
+        self.assertEqual(response.status_code, 403)
+
+    def test_the_course_is_required(self):
+        response = self.client.get(PACKAGES_URL, **bearer(make_user(role=User.Role.ADMIN)))
+        self.assertEqual(response.status_code, 422)

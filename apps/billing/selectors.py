@@ -5,6 +5,8 @@ from django.db.models import Count, F, OuterRef, Q, Subquery
 from django.utils import timezone
 
 from apps.billing.models import Payment, Product
+from apps.courses.models import Course
+from apps.identity.roles import is_full_admin
 
 CHECKOUT_REUSE_MINUTES = 10
 # How long a checkout may wait on its gateway page before another may be opened.
@@ -139,3 +141,19 @@ def my_payments(user):
     return (
         Payment.objects.filter(user=user).select_related("product", "book_order").prefetch_related("product__courses")
     )
+
+
+# Cash sales
+
+
+def may_sell(user, product) -> bool:
+    """An admin, or a teacher of every course in `product`: a sale enrols the buyer in all of them."""
+    return is_full_admin(user) or not product.courses.exclude(instructors__user=user).exists()
+
+
+def sale_packages(course_id, viewer):
+    """The active packages including the course that `viewer` may record a cash sale for, newest first."""
+    packages = Product.objects.filter(is_active=True, courses=course_id).order_by("-id")
+    if not is_full_admin(viewer):
+        packages = packages.exclude(courses__in=Course.objects.exclude(instructors__user=viewer))
+    return packages

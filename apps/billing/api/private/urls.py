@@ -5,11 +5,13 @@ from apps.billing.api.private.views import (
     AdminPaymentListAPIView,
     AdminProductDetailAPIView,
     AdminProductListCreateAPIView,
+    CashSalePackageListAPIView,
 )
 
 urlpatterns = [
     path('payments/', AdminPaymentListAPIView.as_view(), name='admin_payment_list'),
     path('payments/cash/', AdminCashSaleAPIView.as_view(), name='admin_cash_sale'),
+    path('payments/cash/packages/', CashSalePackageListAPIView.as_view(), name='admin_cash_sale_packages'),
     path('products/', AdminProductListCreateAPIView.as_view(), name='admin_product_list'),
     path('products/<int:pk>/', AdminProductDetailAPIView.as_view(), name='admin_product_detail'),
 ]

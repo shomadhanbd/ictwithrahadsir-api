@@ -1,13 +1,21 @@
 from rest_framework import status
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.generics import ListAPIView, ListCreateAPIView, RetrieveUpdateDestroyAPIView
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.billing import selectors
 from apps.billing.api.filters import AdminProductFilter
-from apps.billing.api.serializers import AdminPaymentSerializer, AdminProductSerializer, CashSaleRequestSerializer
+from apps.billing.api.serializers import (
+    AdminPaymentSerializer,
+    AdminProductSerializer,
+    CashSaleRequestSerializer,
+    SalePackageQuerySerializer,
+    SalePackageSerializer,
+)
 from apps.billing.services.offline import record_cash_sale
 from apps.core.api.auth.permissions import IsFullAdmin, IsTeachingStaff
+from apps.core.api.views.generics import UnpaginatedDataListMixin
 from apps.courses.api.permissions import assert_may_manage_course
 
 
@@ -49,6 +57,8 @@ class AdminCashSaleAPIView(APIView):
         body.is_valid(raise_exception=True)
         data = body.validated_data
         assert_may_manage_course(request, data["course"].pk)
+        if not selectors.may_sell(request.user, data["product"]):
+            raise PermissionDenied("You can only sell a package whose courses you all teach.")
         payment = record_cash_sale(
             user=data["user"],
             product=data["product"],
@@ -58,3 +68,18 @@ class AdminCashSaleAPIView(APIView):
             note=data.get("note", ""),
         )
         return Response(AdminPaymentSerializer(payment).data, status=status.HTTP_201_CREATED)
+
+
+class CashSalePackageListAPIView(UnpaginatedDataListMixin, ListAPIView):
+    """`?course_id=`: the packages the enrol dialog can record a cash sale against."""
+
+    permission_classes = [IsTeachingStaff]
+    serializer_class = SalePackageSerializer
+    filter_backends = []
+
+    def get_queryset(self):
+        query = SalePackageQuerySerializer(data=self.request.query_params)
+        query.is_valid(raise_exception=True)
+        course = query.validated_data["course"]
+        assert_may_manage_course(self.request, course.pk)
+        return selectors.sale_packages(course.pk, self.request.user)

@@ -184,6 +184,20 @@ class AdminPaymentSerializer(PaymentSerializer):
         return _user_summary(payment.recorded_by)
 
 
+class SalePackageQuerySerializer(serializers.Serializer):
+    course_id = serializers.PrimaryKeyRelatedField(source="course", queryset=Course.objects.all())
+
+
+class SalePackageSerializer(serializers.ModelSerializer):
+    """A package a cash sale can be recorded against, and what it charges today."""
+
+    current_price = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = Product
+        fields = ["id", "title", "current_price", "access_days", "access_ends_on"]
+
+
 class CashSaleRequestSerializer(serializers.Serializer):
     """A sale taken at the centre: who paid, for which package of which course, how much, and until when."""
 

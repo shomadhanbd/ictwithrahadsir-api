@@ -241,6 +241,7 @@ class EveryAdminPathHasADecidedTierTests(APITestCase):
     NOT_GETTABLE = {
         'api/private/enrollments/',
         'api/private/payments/cash/',
+        'api/private/payments/cash/packages/',
         'api/private/teachers/lookup/',
         'api/private/uploads/',
     }
