@@ -3,14 +3,13 @@ from rest_framework.permissions import SAFE_METHODS
 from apps.core.api.auth.permissions import IsTeachingStaff
 from apps.identity.roles import (
     SUPERUSER_ACCOUNT_MESSAGE,
-    TEACHER_CREATABLE_ROLES,
     is_full_admin,
     may_change_account,
 )
 
 
 class CanManageUsers(IsTeachingStaff):
-    """Admins manage every account. A teacher may read their own students and create student accounts."""
+    """Admins manage every account; a teacher only reads their own students."""
 
     message = "Only an admin may manage this account."
 
@@ -20,14 +19,8 @@ class CanManageUsers(IsTeachingStaff):
         if is_full_admin(request.user):
             return True
 
-        # A teacher: reads are scoped to their own students by the view's queryset.
-        if request.method in SAFE_METHODS:
-            return True
-        if request.method != "POST":
-            return False
-        role = request.data.get("role")
-        creates_a_student = role is None or role in TEACHER_CREATABLE_ROLES
-        return creates_a_student and "is_active" not in request.data
+        # A teacher reads, scoped to their own students by the view's queryset; students sign up themselves.
+        return request.method in SAFE_METHODS
 
     def has_object_permission(self, request, view, obj):
         if request.method in SAFE_METHODS:

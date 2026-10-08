@@ -102,13 +102,15 @@ class AdminRoleEscalationTests(APITestCase):
         )
         self.assertEqual(response.status_code, 201)
 
-    def test_teacher_can_still_manage_students(self):
+    def test_teacher_cannot_create_a_student(self):
+        """Students sign up themselves; a teacher finds them by phone to enrol them."""
         response = self.client.post(
             ADMIN_USER_URL,
             {"name": "A Student", "phone": "01810005678", "role": "student", "password": "Str0ngPass!23"},
             **self.auth,
         )
-        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(User.objects.filter(phone="01810005678").exists())
 
     def test_teacher_cannot_block_a_student(self):
         student = User.objects.create_user(phone="01810007001", name="Student")
