@@ -1,6 +1,6 @@
 from django_filters import rest_framework as filters
 
-from apps.courses.models import Content, Course, CourseMaterial, CourseTeacher, Routine, Section
+from apps.courses.models import Content, Course, CourseTeacher, Routine, Section
 
 
 def id_filterset(model, *fields):
@@ -35,5 +35,4 @@ class SectionFilter(id_filterset(Section, "course_id", "section_id")):
 
 RoutineFilter = id_filterset(Routine, "course_id")
 ContentFilter = id_filterset(Content, "section_id")
-CourseMaterialFilter = id_filterset(CourseMaterial, "course_id")
 CourseTeacherFilter = id_filterset(CourseTeacher, "course_id")

@@ -12,7 +12,7 @@ from django.urls import include, path
 
 api_patterns = (
     [
-        path('', include('apps.notifications.api.urls')),
+        path('', include('apps.communication.api.urls')),
         path('', include('apps.academic.api.urls')),
         path('', include('apps.question.api.urls')),
         path('', include('apps.profiles.api.urls')),
@@ -23,6 +23,7 @@ api_patterns = (
         path('', include('apps.content.api.urls')),
         path('', include('apps.dashboard.api.urls')),
         path('', include('apps.uploads.api.urls')),
+        path('', include('apps.materials.api.urls')),
     ],
     'api',
 )

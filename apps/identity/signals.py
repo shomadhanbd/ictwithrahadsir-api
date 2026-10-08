@@ -2,10 +2,11 @@ from django.apps import apps as django_apps
 from django.contrib.auth.management import create_permissions
 from django.contrib.auth.models import Group, Permission
 from django.db import DEFAULT_DB_ALIAS
+from django.db.models import Q
 from django.db.models.signals import post_migrate
 from django.dispatch import receiver
 
-from apps.identity.roles import MODERATOR_APP_LABELS, Role
+from apps.identity.roles import MODERATOR_APP_LABELS, MODERATOR_MODELS, Role
 
 
 @receiver(post_migrate)
@@ -29,4 +30,7 @@ def sync_role_group_permissions(sender, using=DEFAULT_DB_ALIAS, **kwargs):
 
     moderator = groups.filter(name=Role.MODERATOR).first()
     if moderator is not None:
-        moderator.permissions.set(permissions.filter(content_type__app_label__in=MODERATOR_APP_LABELS))
+        scope = Q(content_type__app_label__in=MODERATOR_APP_LABELS)
+        for app_label, models in MODERATOR_MODELS.items():
+            scope |= Q(content_type__app_label=app_label, content_type__model__in=models)
+        moderator.permissions.set(permissions.filter(scope))

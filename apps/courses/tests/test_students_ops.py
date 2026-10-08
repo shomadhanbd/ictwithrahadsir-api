@@ -8,15 +8,15 @@ from django.utils import timezone
 
 from rest_framework.test import APITestCase
 
+from apps.communication.gateways import SmsError
 from apps.core.testing import bearer, make_user
 from apps.courses.models import Content, ContentCompletion, Course, CourseTeacher, Enrollment, Section
 from apps.courses.services import send_access_ended_notices, send_expiry_reminders
 from apps.identity.models import User
-from apps.notifications.gateways import SmsError
 
 
 def sms_outbox():
-    return patch('apps.notifications.services.get_gateway')
+    return patch('apps.communication.services.get_gateway')
 
 
 class ExpiryReminderTests(APITestCase):

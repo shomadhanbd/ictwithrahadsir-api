@@ -26,6 +26,8 @@ API = '/api'
 FULL_ADMIN_ONLY = [
     f'{API}/private/payments/',
     f'{API}/private/products/',
+    f'{API}/private/materials/book-orders/',
+    f'{API}/private/materials/delivery-rates/',
     f'{API}/private/teachers/',
     f'{API}/private/course-teachers/',
     f'{API}/private/sms-balance/',
@@ -58,7 +60,9 @@ CONTENT_STAFF = [
     f'{API}/private/notice-categories/',
     f'{API}/private/testimonials/',
     f'{API}/private/advertisements/',
-    f'{API}/private/ebooks/',
+    f'{API}/private/materials/topics/',
+    f'{API}/private/materials/categories/',
+    f'{API}/private/materials/items/',
     f'{API}/private/pages/',
 ]
 
@@ -67,7 +71,6 @@ TEACHING_STAFF = [
     f'{API}/private/courses/',
     f'{API}/private/sections/',
     f'{API}/private/contents/',
-    f'{API}/private/course-materials/',
     f'{API}/private/routines/',
     # The question bank and the exams built from it.
     f'{API}/private/question-blocks/',

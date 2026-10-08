@@ -5,60 +5,16 @@ from rest_framework.views import APIView
 
 from apps.content.api.serializers import (
     AdvertisementSerializer,
-    EBookSerializer,
-    NoticeCategorySerializer,
-    NoticeSerializer,
     PageSerializer,
     TestimonialSerializer,
 )
 from apps.content.models import (
     Advertisement,
-    EBook,
-    Notice,
-    NoticeCategory,
     Page,
     Testimonial,
 )
 from apps.core.api.auth.permissions import IsContentStaff
 from apps.core.api.views.generics import UnpaginatedDataListMixin
-
-
-class AdminNoticeView:
-    permission_classes = [IsContentStaff]
-    queryset = Notice.objects.prefetch_related('categories')
-    serializer_class = NoticeSerializer
-    lookup_field = 'slug'
-
-
-class AdminNoticeListCreateAPIView(AdminNoticeView, ListCreateAPIView):
-    search_fields = ['title', 'body']
-
-
-class AdminNoticeDetailAPIView(AdminNoticeView, RetrieveUpdateDestroyAPIView):
-    pass
-
-
-class AdminNoticeCategoryView:
-    permission_classes = [IsContentStaff]
-    queryset = NoticeCategory.objects.all()
-    serializer_class = NoticeCategorySerializer
-
-
-class AdminNoticeCategoryListCreateAPIView(AdminNoticeCategoryView, ListCreateAPIView):
-    search_fields = ['title']
-
-    def get_queryset(self):
-        """`?category_id=` lists one category's children; without it, the top level only (the tree loads lazily)."""
-        category_id = self.request.query_params.get('category_id')
-        return (
-            super()
-            .get_queryset()
-            .filter(**({'notice_category_id': category_id} if category_id else {'notice_category__isnull': True}))
-        )
-
-
-class AdminNoticeCategoryDetailAPIView(AdminNoticeCategoryView, RetrieveUpdateDestroyAPIView):
-    pass
 
 
 class AdminTestimonialView:
@@ -86,20 +42,6 @@ class AdminAdvertisementListCreateAPIView(AdminAdvertisementView, ListCreateAPIV
 
 
 class AdminAdvertisementDetailAPIView(AdminAdvertisementView, RetrieveUpdateDestroyAPIView):
-    pass
-
-
-class AdminEBookView:
-    permission_classes = [IsContentStaff]
-    queryset = EBook.objects.all()
-    serializer_class = EBookSerializer
-
-
-class AdminEBookListCreateAPIView(AdminEBookView, ListCreateAPIView):
-    search_fields = ['title', 'description']
-
-
-class AdminEBookDetailAPIView(AdminEBookView, RetrieveUpdateDestroyAPIView):
     pass
 
 

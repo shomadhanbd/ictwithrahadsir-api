@@ -444,7 +444,7 @@ class AdminUserTests(APITestCase):
 
     def test_creating_a_student_sends_no_otp(self):
         """An admin-created account sends no OTP."""
-        with mock.patch("apps.notifications.services.get_gateway") as sms:
+        with mock.patch("apps.communication.services.get_gateway") as sms:
             response = self.client.post(
                 ADMIN_USER_URL,
                 {

@@ -13,8 +13,8 @@ class UnpaginatedListEnvelopeTests(APITestCase):
 
     #: (reverse name, needs an admin token)
     ENDPOINTS = [
-        ('api:content:ebook_list', False),
-        ('api:content:notice_category_list', False),
+        ('api:materials:library', False),
+        ('api:communication:notice_category_list', False),
         ('api:profiles:admin_teacher_lookup', True),
         ('api:content:admin_page_list', True),
         ('api:identity:admin_user_search', True),

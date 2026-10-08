@@ -144,13 +144,16 @@ class RoleGroupPermissionTests(TestCase):
         self.assertEqual(self.group(User.Role.ADMIN).permissions.count(), Permission.objects.count())
 
     def test_the_moderator_group_is_scoped_to_the_published_site(self):
-        labels = {p.content_type.app_label for p in self.group(User.Role.MODERATOR).permissions.all()}
-        self.assertEqual(labels, {"content"})
+        models = {
+            (p.content_type.app_label, p.content_type.model) for p in self.group(User.Role.MODERATOR).permissions.all()
+        }
+        self.assertEqual({label for label, _ in models}, {"content", "communication"})
+        self.assertNotIn(("communication", "smsmessage"), models)
 
     def test_a_moderator_can_actually_open_something_in_the_admin(self):
         moderator = User.objects.create_user(phone=PHONE, name="Mod", role=User.Role.MODERATOR)
         self.assertTrue(moderator.is_staff)
-        self.assertTrue(moderator.has_perm("content.change_notice"))
+        self.assertTrue(moderator.has_perm("communication.change_notice"))
         self.assertFalse(moderator.has_perm("billing.change_payment"))
 
     def test_roles_that_never_reach_the_admin_get_nothing(self):

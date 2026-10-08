@@ -73,7 +73,10 @@ class Payment(TimestampModel):
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, models.SET_NULL, null=True, related_name="payments", verbose_name="User"
     )
-    product = models.ForeignKey(Product, models.PROTECT, related_name="payments", verbose_name="Product")
+    # Null for a book order (`book_order`), which gives no course access.
+    product = models.ForeignKey(
+        Product, models.PROTECT, null=True, blank=True, related_name="payments", verbose_name="Product"
+    )
     amount = models.PositiveIntegerField("Amount")
     # Null means lifetime access.
     access_until = models.DateTimeField("Access Until", null=True, blank=True)
@@ -116,7 +119,7 @@ class Payment(TimestampModel):
 
     @property
     def title(self):
-        return self.product.title
+        return self.product.title if self.product_id else self.book_order.title
 
     def unlocked_courses(self):
-        return list(self.product.courses.all())
+        return list(self.product.courses.all()) if self.product_id else []

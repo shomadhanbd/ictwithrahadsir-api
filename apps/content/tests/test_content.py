@@ -4,9 +4,6 @@ from rest_framework.test import APITestCase
 
 from apps.content.models import (
     Advertisement,
-    EBook,
-    Notice,
-    NoticeCategory,
     Page,
     Testimonial,
 )
@@ -16,8 +13,6 @@ from apps.identity.models import User
 from apps.profiles.models import TeacherProfile
 
 HOME_URL = reverse('api:content:home')
-NOTICES_URL = reverse('api:content:notice_list')
-NOTICE_CATEGORY_URL = reverse('api:content:notice_category_list')
 ADMIN_PAGE_LIST_URL = reverse('api:content:admin_page_list')
 
 
@@ -70,32 +65,6 @@ class HomeInstructorTests(APITestCase):
         names = [i['name'] for i in self.client.get(HOME_URL).json()['instructors']]
         self.assertIn('Teaching', names)
         self.assertNotIn('Left the centre', names)
-
-
-class NoticeTests(APITestCase):
-    def setUp(self):
-        self.category = NoticeCategory.objects.create(title='Exam', slug='exam')
-        self.notice = Notice.objects.create(title='Exam schedule', slug='exam-schedule')
-        self.notice.categories.add(self.category)
-        Notice.objects.create(title='Holiday', slug='holiday')
-
-    def test_notices_are_paginated(self):
-        body = self.client.get(NOTICES_URL).json()
-        self.assertEqual(body['meta']['total'], 2)
-
-    def test_notices_filter_by_category(self):
-        body = self.client.get(NOTICES_URL, {'category_id': self.category.pk}).json()
-        self.assertEqual([n['title'] for n in body['data']], ['Exam schedule'])
-
-    def test_a_category_that_is_not_an_id_is_a_422_not_a_500(self):
-        response = self.client.get(NOTICES_URL, {'category_id': 'abc'})
-        self.assertEqual(response.status_code, 422)
-        self.assertIn('category_id', response.json()['errors'])
-
-    def test_notice_categories_are_top_level_only(self):
-        NoticeCategory.objects.create(title='Child', slug='child', notice_category=self.category)
-        body = self.client.get(NOTICE_CATEGORY_URL).json()
-        self.assertEqual([c['title'] for c in body['data']], ['Exam'])
 
 
 class PageTests(APITestCase):
@@ -155,29 +124,3 @@ class AdminCmsTests(APITestCase):
         url = reverse('api:content:admin_page_update', args=['homeStudentCounter'])
         self.client.patch(url, {'value_type': 'html', 'value': '5000'}, format='json', **self.auth)
         self.assertEqual(Page.objects.get(key='homeStudentCounter').value_type, Page.ValueType.COUNTER)
-
-    def test_a_notice_body_is_stripped_of_script(self):
-        body = {'title': 'Notice', 'slug': 'notice', 'body': '<p>খবর</p><a href="javascript:steal()">x</a>'}
-        response = self.client.post(reverse('api:content:admin_notice_list'), body, format='json', **self.auth)
-        self.assertEqual(response.status_code, 201, response.content)
-        self.assertNotIn('javascript', Notice.objects.get().body)
-
-
-class PublicEBookListTests(APITestCase):
-    def setUp(self):
-        EBook.objects.create(
-            title='ICT Handnote',
-            description='Syntax and loops, explained.',
-            booking_link='https://example.test/order',
-            preview='https://example.test/preview.pdf',
-        )
-
-    def test_the_shelf_is_public(self):
-        response = self.client.get(reverse('api:content:ebook_list'))
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.data['data']), 1)
-        self.assertEqual(response.data['data'][0]['title'], 'ICT Handnote')
-
-    def test_it_is_read_only(self):
-        response = self.client.post(reverse('api:content:ebook_list'), {'title': 'Nope'}, format='json')
-        self.assertEqual(response.status_code, 405)

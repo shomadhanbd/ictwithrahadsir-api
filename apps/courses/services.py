@@ -4,6 +4,9 @@ from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
 
+from apps.communication.gateways import SmsError
+from apps.communication.models import SmsMessage
+from apps.communication.services import send_sms
 from apps.core.exceptions import Conflict
 from apps.courses.models import Content, ContentCompletion, Course, CourseTeacher, Enrollment, Section
 from apps.courses.notifications import access_ended, expiry_reminder
@@ -16,9 +19,6 @@ from apps.courses.selectors import (
     section_siblings,
 )
 from apps.identity.roles import is_full_admin
-from apps.notifications.gateways import SmsError
-from apps.notifications.models import SmsMessage
-from apps.notifications.services import send_sms
 
 logger = logging.getLogger("courses")
 

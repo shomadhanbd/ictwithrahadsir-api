@@ -43,10 +43,11 @@ def mark_payment_paid(payment, *, by):
     payment.status = Payment.Status.VALID
     payment.transaction_date = payment.transaction_date or timezone.now()
     add_note(payment, f"Marked paid by {by}.")
-    # Access runs from now, or from the end of the purchase it renews: the checkout may have been started days ago.
-    started_with = payment.access_until
-    payment.access_until = access_until(payment.product, user=payment.user_id)
-    if flag_if_duplicate(payment):
-        payment.access_until = started_with
+    if payment.product_id is not None:
+        # Access runs from now, or from the end of the purchase it renews: the checkout may have been started days ago.
+        started_with = payment.access_until
+        payment.access_until = access_until(payment.product, user=payment.user_id)
+        if flag_if_duplicate(payment):
+            payment.access_until = started_with
     payment.save(update_fields=["status", "access_until", "transaction_date", "note", "refund_due", "updated_at"])
     return payment

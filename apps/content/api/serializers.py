@@ -1,31 +1,9 @@
 from rest_framework import serializers
 
-from apps.content.models import Advertisement, EBook, Notice, NoticeCategory, Page, Testimonial
-from apps.core.api.serializers.fields import HtmlField, MediaField
+from apps.content.models import Advertisement, Page, Testimonial
+from apps.core.api.serializers.fields import MediaField
 from apps.core.text.html import clean_html
 from apps.profiles.api.public.serializers import TeacherSerializer
-
-
-class NoticeCategorySerializer(serializers.ModelSerializer):
-    notice_category_id = serializers.PrimaryKeyRelatedField(
-        source="notice_category", queryset=NoticeCategory.objects.all(), required=False, allow_null=True
-    )
-
-    class Meta:
-        model = NoticeCategory
-        fields = ["id", "title", "slug", "notice_category_id", "order"]
-        read_only_fields = ["id"]
-
-
-class NoticeSerializer(serializers.ModelSerializer):
-    image = MediaField(required=False)
-    body = HtmlField()
-    categories = serializers.PrimaryKeyRelatedField(many=True, queryset=NoticeCategory.objects.all(), required=False)
-
-    class Meta:
-        model = Notice
-        fields = ["id", "title", "slug", "body", "image", "categories", "created_at"]
-        read_only_fields = ["id", "created_at"]
 
 
 class TestimonialSerializer(serializers.ModelSerializer):
@@ -43,17 +21,6 @@ class AdvertisementSerializer(serializers.ModelSerializer):
     class Meta:
         model = Advertisement
         fields = ["id", "title", "description", "link", "type", "image"]
-        read_only_fields = ["id"]
-
-
-class EBookSerializer(serializers.ModelSerializer):
-    image = MediaField(required=False)
-    # The admin panel reads `preview` as a plain URL string (it splits it for the file name).
-    preview = MediaField(required=False, bare=True)
-
-    class Meta:
-        model = EBook
-        fields = ["id", "title", "description", "booking_link", "preview", "image"]
         read_only_fields = ["id"]
 
 

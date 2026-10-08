@@ -42,8 +42,10 @@ def add_note(payment, text) -> None:
 def flag_if_duplicate(payment) -> bool:
     """Marks a payment for access the buyer already has as refund due; the grant signal skips it.
 
-    The caller holds `lock_buyer` and saves `refund_due` and `note`.
+    The caller holds `lock_buyer` and saves `refund_due` and `note`. A book order is never a duplicate.
     """
+    if payment.product_id is None:
+        return False
     running = running_purchase(payment.user_id, payment.product_id, exclude=payment)
     if running is None or _renews(payment, running):
         return False

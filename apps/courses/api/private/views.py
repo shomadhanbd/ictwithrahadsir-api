@@ -21,7 +21,6 @@ from apps.courses.api.permissions import (
 from apps.courses.api.private.filters import (
     AdminCourseFilter,
     ContentFilter,
-    CourseMaterialFilter,
     CourseTeacherFilter,
     RoutineFilter,
     SectionFilter,
@@ -37,9 +36,9 @@ from apps.courses.api.private.serializers import (
     EnrollmentSerializer,
     SectionMoveSerializer,
 )
-from apps.courses.api.serializers import CourseMaterialSerializer, RoutineSerializer
+from apps.courses.api.serializers import RoutineSerializer
 from apps.courses.exports import STUDENT_EXPORT_HEADER, student_export_rows
-from apps.courses.models import Content, Course, CourseMaterial, CourseTeacher, Enrollment, Routine, Section
+from apps.courses.models import Content, Course, CourseTeacher, Enrollment, Routine, Section
 
 
 class AdminCourseView(CourseScopedAdminMixin):
@@ -198,21 +197,6 @@ class AdminEnrollmentAPIView(APIView):
         course = data["course"]
         removed = bool(course) and services.revoke_course_access(user_id=data.get("user_id"), course=course)
         return Response({"ok": removed})
-
-
-class AdminCourseMaterialView(CourseScopedAdminMixin):
-    permission_classes = [IsCourseTeacherAdminDeletes]
-    queryset = CourseMaterial.objects.select_related("course").order_by("-id")
-    serializer_class = CourseMaterialSerializer
-
-
-class AdminCourseMaterialListCreateAPIView(AdminCourseMaterialView, ListCreateAPIView):
-    search_fields = ["title", "type", "course__title"]
-    filterset_class = CourseMaterialFilter
-
-
-class AdminCourseMaterialDetailAPIView(AdminCourseMaterialView, RetrieveUpdateDestroyAPIView):
-    pass
 
 
 class AdminCourseTeacherView:

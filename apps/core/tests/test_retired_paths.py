@@ -41,9 +41,8 @@ class RetiredPathTests(TestCase):
         ('/api/admin/notice-category', '/api/private/notice-categories/'),
         ('/api/admin/testimonial', '/api/private/testimonials/'),
         ('/api/admin/advertisement', '/api/private/advertisements/'),
-        ('/api/admin/exclusive-ebook', '/api/private/ebooks/'),
+        ('/api/admin/exclusive-ebook', '/api/private/materials/topics/'),
         ('/api/admin/page', '/api/private/pages/'),
-        ('/api/admin/course-materials', '/api/private/course-materials/'),
         ('/api/admin/sms-balance', '/api/private/sms-balance/'),
         ('/api/admin/logout', '/api/public/auth/logout/'),
     ]

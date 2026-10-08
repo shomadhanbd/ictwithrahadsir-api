@@ -87,8 +87,6 @@ class CourseStatusTests(APITestCase):
         self.assertEqual(mine, ['old'])
         progress = self.client.get(reverse('api:courses:course_progress', args=['old']), **self.auth)
         self.assertEqual(progress.status_code, 200)
-        materials = self.client.get(reverse('api:courses:course_material_list', args=['old']), **self.auth)
-        self.assertEqual(materials.status_code, 200)
 
     def test_an_enrolment_does_not_open_a_draft(self):
         Enrollment.objects.create(course=self.draft, user=self.student)

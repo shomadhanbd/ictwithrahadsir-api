@@ -43,7 +43,7 @@ THIRD_PARTY_APPS = [
 
 LOCAL_APPS = [
     "apps.core",
-    "apps.notifications",
+    "apps.communication",
     "apps.academic",
     "apps.question",
     "apps.profiles",
@@ -54,6 +54,7 @@ LOCAL_APPS = [
     "apps.content",
     "apps.dashboard",
     "apps.uploads",
+    "apps.materials",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -156,7 +157,7 @@ OTP_RATE_LIMIT_PER_PHONE_PER_HOUR = 5
 DEMO_PHONE = env("DEMO_PHONE", default="")
 DEMO_OTP_CODE = env("DEMO_OTP_CODE", default="000000")
 
-# SMS (gateways in apps/notifications/gateways.py)
+# SMS (gateways in apps/communication/gateways.py)
 
 SMS_BACKEND = env("SMS_BACKEND", default="console")
 BULKSMSBD_API_KEY = env("BULKSMSBD_API_KEY", default="")

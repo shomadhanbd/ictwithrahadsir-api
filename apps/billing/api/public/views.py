@@ -60,7 +60,7 @@ class MyPaymentListView(UnpaginatedDataListMixin, ListAPIView):
     def get_queryset(self):
         return (
             Payment.objects.filter(user=self.request.user)
-            .select_related("product")
+            .select_related("product", "book_order")
             .prefetch_related("product__courses")
         )
 
@@ -74,6 +74,6 @@ class MyPaymentDetailView(RetrieveAPIView):
     def get_queryset(self):
         return (
             Payment.objects.filter(user=self.request.user)
-            .select_related("product")
+            .select_related("product", "book_order")
             .prefetch_related("product__courses")
         )

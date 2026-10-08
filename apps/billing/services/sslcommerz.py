@@ -56,7 +56,7 @@ def _get_sslcz() -> SSLCOMMERZ:
     )
 
 
-def _throttle_initiate(user) -> None:
+def throttle_initiate(user) -> None:
     cutoff = timezone.now() - timezone.timedelta(hours=1)
     count = Payment.objects.filter(user=user, status=Payment.Status.INITIATED, created_at__gte=cutoff).count()
     if count >= settings.PAYMENT_INITIATE_RATE_LIMIT_PER_USER_PER_HOUR:
@@ -233,7 +233,7 @@ def initiate_payment(*, user, product_id: str) -> dict:
         if pending is not None:
             return {"transaction_id": pending.transaction_id, "gateway_page_url": pending.gateway_page_url}
 
-        _throttle_initiate(user)
+        throttle_initiate(user)
         fields = {"user": user, "product": product, "amount": amount, "access_until": access_until(product, user=user)}
         if amount == 0:
             payment = Payment.objects.create(status=Payment.Status.VALID, transaction_date=timezone.now(), **fields)
@@ -241,10 +241,11 @@ def initiate_payment(*, user, product_id: str) -> dict:
         payment = Payment.objects.create(**fields)
 
     # Committed first, so no transaction is held open while SSLCommerz answers.
-    return _open_gateway_session(payment)
+    return open_gateway_session(payment)
 
 
-def _open_gateway_session(payment: Payment) -> dict:
+def open_gateway_session(payment: Payment, *, goods: dict | None = None) -> dict:
+    """Opens the SSLCommerz checkout for a committed payment; `goods` overrides the item and buyer fields."""
     user = payment.user
     capture_url = _callback_url("payment_capture")
     post_body = {
@@ -269,6 +270,7 @@ def _open_gateway_session(payment: Payment) -> dict:
         "product_name": payment.title[:255],
         "product_category": "education",
         "product_profile": "non-physical-goods",
+        **(goods or {}),
     }
 
     session = _get_sslcz().createSession(post_body) or {}

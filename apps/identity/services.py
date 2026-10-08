@@ -8,11 +8,11 @@ from django.utils.crypto import constant_time_compare, get_random_string
 
 from rest_framework.authtoken.models import Token
 
+from apps.communication.models import SmsMessage
+from apps.communication.services import send_sms
 from apps.core.api.auth.authentication import token_expired
 from apps.identity.models import OTP, User
 from apps.identity.selectors import seconds_until_resend
-from apps.notifications.models import SmsMessage
-from apps.notifications.services import send_sms
 from apps.profiles.services import ensure_student_profile, save_student_profile
 
 BAD_CODE = {"otp": ["Invalid or expired OTP."]}

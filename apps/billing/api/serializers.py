@@ -114,23 +114,50 @@ class PaymentCourseSerializer(serializers.ModelSerializer):
 
 
 class PaymentSerializer(serializers.ModelSerializer):
+    """A package payment lists its `courses`; a book payment (`kind: "book"`) has `book`, its delivery."""
+
     title = serializers.CharField(read_only=True)
+    kind = serializers.SerializerMethodField()
     product_id = serializers.SlugRelatedField(source="product", slug_field="product_id", read_only=True)
-    courses = PaymentCourseSerializer(source="product.courses", many=True, read_only=True)
+    courses = serializers.SerializerMethodField()
+    book = serializers.SerializerMethodField()
 
     class Meta:
         model = Payment
         fields = [
             "transaction_id",
             "title",
+            "kind",
             "product_id",
             "amount",
             "status",
             "transaction_date",
             "created_at",
             "courses",
+            "book",
         ]
         read_only_fields = fields
+
+    def get_kind(self, payment) -> str:
+        return "package" if payment.product_id else "book"
+
+    def get_courses(self, payment) -> list:
+        if not payment.product_id:
+            return []
+        return PaymentCourseSerializer(payment.product.courses.all(), many=True).data
+
+    def get_book(self, payment) -> dict | None:
+        if payment.product_id:
+            return None
+        order = payment.book_order
+        return {
+            "name": order.name,
+            "phone": order.phone,
+            "address": order.address,
+            "zone": order.zone,
+            "book_price": order.book_price,
+            "delivery_charge": order.delivery_charge,
+        }
 
 
 class AdminPaymentSerializer(PaymentSerializer):

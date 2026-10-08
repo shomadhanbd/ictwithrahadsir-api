@@ -4,7 +4,7 @@ from rest_framework.authtoken.models import Token
 from rest_framework.test import APITestCase
 
 from apps.billing.models import Payment, Product
-from apps.content.models import Notice, NoticeCategory
+from apps.communication.models import Notice, NoticeCategory
 from apps.core.testing import bearer, make_user, next_slug
 from apps.courses.models import (
     Content,
@@ -112,7 +112,8 @@ class QueryBudgetTests(APITestCase):
         self.assertEqual(len(response.data["courses"]), 12)
 
     def test_notice_list(self):
-        with self.assertNumQueries(3):
+        """Count, page, then categories, class levels and batches each prefetched once."""
+        with self.assertNumQueries(5):
             response = self.client.get("/api/public/notices/?per_page=20")
         self.assertEqual(len(response.data["data"]), 20)
 

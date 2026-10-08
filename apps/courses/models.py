@@ -257,18 +257,6 @@ class Enrollment(TimestampModel):
         return "active" if self.is_current else "expired"
 
 
-class CourseMaterial(TimestampModel):
-    """A supplementary file for a course, such as a lecture sheet."""
-
-    title = models.CharField(max_length=255)
-    type = models.CharField(max_length=50, blank=True)
-    course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="materials", null=True, blank=True)
-    file = models.URLField(null=True, blank=True)
-
-    def __str__(self):
-        return self.title
-
-
 class CourseTeacher(TimestampModel, OrderedModel):
     """A teacher's assignment to one course, with their commission."""
 

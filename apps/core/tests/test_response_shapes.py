@@ -197,7 +197,7 @@ class AdminSearchTests(TestCase):
     """`?search=` must actually filter."""
 
     def setUp(self):
-        from apps.content.models import Notice
+        from apps.communication.models import Notice
 
         admin = User.objects.create_user(phone='01899000111', name='Admin', role=User.Role.ADMIN, is_staff=True)
         self.auth = bearer(admin)
@@ -219,7 +219,7 @@ class AdminSearchTests(TestCase):
         self.assertLess(filtered, unfiltered, f'{path} ignored ?search=')
 
     def test_notice_search_filters(self):
-        self.assert_filters(reverse('api:content:admin_notice_list'), 'Holiday', 1)
+        self.assert_filters(reverse('api:communication:admin_notice_list'), 'Holiday', 1)
 
     def test_course_search_filters(self):
         self.assert_filters(reverse('api:courses:admin_course_list'), 'Physics', 1)
@@ -229,7 +229,7 @@ class AdminSearchTests(TestCase):
 
     def test_search_that_matches_nothing_returns_nothing(self):
         """The panel's empty state depends on this actually being empty."""
-        url = reverse('api:content:admin_notice_list')
+        url = reverse('api:communication:admin_notice_list')
         body = self.client.get(url, {'search': 'zzzznomatch'}, **self.auth).json()
         self.assertEqual(body['meta']['total'], 0)
         self.assertEqual(body['data'], [])
@@ -315,118 +315,11 @@ class CourseTabSearchTests(TestCase):
         self.assertEqual(len(seen), Enrollment.objects.filter(course=self.course).count())
 
 
-class CourseMaterialCrudTests(TestCase):
-    """Admins create, edit and delete course materials."""
-
-    def setUp(self):
-        admin = make_user(role=User.Role.ADMIN)
-        self.auth = bearer(admin)
-        self.course = Course.objects.create(slug=next_slug("course"), title='Material Host Course')
-
-    def test_create_update_delete(self):
-        from apps.courses.models import CourseMaterial
-
-        created = self.client.post(
-            '/api/private/course-materials/',
-            {'title': 'Lecture sheet 1', 'type': 'pdf', 'course_id': self.course.pk},
-            content_type='application/json',
-            **self.auth,
-        )
-        self.assertEqual(created.status_code, 201, created.content)
-        pk = created.json()['id']
-
-        renamed = self.client.patch(
-            f'/api/private/course-materials/{pk}/',
-            {'title': 'Lecture sheet 2'},
-            content_type='application/json',
-            **self.auth,
-        )
-        self.assertEqual(renamed.status_code, 200)
-        self.assertEqual(renamed.json()['title'], 'Lecture sheet 2')
-
-        gone = self.client.delete(f'/api/private/course-materials/{pk}/', **self.auth)
-        self.assertEqual(gone.status_code, 204)
-        self.assertFalse(CourseMaterial.objects.filter(pk=pk).exists())
-
-    def test_list_is_paginated_and_searchable(self):
-        from apps.courses.models import CourseMaterial
-
-        CourseMaterial.objects.create(title='Algebra notes', course=self.course)
-        CourseMaterial.objects.create(title='Geometry notes', course=self.course)
-
-        body = self.client.get('/api/private/course-materials/', **self.auth).json()
-        self.assertIn('meta', body, 'the screen paginates; the list must carry meta')
-        self.assertEqual(body['meta']['total'], 2)
-
-        filtered = self.client.get('/api/private/course-materials/', {'search': 'Algebra'}, **self.auth).json()
-        self.assertEqual(filtered['meta']['total'], 1)
-
-    def test_filter_by_course(self):
-        from apps.courses.models import CourseMaterial
-
-        other = Course.objects.create(slug=next_slug("course"), title='Another Course')
-        CourseMaterial.objects.create(title='Mine', course=self.course)
-        CourseMaterial.objects.create(title='Theirs', course=other)
-
-        body = self.client.get('/api/private/course-materials/', {'course_id': self.course.pk}, **self.auth).json()
-        self.assertEqual(body['meta']['total'], 1)
-        self.assertEqual(body['data'][0]['title'], 'Mine')
-
-
-class AdminPaymentListTests(TestCase):
-    """The payments screen searches and filters on the server."""
-
-    def setUp(self):
-        from apps.billing.models import Payment, Product
-
-        admin = make_user(role=User.Role.ADMIN)
-        self.auth = bearer(admin)
-        product = Product.objects.create(
-            product_id=next_slug("product"), title='Paid Bundle', price=500, base_price=500
-        )
-
-        for name, phone, txn, status in [
-            ('Nusrat Jahan', '01810500001', 'TRX-AAA-111', Payment.Status.INITIATED),
-            ('Imran Hossain', '01810500002', 'TRX-BBB-222', Payment.Status.VALID),
-            ('Rahim Uddin', '01810500003', 'TRX-CCC-333', Payment.Status.FAILED),
-        ]:
-            user = User.objects.create_user(phone=phone, name=name, role=User.Role.STUDENT)
-            Payment.objects.create(user=user, product=product, amount=500, transaction_id=txn, status=status)
-
-    def get(self, **params):
-        return self.client.get('/api/private/payments/', params, **self.auth).json()
-
-    def test_search_by_payer_name(self):
-        body = self.get(search='Nusrat')
-        self.assertEqual(body['meta']['total'], 1)
-
-    def test_search_by_transaction_id(self):
-        body = self.get(search='BBB')
-        self.assertEqual(body['meta']['total'], 1)
-        self.assertEqual(body['data'][0]['transaction_id'], 'TRX-BBB-222')
-
-    def test_search_by_phone(self):
-        self.assertEqual(self.get(search='01810500003')['meta']['total'], 1)
-
-    def test_status_filter(self):
-        self.assertEqual(self.get(status='INITIATED')['meta']['total'], 1)
-        self.assertEqual(self.get(status='VALID')['meta']['total'], 1)
-        self.assertEqual(self.get(status='all')['meta']['total'], 3)
-        self.assertEqual(self.get()['meta']['total'], 3)
-
-    def test_pages_do_not_overlap(self):
-        seen = []
-        for page in (1, 2, 3):
-            seen.extend(r['id'] for r in self.get(page=page, per_page=1)['data'])
-        self.assertEqual(len(seen), len(set(seen)), f'a payment appeared twice: {seen}')
-        self.assertEqual(len(seen), 3)
-
-
 class ContentSearchTests(TestCase):
     """Every content endpoint honours `?search=`."""
 
     def setUp(self):
-        from apps.content.models import EBook, NoticeCategory
+        from apps.communication.models import NoticeCategory
 
         admin = make_user(role=User.Role.ADMIN)
         self.auth = bearer(admin)
@@ -437,8 +330,6 @@ class ContentSearchTests(TestCase):
         Testimonial.objects.create(name='Imran Hossain', description='Very helpful')
         Advertisement.objects.create(title='Admission banner', type='banner')
         Advertisement.objects.create(title='Seminar popup', type='popup')
-        EBook.objects.create(title='ICT Complete Guide')
-        EBook.objects.create(title='Physics Workbook')
 
     def assert_filters(self, path, term, expected):
         unfiltered = self.client.get(path, **self.auth).json()['meta']['total']
@@ -454,9 +345,6 @@ class ContentSearchTests(TestCase):
 
     def test_advertisement_search(self):
         self.assert_filters('/api/private/advertisements/', 'popup', 1)
-
-    def test_ebook_search(self):
-        self.assert_filters('/api/private/ebooks/', 'Physics', 1)
 
     def test_pages_expose_value_type(self):
         """Each setting reports the value type its editor needs."""

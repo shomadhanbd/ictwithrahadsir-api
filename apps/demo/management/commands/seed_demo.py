@@ -30,18 +30,15 @@ from django.utils import timezone
 from apps.academic.models import Batch, Chapter, ClassLevel, Group, Subject, Topic
 from apps.academic.services import seed_curriculum
 from apps.billing.models import Payment, Product
+from apps.communication.models import Notice, NoticeCategory
 from apps.content.models import (
     Advertisement,
-    EBook,
-    Notice,
-    NoticeCategory,
     Page,
     Testimonial,
 )
 from apps.courses.models import (
     Content,
     Course,
-    CourseMaterial,
     CourseTeacher,
     Enrollment,
     Routine,
@@ -484,14 +481,12 @@ class Command(BaseCommand):
         self._seed_testimonials()
         self._seed_advertisements()
         self._seed_notices()
-        self._seed_ebooks()
         courses = self._seed_courses(teachers)
         students = self._seed_students()
         self._seed_enrollments(courses, students)
         self._seed_exams()
         products = self._seed_products(courses)
         self._seed_orders(courses, products, students)
-        self._seed_materials(courses)
 
         self.stdout.write(self.style.SUCCESS("\nDemo data ready:"))
         for label, count in [
@@ -535,10 +530,8 @@ class Command(BaseCommand):
             Routine,
             CourseTeacher,
             Course,
-            CourseMaterial,
             Notice,
             NoticeCategory,
-            EBook,
             Advertisement,
             Testimonial,
             TeacherProfile,
@@ -700,7 +693,7 @@ class Command(BaseCommand):
         for index, (title, slug) in enumerate(NOTICE_CATEGORIES):
             category, _ = NoticeCategory.objects.get_or_create(
                 slug=slug,
-                defaults={"title": title, "notice_category": None, "order": index},
+                defaults={"title": title, "order": index},
             )
             categories[title] = category
 
@@ -719,21 +712,6 @@ class Command(BaseCommand):
                 # is not a single timestamp.
                 Notice.objects.filter(pk=notice.pk).update(created_at=self.now - timedelta(days=index * 5 + 1))
         self.stdout.write("  notices")
-
-    def _seed_ebooks(self):
-        for index, (title, description) in enumerate(EBOOKS):
-            EBook.objects.get_or_create(
-                title=title,
-                defaults={
-                    "description": description,
-                    "booking_link": "http://localhost:3000/contact",
-                    "preview": f"{MEDIA_BASE}/{SEED_DIR}/ebook-{index}.png",
-                    "image": make_image(f"ebook-{index}", 600, 800, f"EBOOK {index + 1}", index + 4),
-                },
-            )
-        self.stdout.write("  ebooks")
-
-    # -- exams --------------------------------------------------------------
 
     def _seed_courses(self, teachers):
         levels = {level.slug: level for level in ClassLevel.objects.all()}
@@ -989,14 +967,6 @@ class Command(BaseCommand):
                 answers.append({"question_id": question.pk, "option_ids": [pick.pk]})
             save_answers(attempt, answers, now=started + timedelta(minutes=2))
             submit(attempt, now=started + timedelta(minutes=self.rng.randint(3, 9)))
-
-    def _seed_materials(self, courses):
-        for index, course in enumerate(courses[:4]):
-            CourseMaterial.objects.get_or_create(
-                title=f"{course.title} — সাপ্লিমেন্টারি শিট",
-                defaults={"type": "pdf", "course": course, "file": f"{MEDIA_BASE}/{SEED_DIR}/course-{index}.png"},
-            )
-        self.stdout.write("  course materials")
 
     # -- students -----------------------------------------------------------
 

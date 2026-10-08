@@ -14,8 +14,7 @@ from apps.courses.api.public.serializers import (
     CourseListSerializer,
     CourseProgressSerializer,
 )
-from apps.courses.api.serializers import CourseMaterialSerializer
-from apps.courses.models import Course, CourseMaterial
+from apps.courses.models import Course
 
 
 class CourseCardsMixin:
@@ -97,15 +96,3 @@ class CourseProgressAPIView(APIView):
         course = selectors.enrolled_course(request.user, slug)
         services.uncomplete_lesson(user=request.user, course=course, content_id=self._content_id(request))
         return Response(self._payload(course))
-
-
-class CourseMaterialListAPIView(UnpaginatedDataListMixin, ListAPIView):
-    """Supplementary files for a course the caller is enrolled on."""
-
-    permission_classes = [IsAuthenticated]
-    serializer_class = CourseMaterialSerializer
-    queryset = CourseMaterial.objects.none()
-
-    def get_queryset(self):
-        course = selectors.enrolled_course(self.request.user, self.kwargs["slug"])
-        return CourseMaterial.objects.filter(course=course).order_by("-created_at")

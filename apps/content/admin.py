@@ -1,32 +1,10 @@
-"""Notices, static pages and the homepage furniture."""
+"""Static pages and the homepage furniture."""
 
 from django.contrib import admin
 
 from apps.core.admin import TimestampedAdmin
 
-from .models import Advertisement, EBook, Notice, NoticeCategory, Page, Testimonial
-
-
-@admin.register(Notice)
-class NoticeAdmin(TimestampedAdmin):
-    list_display = ('id', 'title', 'created_at')
-    list_filter = ('created_at', 'categories')
-    search_fields = ('title', 'slug', 'body')
-    ordering = ('-created_at',)
-    date_hierarchy = 'created_at'
-    prepopulated_fields = {'slug': ('title',)}
-    filter_horizontal = ('categories',)
-
-
-@admin.register(NoticeCategory)
-class NoticeCategoryAdmin(TimestampedAdmin):
-    list_display = ('id', 'title', 'notice_category', 'order')
-    list_editable = ('order',)
-    search_fields = ('title', 'slug')
-    ordering = ('order', 'title')
-    list_select_related = ('notice_category',)
-    autocomplete_fields = ('notice_category',)
-    prepopulated_fields = {'slug': ('title',)}
+from .models import Advertisement, Page, Testimonial
 
 
 @admin.register(Testimonial)
@@ -42,13 +20,6 @@ class AdvertisementAdmin(TimestampedAdmin):
     list_display = ('id', 'title', 'type')
     list_filter = ('type',)
     search_fields = ('title',)
-    ordering = ('-created_at',)
-
-
-@admin.register(EBook)
-class EBookAdmin(TimestampedAdmin):
-    list_display = ('id', 'title', 'created_at')
-    search_fields = ('title', 'description')
     ordering = ('-created_at',)
 
 

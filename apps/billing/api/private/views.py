@@ -41,7 +41,7 @@ class AdminPaymentListAPIView(ListAPIView):
 
     def get_queryset(self):
         queryset = (
-            Payment.objects.select_related('user', 'product', 'recorded_by')
+            Payment.objects.select_related('user', 'product', 'recorded_by', 'book_order')
             .prefetch_related('product__courses')
             .order_by('-id')
         )

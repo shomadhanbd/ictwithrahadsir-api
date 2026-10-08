@@ -5,7 +5,7 @@ from django.urls import reverse
 from rest_framework.test import APITestCase
 
 from apps.core.testing import bearer, make_user
-from apps.courses.models import Content, Course, CourseMaterial, CourseTeacher, Enrollment, Routine, Section
+from apps.courses.models import Content, Course, CourseTeacher, Enrollment, Routine, Section
 from apps.identity.models import User
 
 ENROLMENT_URL = reverse("api:courses:admin_enrollment")
@@ -35,13 +35,11 @@ class CurriculumRulesTests(APITestCase):
         self.assertTrue(Content.objects.filter(pk=self.lesson.pk).exists())
         self.assertEqual(self.client.delete(lesson_url, **self.admin_auth).status_code, 204)
 
-    def test_a_teacher_cannot_delete_their_course_or_its_routines_and_materials(self):
+    def test_a_teacher_cannot_delete_their_course_or_its_routines(self):
         routine = Routine.objects.create(course=self.course, title="Week 1")
-        material = CourseMaterial.objects.create(course=self.course, title="Sheet")
         for url in (
             f"/api/private/courses/{self.course.pk}/",
             f"/api/private/routines/{routine.pk}/",
-            f"/api/private/course-materials/{material.pk}/",
         ):
             with self.subTest(url=url):
                 response = self.client.delete(url, **self.teacher_auth)

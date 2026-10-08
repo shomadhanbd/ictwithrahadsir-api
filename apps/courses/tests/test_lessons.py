@@ -7,7 +7,6 @@ from apps.core.testing import bearer, make_user, next_slug
 from apps.courses.models import (
     Content,
     Course,
-    CourseMaterial,
     Enrollment,
     Section,
 )
@@ -136,51 +135,6 @@ class LessonReleaseTests(APITestCase):
             **self.auth,
         )
         self.assertEqual(response.status_code, 422)
-
-
-class CourseMaterialListTests(APITestCase):
-    """Course materials follow the lessons' enrolment rule, expiry included."""
-
-    def setUp(self):
-        self.student = make_user()
-        self.auth = bearer(self.student)
-        self.course = Course.objects.create(title='ICT', slug='ict-materials', status='published')
-        CourseMaterial.objects.create(
-            course=self.course,
-            title='Lecture sheet',
-            type='pdf',
-        )
-
-    def url(self, slug=None):
-        return reverse('api:courses:course_material_list', args=[slug or self.course.slug])
-
-    def test_an_anonymous_visitor_is_rejected(self):
-        self.assertEqual(self.client.get(self.url()).status_code, 401)
-
-    def test_a_student_without_an_enrolment_is_rejected(self):
-        response = self.client.get(self.url(), **self.auth)
-        self.assertEqual(response.status_code, 403)
-
-    def test_an_enrolled_student_gets_the_materials(self):
-        Enrollment.objects.create(course=self.course, user=self.student)
-        response = self.client.get(self.url(), **self.auth)
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.data['data']), 1)
-        self.assertEqual(response.data['data'][0]['title'], 'Lecture sheet')
-
-    def test_an_expired_enrolment_loses_them(self):
-        Enrollment.objects.create(
-            course=self.course,
-            user=self.student,
-            valid_till=timezone.now() - timezone.timedelta(days=1),
-        )
-        response = self.client.get(self.url(), **self.auth)
-        self.assertEqual(response.status_code, 403)
-
-    def test_an_unknown_course_is_a_404(self):
-        Enrollment.objects.create(course=self.course, user=self.student)
-        response = self.client.get(self.url('no-such-course'), **self.auth)
-        self.assertEqual(response.status_code, 404)
 
 
 class LessonByIdTests(APITestCase):

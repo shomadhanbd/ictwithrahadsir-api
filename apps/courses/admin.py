@@ -8,7 +8,6 @@ from .models import (
     Content,
     ContentCompletion,
     Course,
-    CourseMaterial,
     Enrollment,
     Routine,
     Section,
@@ -155,16 +154,6 @@ class EnrollmentAdmin(TimestampedAdmin):
     @admin.display(description='Access', boolean=True)
     def status(self, enrollment):
         return enrollment.is_current
-
-
-@admin.register(CourseMaterial)
-class CourseMaterialAdmin(TimestampedAdmin):
-    list_display = ('id', 'title', 'type', 'course', 'created_at')
-    list_filter = ('type', 'course')
-    search_fields = ('title', 'course__title')
-    ordering = ('-created_at',)
-    list_select_related = ('course',)
-    autocomplete_fields = ('course',)
 
 
 @admin.register(ContentCompletion)

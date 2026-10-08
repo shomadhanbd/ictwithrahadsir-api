@@ -315,7 +315,6 @@ class TeacherCourseScopeTests(APITestCase):
         writes = {
             'sections': {'title': 'Ch 2'},
             'routines': {'title': 'Routine', 'link': 'https://example.com/r.pdf'},
-            'course-materials': {'title': 'Sheet', 'type': 'pdf'},
         }
         for path, body in writes.items():
             with self.subTest(path=path):

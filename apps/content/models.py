@@ -1,33 +1,6 @@
 from django.db import models
-from django.utils.translation import gettext_lazy as _
 
-from apps.core.models import OrderedModel, TimestampModel
-
-
-class NoticeCategory(TimestampModel, OrderedModel):
-    title = models.CharField(max_length=150)
-    slug = models.SlugField(max_length=220, unique=True, verbose_name=_("slug"))
-    notice_category = models.ForeignKey(
-        "self", null=True, blank=True, on_delete=models.CASCADE, related_name="children"
-    )
-
-    class Meta:
-        ordering = ["order", "title"]
-        verbose_name_plural = "notice categories"
-
-    def __str__(self):
-        return self.title
-
-
-class Notice(TimestampModel):
-    title = models.CharField(max_length=255)
-    slug = models.SlugField(max_length=280, unique=True, verbose_name=_("slug"))
-    body = models.TextField(blank=True)
-    image = models.URLField(null=True, blank=True)
-    categories = models.ManyToManyField(NoticeCategory, related_name="notices", blank=True)
-
-    def __str__(self):
-        return self.title
+from apps.core.models import TimestampModel
 
 
 class Testimonial(TimestampModel):
@@ -50,17 +23,6 @@ class Advertisement(TimestampModel):
 
     def __str__(self):
         return self.title or f"Advertisement #{self.pk}"
-
-
-class EBook(TimestampModel):
-    title = models.CharField(max_length=255)
-    description = models.TextField(blank=True)
-    booking_link = models.URLField(null=True, blank=True)
-    preview = models.URLField(null=True, blank=True)
-    image = models.URLField(null=True, blank=True)
-
-    def __str__(self):
-        return self.title
 
 
 class Page(TimestampModel):

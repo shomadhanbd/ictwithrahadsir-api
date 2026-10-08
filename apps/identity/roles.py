@@ -14,6 +14,8 @@ class Role(models.TextChoices):
 
 BACK_OFFICE_ROLES = {Role.ADMIN, Role.MODERATOR}  # may use the Django admin
 MODERATOR_APP_LABELS = ("content",)  # the apps a moderator manages there
+# Single models elsewhere they manage too: notices, but not the SMS log next to them.
+MODERATOR_MODELS = {"communication": ("notice", "noticecategory")}
 TEACHER_CREATABLE_ROLES = {Role.STUDENT}  # the accounts a teacher may create
 
 
