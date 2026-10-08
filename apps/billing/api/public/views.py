@@ -6,12 +6,12 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.billing import selectors
 from apps.billing.api.serializers import (
     PaymentInitiateRequestSerializer,
     PaymentInitiateResponseSerializer,
     PaymentSerializer,
 )
-from apps.billing.models import Payment
 from apps.billing.services import (
     initiate_payment,
     process_capture,
@@ -58,11 +58,7 @@ class MyPaymentListView(UnpaginatedDataListMixin, ListAPIView):
     serializer_class = PaymentSerializer
 
     def get_queryset(self):
-        return (
-            Payment.objects.filter(user=self.request.user)
-            .select_related("product", "book_order")
-            .prefetch_related("product__courses")
-        )
+        return selectors.my_payments(self.request.user)
 
 
 class MyPaymentDetailView(RetrieveAPIView):
@@ -72,8 +68,4 @@ class MyPaymentDetailView(RetrieveAPIView):
     lookup_url_kwarg = "tran_id"
 
     def get_queryset(self):
-        return (
-            Payment.objects.filter(user=self.request.user)
-            .select_related("product", "book_order")
-            .prefetch_related("product__courses")
-        )
+        return selectors.my_payments(self.request.user)

@@ -116,7 +116,7 @@ class WrittenAnswerTests(CourseExamTestCase):
             exam=exam, title="CQ", question_type="cq", subject=self.subject, marks=10, marks_per_question=10
         )
         short = self.cq({"ক": 1, "খ": 2, "গ": 3, "ঘ": 2})
-        response = self.client.post(
+        response = self.client.put(
             section_questions(section.pk), {"block_ids": [short.pk]}, format="json", **self.admin_auth
         )
         self.assertEqual(response.status_code, 422)

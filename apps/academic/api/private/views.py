@@ -1,6 +1,7 @@
 from rest_framework.exceptions import PermissionDenied
-from rest_framework.generics import ListCreateAPIView, RetrieveUpdateDestroyAPIView
+from rest_framework.generics import ListAPIView, ListCreateAPIView, RetrieveUpdateDestroyAPIView
 
+from apps.academic import selectors
 from apps.academic.api.private.serializers import (
     BatchSerializer,
     ChapterSerializer,
@@ -9,7 +10,6 @@ from apps.academic.api.private.serializers import (
     SubjectSerializer,
     TopicSerializer,
 )
-from apps.academic.models import Batch, Chapter, ClassLevel, Group, Subject, Topic
 from apps.core.api.auth.permissions import IsFullAdminOrTeacherReadOnly, IsTeachingStaffAdminDeletes
 from apps.identity.roles import is_full_admin
 
@@ -37,7 +37,9 @@ class AdminOnlyFieldsMixin:
 class AdminClassLevelView:
     permission_classes = [IsTeachingStaffAdminDeletes]
     serializer_class = ClassLevelSerializer
-    queryset = ClassLevel.objects.with_counts()
+
+    def get_queryset(self):
+        return selectors.admin_class_levels()
 
 
 class AdminClassLevelListCreateAPIView(AdminClassLevelView, ListCreateAPIView):
@@ -51,25 +53,25 @@ class AdminClassLevelDetailAPIView(AdminClassLevelView, RetrieveUpdateDestroyAPI
     permission_classes = [IsFullAdminOrTeacherReadOnly]
 
 
-class AdminGroupView:
+class AdminGroupListAPIView(ListAPIView):
+    """The fixed curriculum groups, for the admin's dropdowns; they are seeded, not edited here."""
+
     permission_classes = [IsFullAdminOrTeacherReadOnly]
     serializer_class = GroupSerializer
-    queryset = Group.objects.with_counts()
 
+    def get_queryset(self):
+        return selectors.admin_groups()
 
-class AdminGroupListCreateAPIView(AdminGroupView, ListCreateAPIView):
     search_fields = ["name", "slug"]
     filterset_fields = ["is_active"]
-
-
-class AdminGroupDetailAPIView(AdminGroupView, RetrieveUpdateDestroyAPIView):
-    pass
 
 
 class AdminSubjectView:
     permission_classes = [IsTeachingStaffAdminDeletes]
     serializer_class = SubjectSerializer
-    queryset = Subject.objects.with_counts().select_related("class_level", "group")
+
+    def get_queryset(self):
+        return selectors.admin_subjects()
 
 
 class AdminSubjectListCreateAPIView(AdminSubjectView, ListCreateAPIView):
@@ -85,7 +87,9 @@ class AdminSubjectDetailAPIView(AdminOnlyFieldsMixin, AdminSubjectView, Retrieve
 class AdminChapterView:
     permission_classes = [IsTeachingStaffAdminDeletes]
     serializer_class = ChapterSerializer
-    queryset = Chapter.objects.select_related("subject")
+
+    def get_queryset(self):
+        return selectors.admin_chapters()
 
 
 class AdminChapterListCreateAPIView(AdminChapterView, ListCreateAPIView):
@@ -101,7 +105,9 @@ class AdminChapterDetailAPIView(AdminOnlyFieldsMixin, AdminChapterView, Retrieve
 class AdminTopicView:
     permission_classes = [IsTeachingStaffAdminDeletes]
     serializer_class = TopicSerializer
-    queryset = Topic.objects.select_related("chapter")
+
+    def get_queryset(self):
+        return selectors.admin_topics()
 
 
 class AdminTopicListCreateAPIView(AdminTopicView, ListCreateAPIView):
@@ -117,7 +123,9 @@ class AdminTopicDetailAPIView(AdminOnlyFieldsMixin, AdminTopicView, RetrieveUpda
 class AdminBatchView:
     permission_classes = [IsFullAdminOrTeacherReadOnly]
     serializer_class = BatchSerializer
-    queryset = Batch.objects.select_related("class_level")
+
+    def get_queryset(self):
+        return selectors.admin_batches()
 
 
 class AdminBatchListCreateAPIView(AdminBatchView, ListCreateAPIView):

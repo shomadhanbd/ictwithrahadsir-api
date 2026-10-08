@@ -20,6 +20,7 @@ import os
 import random
 from datetime import timedelta
 from decimal import Decimal
+from pathlib import Path
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -31,11 +32,6 @@ from apps.academic.models import Batch, Chapter, ClassLevel, Group, Subject, Top
 from apps.academic.services import seed_curriculum
 from apps.billing.models import Payment, Product
 from apps.communication.models import Notice, NoticeCategory
-from apps.content.models import (
-    Advertisement,
-    Page,
-    Testimonial,
-)
 from apps.courses.models import (
     Content,
     Course,
@@ -45,15 +41,19 @@ from apps.courses.models import (
     Section,
 )
 from apps.demo.builders import make_mcq
+from apps.demo.hsc_ict_seed import seed_hsc_ict
 from apps.demo.question_bank import EXAM_QUESTIONS, QUESTION_BANK, QUESTION_BANK_SUBJECTS
 from apps.exam.models import Exam, ExamAttempt, ExamSection
 from apps.exam.selectors import paper_questions
 from apps.exam.services.attempts import save_answers, start_attempt, submit
 from apps.exam.services.sections import set_section_blocks
 from apps.exam.validators import validate_publish
+from apps.feedback.models import Feedback
 from apps.profiles.models import StudentProfile, TeacherProfile
 from apps.question.models import Question, QuestionBlock, QuestionSet
 from apps.question.services import refresh_curriculum_question_counts, save_block
+from apps.website.models import Banner
+from apps.website.services import update_section
 
 User = get_user_model()
 
@@ -122,7 +122,7 @@ def _draw_placeholder(path, width, height, label, palette_index):
 
 def make_image(name, width, height, label, palette_index=0):
     """Write `media/seed/<name>.png` once and return its absolute URL."""
-    directory = settings.MEDIA_ROOT / SEED_DIR
+    directory = Path(settings.MEDIA_ROOT) / SEED_DIR
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"{name}.png"
     if not path.exists():
@@ -408,43 +408,21 @@ ADDRESSES = [
     "৯ কাজী নজরুল ইসলাম এভিনিউ, ঢাকা",
 ]
 
-# (question, a, b, c, d, answer, explanation)
-STATIC_PAGES = [
-    # The client requests this key literally (see the web app's about page).
-    (
-        "about",
-        "html",
-        "<h2>আমাদের সম্পর্কে</h2><p>শমাধান কোচিং দেশের যেকোনো প্রান্তের শিক্ষার্থীর কাছে "
-        "মানসম্মত আইসিটি শিক্ষা পৌঁছে দেওয়ার লক্ষ্যে কাজ করছে। ২০১৮ সাল থেকে এখন পর্যন্ত "
-        "৫০ হাজারের বেশি শিক্ষার্থী আমাদের কোর্সে যুক্ত হয়েছেন।</p>",
-    ),
-    (
-        "our-goal",
-        "html",
-        "<h2>আমাদের লক্ষ্য</h2><p>প্রতিটি শিক্ষার্থী যেন আইসিটি বিষয়ে আত্মবিশ্বাসের সাথে "
-        "পরীক্ষা দিতে পারে এবং বাস্তব জীবনে প্রযুক্তি ব্যবহার করতে শেখে — এটাই আমাদের লক্ষ্য।</p>",
-    ),
+#: The policy pages' demo text: (slug, body).
+POLICY_PAGES = [
     (
         "terms-and-conditions",
-        "html",
         "<h2>শর্তাবলি</h2><p>কোর্সে ভর্তির পর ফি ফেরতযোগ্য নয়। একটি অ্যাকাউন্ট শুধু একজন "
         "শিক্ষার্থী ব্যবহার করতে পারবেন। ক্লাসের ভিডিও রেকর্ড বা বিতরণ করা সম্পূর্ণ নিষিদ্ধ।</p>",
     ),
     (
         "privacy-policy",
-        "html",
         "<h2>গোপনীয়তা নীতি</h2><p>আমরা শিক্ষার্থীর নাম, মোবাইল নম্বর ও প্রতিষ্ঠানের তথ্য "
         "শুধুমাত্র কোর্স পরিচালনার জন্য সংগ্রহ করি এবং তৃতীয় পক্ষের সাথে শেয়ার করি না।</p>",
     ),
     (
         "refund-policy",
-        "html",
         "<h2>রিফান্ড নীতি</h2><p>ভুল পেমেন্টের ক্ষেত্রে ৭ কার্যদিবসের মধ্যে আবেদন করলে যাচাই সাপেক্ষে অর্থ ফেরত দেওয়া হয়।</p>",
-    ),
-    (
-        "contact-info",
-        "html",
-        "<h2>যোগাযোগ</h2><p>মোবাইল: ০১৭১১৭৭৮৬০২<br/>ইমেইল: support@shomadhan.local<br/>ঠিকানা: ১২/এ, গ্রীন রোড, ঢাকা ১২০৫</p>",
     ),
 ]
 
@@ -504,7 +482,7 @@ class Command(BaseCommand):
             ("exam attempts", ExamAttempt.objects.count()),
             ("batches", Batch.objects.count()),
             ("teachers", TeacherProfile.objects.count()),
-            ("testimonials", Testimonial.objects.count()),
+            ("feedback", Feedback.objects.count()),
             ("notices", Notice.objects.count()),
             ("students", User.objects.filter(groups__name=User.Role.STUDENT).count()),
             ("enrollments", Enrollment.objects.count()),
@@ -532,8 +510,8 @@ class Command(BaseCommand):
             Course,
             Notice,
             NoticeCategory,
-            Advertisement,
-            Testimonial,
+            Banner,
+            Feedback,
             TeacherProfile,
             Batch,
             Topic,
@@ -546,42 +524,19 @@ class Command(BaseCommand):
         # Only the exact accounts this command mints: their prefixes are real operators' ranges.
         User.objects.filter(phone__in=[student_phone(i) for i in range(len(STUDENT_NAMES))]).delete()
         User.objects.filter(phone__in=[teacher_phone(i) for i in range(len(TEACHERS))]).delete()
-        Page.objects.exclude(
-            key__in=["homeBannerImage", "homeCourseCounter", "homeStudentCounter", "homeInstructorCounter"]
-        ).delete()
 
     # -- cms ----------------------------------------------------------------
 
     def _seed_pages(self):
-        banner = make_image("banner", 1600, 600, "SHOMADHAN", 0)
-        counters = {
-            "homeCourseCounter": "24",
-            "homeStudentCounter": "52400",
-            "homeInstructorCounter": "18",
-        }
-        for key, value in counters.items():
-            Page.objects.update_or_create(
-                key=key, defaults={"slug": key, "value_type": Page.ValueType.COUNTER, "value": value}
-            )
-        Page.objects.update_or_create(
-            key="homeBannerImage",
-            defaults={"slug": "homeBannerImage", "value_type": Page.ValueType.IMAGE, "value": "", "image": banner},
-        )
-        for index, (key, value_type, value) in enumerate(STATIC_PAGES):
-            Page.objects.update_or_create(
-                key=key,
-                defaults={
-                    "slug": key,
-                    "value_type": value_type,
-                    "value": value,
-                    "image": make_image(f"page-{key}", 1200, 630, key.upper()[:12], index + 1),
-                },
-            )
-        self.stdout.write("  pages + homepage counters")
+        for slug, body in POLICY_PAGES:
+            update_section(f"legal.{slug}", content={"body": body})
+        self.stdout.write("  policy pages")
 
     def _seed_academic(self):
         """The board curriculum, the demo's own subjects, their chapters and topics, and batches."""
         seed_curriculum()
+        # HSC ICT gets its real syllabus first, so the demo chapters below leave it alone.
+        seed_hsc_ict()
         levels = {level.slug: level for level in ClassLevel.objects.all()}
         groups = {group.slug: group for group in Group.objects.all()}
 
@@ -660,33 +615,33 @@ class Command(BaseCommand):
 
     def _seed_testimonials(self):
         for index, (name, designation, rating, text) in enumerate(TESTIMONIALS):
-            Testimonial.objects.get_or_create(
+            Feedback.objects.get_or_create(
+                source=Feedback.Source.GENERAL,
+                author=None,
                 name=name,
                 defaults={
                     "designation": designation,
-                    "ratings": rating,
-                    "description": text,
+                    "rating": rating,
+                    "comment": text,
                     "image": make_image(f"student-{index}", 400, 400, f"S{index + 1}", index),
+                    "status": Feedback.Status.APPROVED,
+                    "is_featured": True,
                 },
             )
-        self.stdout.write("  testimonials")
+        self.stdout.write("  feedback")
 
     def _seed_advertisements(self):
-        ads = [
-            ("এইচএসসি ২০২৬ ব্যাচে ভর্তি চলছে", "৪০% ছাড়ে ভর্তি হওয়ার শেষ সুযোগ", "banner"),
-            ("ফ্রি মডেল টেস্ট সিরিজ", "রেজিস্ট্রেশন করেই অংশ নিন সাপ্তাহিক মডেল টেস্টে", "sidebar"),
-        ]
-        for index, (title, description, kind) in enumerate(ads):
-            Advertisement.objects.get_or_create(
+        titles = ["এইচএসসি ২০২৬ ব্যাচে ভর্তি চলছে", "ফ্রি মডেল টেস্ট সিরিজ"]
+        for index, title in enumerate(titles):
+            Banner.objects.get_or_create(
                 title=title,
                 defaults={
-                    "description": description,
-                    "type": kind,
-                    "link": "http://localhost:3000/course",
-                    "image": make_image(f"ad-{index}", 1200, 400, f"AD {index + 1}", index + 1),
+                    "link": "/course",
+                    "order": index,
+                    "image": make_image(f"ad-{index}", 1200, 675, f"AD {index + 1}", index + 1),
                 },
             )
-        self.stdout.write("  advertisements")
+        self.stdout.write("  banners")
 
     def _seed_notices(self):
         categories = {}

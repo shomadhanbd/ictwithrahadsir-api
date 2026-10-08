@@ -107,7 +107,8 @@ class QueryBudgetTests(APITestCase):
         self.assertEqual(len(first["sub_sections"][0]["contents"]), self.CONTENTS_PER_SECTION)
 
     def test_home(self):
-        with self.assertNumQueries(10):
+        """Courses with their card stats, banners, feedback, teachers, and the numbers section plus one count each."""
+        with self.assertNumQueries(12):
             response = self.client.get("/api/public/home/")
         self.assertEqual(len(response.data["courses"]), 12)
 

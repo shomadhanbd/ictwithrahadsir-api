@@ -98,13 +98,6 @@ def set_section_blocks(section, blocks, *, replace=False):
     return section
 
 
-@transaction.atomic
-def remove_section_blocks(section, blocks):
-    ExamSectionQuestion.objects.filter(section=section, block_id__in=[block.pk for block in blocks]).delete()
-    sync_section_totals(section)
-    return section
-
-
 def delete_section(section):
     validate_paper_is_editable(section.exam)
     section.delete()

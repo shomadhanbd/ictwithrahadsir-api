@@ -1,6 +1,7 @@
 from django.db.models import Count, Q
 
 from apps.billing.models import Payment
+from apps.core.querysets import with_stable_order
 from apps.courses.models import Enrollment
 from apps.identity.roles import is_staff_member
 from apps.materials.models import BookOrder, MaterialCategory, MaterialItem, MaterialTopic
@@ -55,7 +56,10 @@ def admin_categories():
 
 
 def admin_topics():
-    return _with_item_counts(MaterialTopic.objects.select_related("category").prefetch_related("courses"))
+    # The item counts add a GROUP BY, which drops Meta.ordering; paging needs a fixed order.
+    return with_stable_order(
+        _with_item_counts(MaterialTopic.objects.select_related("category").prefetch_related("courses"))
+    )
 
 
 def paid_book_orders():

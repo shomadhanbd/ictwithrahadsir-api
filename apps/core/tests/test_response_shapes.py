@@ -3,22 +3,15 @@
 from django.test import TestCase
 from django.urls import reverse
 
-from apps.content.models import Advertisement, Page, Testimonial
 from apps.core.testing import bearer, make_user, next_slug
 from apps.courses.models import Content, Course, CourseTeacher, Section
+from apps.feedback.models import Feedback
 from apps.identity.models import User
 from apps.profiles.models import TeacherProfile
+from apps.website.models import Banner
 
 #: Exactly what `/api/public/home/` returns, in order.
-HOME_KEYS = [
-    'courses',
-    'advertisement',
-    'testimonials',
-    'counters',
-    'suceesstorycounter',
-    'instructors',
-    'bannerImage',
-]
+HOME_KEYS = ['courses', 'banners', 'testimonials', 'stats', 'instructors']
 
 #: Homepage and course-detail `instructors` share this key list; clients read it, so it stays fixed.
 PUBLIC_TEACHER_KEYS = [
@@ -127,12 +120,10 @@ class ResponseShapeTests(TestCase):
         )
         CourseTeacher.objects.create(course=self.course, user=self.teacher_user)
 
-        Testimonial.objects.create(name='Student', description='Great', ratings=5)
-        Advertisement.objects.create(title='Admission open')
-        Page.objects.update_or_create(
-            key='homeBannerImage',
-            defaults={'slug': 'homeBannerImage', 'value_type': Page.ValueType.IMAGE},
+        Feedback.objects.create(
+            source='general', name='Student', comment='Great', rating=5, status='approved', is_featured=True
         )
+        Banner.objects.create(title='Admission open', image='https://example.com/banner.jpg')
 
         self.section = Section.objects.create(course=self.course, title='Ch1')
         self.exam_content = Content.objects.create(
@@ -149,13 +140,13 @@ class ResponseShapeTests(TestCase):
         )
 
     def test_home_payload_shape(self):
-        body = self.client.get(reverse('api:content:home')).json()
+        body = self.client.get(reverse('api:website:home')).json()
         self.assertEqual(list(body.keys()), HOME_KEYS)
         self.assertEqual(list(body['instructors'][0].keys()), PUBLIC_TEACHER_KEYS)
         self.assertEqual(list(body['courses'][0].keys()), COURSE_LIST_KEYS)
 
     def test_home_instructors_are_the_teacher_roster(self):
-        body = self.client.get(reverse('api:content:home')).json()
+        body = self.client.get(reverse('api:website:home')).json()
         self.assertEqual(body['instructors'][0]['name'], 'Rahad Sir')
         self.assertEqual(body['instructors'][0]['type'], 'permanent')
         self.assertEqual(
@@ -326,10 +317,8 @@ class ContentSearchTests(TestCase):
 
         NoticeCategory.objects.create(slug=next_slug("noticecategory"), title='Exam schedule')
         NoticeCategory.objects.create(slug=next_slug("noticecategory"), title='Holiday notice')
-        Testimonial.objects.create(name='Nusrat Jahan', description='Great course')
-        Testimonial.objects.create(name='Imran Hossain', description='Very helpful')
-        Advertisement.objects.create(title='Admission banner', type='banner')
-        Advertisement.objects.create(title='Seminar popup', type='popup')
+        Feedback.objects.create(source='general', name='Nusrat Jahan', comment='Great course', rating=5)
+        Feedback.objects.create(source='general', name='Imran Hossain', comment='Very helpful', rating=4)
 
     def assert_filters(self, path, term, expected):
         unfiltered = self.client.get(path, **self.auth).json()['meta']['total']
@@ -340,22 +329,5 @@ class ContentSearchTests(TestCase):
     def test_notice_category_search(self):
         self.assert_filters('/api/private/notice-categories/', 'Holiday', 1)
 
-    def test_testimonial_search(self):
-        self.assert_filters('/api/private/testimonials/', 'Nusrat', 1)
-
-    def test_advertisement_search(self):
-        self.assert_filters('/api/private/advertisements/', 'popup', 1)
-
-    def test_pages_expose_value_type(self):
-        """Each setting reports the value type its editor needs."""
-        # These keys are seeded by a migration, so upsert rather than create.
-        Page.objects.update_or_create(key='about', defaults={'value_type': Page.ValueType.HTML, 'value': '<p>hi</p>'})
-        Page.objects.update_or_create(
-            key='homeStudentCounter',
-            defaults={'value_type': Page.ValueType.COUNTER, 'value': '42'},
-        )
-
-        body = self.client.get('/api/private/pages/', **self.auth).json()
-        by_key = {p['key']: p for p in body['data']}
-        self.assertEqual(by_key['about']['value_type'], 'html')
-        self.assertEqual(by_key['homeStudentCounter']['value_type'], 'counter')
+    def test_feedback_search(self):
+        self.assert_filters('/api/private/feedback/', 'Nusrat', 1)

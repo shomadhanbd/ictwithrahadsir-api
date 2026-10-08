@@ -2,8 +2,7 @@
 
 from apps.core.testing import bearer, make_user
 from apps.identity.models import User
-from apps.question.models import Question
-from apps.question.tests.base import BLOCKS_URL, QUESTIONS_URL, QuestionTestCase, detail
+from apps.question.tests.base import BLOCKS_URL, QuestionTestCase, detail
 
 
 class PermissionTests(QuestionTestCase):
@@ -12,14 +11,11 @@ class PermissionTests(QuestionTestCase):
     def setUp(self):
         super().setUp()
         self.solo = self.block()
-        self.question = Question.objects.create(block=self.solo, prompt_content="?")
 
     def _urls(self):
         return [
             BLOCKS_URL,
-            QUESTIONS_URL,
             detail("question_block", self.solo.pk),
-            detail("question", self.question.pk),
         ]
 
     def test_a_student_is_refused(self):

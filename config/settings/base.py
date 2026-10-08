@@ -51,10 +51,11 @@ LOCAL_APPS = [
     "apps.courses",
     "apps.exam",
     "apps.billing",
-    "apps.content",
     "apps.dashboard",
     "apps.uploads",
     "apps.materials",
+    "apps.feedback",
+    "apps.website",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -183,6 +184,8 @@ PAYMENT_INITIATE_RATE_LIMIT_PER_USER_PER_HOUR = 10
 # server-side, so a request's host is not the public one.
 API_BASE_URL = env("API_BASE_URL", default="http://localhost:8000")
 FRONTEND_URL = env("FRONTEND_URL", default="http://localhost:3000")  # the student site, for links in SMS
+# Shared with the student site; lets an admin edit show there at once instead of within five minutes.
+WEBSITE_REVALIDATE_SECRET = env("WEBSITE_REVALIDATE_SECRET", default="")
 
 # Logging: a rotating file in development (local.py creates the folder); production logs to stdout.
 

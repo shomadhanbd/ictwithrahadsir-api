@@ -193,7 +193,7 @@ class CourseAudienceTests(APITestCase):
 
     def test_homepage_featured_courses_respect_audience(self):
         Course.objects.update(is_featured=True)
-        body = self.client.get(reverse('api:content:home'), **self.auth).json()
+        body = self.client.get(reverse('api:website:home'), **self.auth).json()
         self.assertEqual(sorted(c['title'] for c in body['courses']), ['HSC all', 'HSC science', 'Open'])
 
 

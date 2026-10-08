@@ -3,7 +3,6 @@
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
-from django.urls import reverse
 
 from apps.exam.models import Exam, ExamSection, ExamSectionQuestion
 from apps.exam.tests.base import (
@@ -14,6 +13,7 @@ from apps.exam.tests.base import (
     section_questions,
 )
 from apps.question.models import Question
+from apps.question.tests.base import save_question
 
 
 class PublishTests(ExamTestCase):
@@ -126,7 +126,7 @@ class PublishTests(ExamTestCase):
     def test_its_questions_cannot_be_replaced(self):
         response = self.client.put(
             section_questions(self.section_row.pk),
-            {"block_ids": [self.blocks[0].pk], "mode": "replace"},
+            {"block_ids": [self.blocks[0].pk]},
             content_type="application/json",
             **self.auth,
         )
@@ -136,9 +136,10 @@ class PublishTests(ExamTestCase):
         self.assertEqual(self.section_row.question_count, 3)
 
     def test_a_question_cannot_be_added(self):
-        response = self.client.post(
+        kept = list(self.section_row.section_questions.values_list("block_id", flat=True))
+        response = self.client.put(
             section_questions(self.section_row.pk),
-            {"block_ids": [self.mcq_block().pk]},
+            {"block_ids": [*kept, self.mcq_block().pk]},
             content_type="application/json",
             **self.auth,
         )
@@ -147,10 +148,11 @@ class PublishTests(ExamTestCase):
 
     def test_a_question_cannot_be_dropped(self):
         pick = ExamSectionQuestion.objects.first()
+        kept = self.section_row.section_questions.exclude(pk=pick.pk).values_list("block_id", flat=True)
 
-        response = self.client.delete(
+        response = self.client.put(
             section_questions(self.section_row.pk),
-            {"block_ids": [pick.block_id]},
+            {"block_ids": list(kept)},
             content_type="application/json",
             **self.auth,
         )
@@ -217,17 +219,12 @@ class PublishTests(ExamTestCase):
 class PaperIntegrityTests(ExamTestCase):
     """A paper's contents cannot change around it, from the exam side or the question bank."""
 
-    QUESTIONS_URL = reverse("api:question:admin_question_list")
-
     def placed(self, block, *, published=False, **section_overrides):
         section = self.section(**{"marks": 1, **section_overrides})
         pick = ExamSectionQuestion.objects.create(section=section, block=block, marks=1)
         if published:
             Exam.objects.filter(pk=section.exam_id).update(status=Exam.Status.PUBLISHED)
         return section, pick
-
-    def question_detail(self, question):
-        return reverse("api:question:admin_question_detail", args=[question.pk])
 
     def test_a_section_cannot_move_to_another_exam(self):
         section, _ = self.placed(self.mcq_block(), published=True)
@@ -252,11 +249,8 @@ class PaperIntegrityTests(ExamTestCase):
     def test_a_placed_question_keeps_its_type(self):
         block = self.mcq_block()
         self.placed(block)
-        response = self.client.patch(
-            self.question_detail(block.standalone_question),
-            {"question_type": "cq", "options": []},
-            content_type="application/json",
-            **self.auth,
+        response = save_question(
+            self.client, self.auth, {"question_type": "cq", "options": []}, question=block.standalone_question
         )
         self.assertEqual(response.status_code, 422)
         self.assertIn("question_type", response.json()["errors"])
@@ -264,29 +258,32 @@ class PaperIntegrityTests(ExamTestCase):
     def test_a_part_of_another_type_cannot_join_a_placed_passage(self):
         passage = self.mcq_passage(parts=2)
         self.placed(passage)
-        response = self.client.post(
-            self.QUESTIONS_URL,
+        response = save_question(
+            self.client,
+            self.auth,
             {"question_set_id": passage.question_set.pk, "question_type": "cq", "prompt_content": "?"},
-            content_type="application/json",
-            **self.auth,
         )
         self.assertEqual(response.status_code, 422)
 
     def test_a_published_paper_keeps_its_parts(self):
         passage = self.mcq_passage(parts=2)
         self.placed(passage, published=True)
-        added = self.client.post(
-            self.QUESTIONS_URL,
+        added = save_question(
+            self.client,
+            self.auth,
             {
                 "question_set_id": passage.question_set.pk,
                 "question_type": "mcq",
                 "prompt_content": "?",
                 "options": [{"content": "a", "is_correct": True, "position": 0}],
             },
-            content_type="application/json",
-            **self.auth,
         )
-        removed = self.client.delete(self.question_detail(passage.question_set.questions.first()), **self.auth)
+        removed = save_question(
+            self.client,
+            self.auth,
+            {"question_set_id": passage.question_set.pk},
+            removed=[passage.question_set.questions.first().pk],
+        )
         self.assertEqual((added.status_code, removed.status_code), (422, 422))
         self.assertEqual(passage.question_set.questions.count(), 2)
 
@@ -295,11 +292,8 @@ class PaperIntegrityTests(ExamTestCase):
         block = self.mcq_block()
         block.standalone_question.options.create(content="4", is_correct=True, position=0)
         self.placed(block, published=True)
-        response = self.client.patch(
-            self.question_detail(block.standalone_question),
-            {"prompt_content": "2 + 2 = ? (fixed)"},
-            content_type="application/json",
-            **self.auth,
+        response = save_question(
+            self.client, self.auth, {"prompt_content": "2 + 2 = ? (fixed)"}, question=block.standalone_question
         )
         self.assertEqual(response.status_code, 200, response.content)
 

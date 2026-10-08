@@ -17,13 +17,11 @@ from apps.exam.api.private.serializers import (
     exam_attempts_header,
 )
 from apps.exam.exports import RESULT_COLUMNS, result_rows
-from apps.exam.models import Exam, ExamSection
+from apps.exam.models import Exam
 from apps.exam.services import exams as exam_service
 from apps.exam.services import grading
 from apps.exam.services import sections as section_service
 from apps.exam.services.attempts import settled
-from apps.question.api.private.serializers import AdminQuestionBlockSerializer
-from apps.question.selectors import admin_blocks
 
 
 class ExamScopedAdminMixin:
@@ -68,7 +66,9 @@ class AdminExamDetailAPIView(ExamScopedAdminMixin, RetrieveUpdateDestroyAPIView)
 
 class AdminExamSectionListCreateAPIView(ExamScopedAdminMixin, ListCreateAPIView):
     serializer_class = AdminExamSectionSerializer
-    queryset = ExamSection.objects.select_related("exam", "subject")
+    # A class attribute, not get_queryset(): ExamScopedAdminMixin narrows it to the teacher's own exams.
+    queryset = selectors.admin_exam_sections()
+
     search_fields = ["title"]
     filterset_fields = ["exam", "question_type", "subject"]
     exam_path = "exam"
@@ -76,7 +76,8 @@ class AdminExamSectionListCreateAPIView(ExamScopedAdminMixin, ListCreateAPIView)
 
 class AdminExamSectionDetailAPIView(ExamScopedAdminMixin, RetrieveUpdateDestroyAPIView):
     serializer_class = AdminExamSectionSerializer
-    queryset = ExamSection.objects.select_related("exam", "subject")
+    queryset = selectors.admin_exam_sections()
+
     exam_path = "exam"
 
     def perform_destroy(self, instance):
@@ -90,50 +91,18 @@ class AdminExamSectionQuestionBulkAPIView(APIView):
     serializer_class = ExamSectionQuestionBulkSerializer
 
     def get_section(self, request, pk, *, writing=False):
-        section = ExamSection.objects.select_related("exam").get(pk=pk)
+        section = selectors.exam_section(pk)
         selectors.assert_may_author_exam(request.user, section.exam)
         if writing:
             validators.validate_paper_is_editable(section.exam)
         return section
 
-    def _blocks(self, request, section, *, check_blocks=True):
-        body = ExamSectionQuestionBulkSerializer(
-            data=request.data, context={"section": section, "check_blocks": check_blocks}
-        )
-        body.is_valid(raise_exception=True)
-        return body.validated_data
-
-    def get(self, request, pk):
-        section = self.get_section(request, pk)
-        blocks = {block.pk: block for block in admin_blocks().filter(exam_usages__section=section)}
-        rows = [
-            {
-                "id": pick.pk,
-                "marks": str(pick.marks),
-                "order": pick.order,
-                "block": AdminQuestionBlockSerializer(blocks[pick.block_id]).data if pick.block_id in blocks else None,
-            }
-            for pick in section.section_questions.order_by("order", "id")
-        ]
-        return Response({"data": rows})
-
-    def post(self, request, pk):
-        section = self.get_section(request, pk, writing=True)
-        data = self._blocks(request, section)
-        section_service.set_section_blocks(section, data["block_ids"], replace=data["mode"] == "replace")
-        return self._section_response(request, section)
-
     def put(self, request, pk):
+        """Replaces the section's questions with `block_ids`, in that order."""
         section = self.get_section(request, pk, writing=True)
-        section_service.set_section_blocks(section, self._blocks(request, section)["block_ids"], replace=True)
-        return self._section_response(request, section)
-
-    def delete(self, request, pk):
-        section = self.get_section(request, pk, writing=True)
-        section_service.remove_section_blocks(section, self._blocks(request, section, check_blocks=False)["block_ids"])
-        return self._section_response(request, section)
-
-    def _section_response(self, request, section):
+        body = ExamSectionQuestionBulkSerializer(data=request.data, context={"section": section})
+        body.is_valid(raise_exception=True)
+        section_service.set_section_blocks(section, body.validated_data["block_ids"], replace=True)
         section.refresh_from_db()
         return Response(AdminExamSectionSerializer(section, context={"request": request}).data)
 

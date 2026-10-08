@@ -19,6 +19,7 @@ from django.db.models import (
     Window,
 )
 from django.db.models.functions import Coalesce, Rank
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
 from apps.courses.models import Enrollment
@@ -530,3 +531,18 @@ def unreleased_block_ids():
     # An exam with no end time can always be sat, so its questions never become free practice.
     released = Exam.objects.results_released().filter(end_time__lte=timezone.now()).values("pk")
     return ExamSectionQuestion.objects.exclude(section__exam__in=released).values("block_id")
+
+
+def admin_exam_sections():
+    return ExamSection.objects.select_related("exam", "subject")
+
+
+def exam_section(pk):
+    """A section with its exam, or 404."""
+    return get_object_or_404(ExamSection.objects.select_related("exam"), pk=pk)
+
+
+def attempts_of(user, exam=None):
+    """`user`'s attempts, at `exam` when given."""
+    attempts = ExamAttempt.objects.filter(user=user)
+    return attempts.filter(exam=exam) if exam is not None else attempts

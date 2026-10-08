@@ -31,6 +31,24 @@ python manage.py runserver
 No external service is needed locally: SQLite, OTP codes
 in the console log, and the SSLCommerz sandbox.
 
+### Demo data
+
+The seed commands live in `apps/demo`, which only the local settings install, so production cannot run them.
+`seed_demo` also refuses unless `DEBUG` is on and the database is SQLite (or `ALLOW_DEMO_SEED=1` for a
+throwaway Postgres). `seed_curriculum` belongs to `apps/academic` and is safe on a real database.
+
+| Command | What it adds |
+|---|---|
+| `seed_curriculum` | The board's class levels, groups and subjects (also safe on a real database) |
+| `seed_demo [--fresh]` | Everything a demo needs: curriculum, HSC ICT, teachers, courses, question bank, exams with attempts, students (`01810000001`… / `student1234`), payments, feedback, notices, banners, policy pages. `--fresh` removes its rows first |
+| `seed_hsc_ict` | HSC ICT's real six chapters, topics and 20 MCQs each (`seed_demo` runs it too; safe to run again) |
+| `seed_test_courses` | Five test courses covering every delivery, lesson type and package kind, enrolling the local student whose name starts with "Sayed" |
+| `seed_study_material` | Example study material: categories, topics, items and books |
+| `seed_notices` | Example notices for everyone, by class, and for a demo batch |
+| `seed_feedback` | Example course and general feedback from demo students, in every status |
+
+Every command except `seed_demo` replaces only its own example rows; most take `--clear` to remove them.
+
 - API: `http://localhost:8000/api/` — `public/` for the client app,
   `private/` for the back office
 - Django admin: `http://localhost:8000/admin/`
@@ -89,21 +107,28 @@ not a scheduled job.
 apps/
   core/        infrastructure: DRF plumbing (auth, pagination, permissions,
                fields, error envelope), text helpers (phones, HTML cleaning)
-  notifications/ SMS: the gateways (console, BulkSMSBD), `send_sms()`, and a
-               log of every message sent (SmsMessage); the SMS balance endpoint
+  communication/ everything that talks to students: SMS (the gateways,
+               `send_sms()`, a log of every message), targeted notices and
+               the unread-notice bell
   academic/    ClassLevel, Group, Subject, Chapter, Topic, Batch: the
                curriculum and the admin-managed lists profiles are tagged with
-  profiles/    TeacherProfile, StudentProfile, GuardianProfile: who a person
-               is, as distinct from how they sign in
+  profiles/    TeacherProfile, StudentProfile: who a person is, as distinct
+               from how they sign in
   identity/    User (phone + OTP and email + password), OTP, admin user CRUD
   courses/     Course, Routine, Section/Content tree, Enrollment,
-               CourseMaterial, CourseTeacher. Courses carry no prices
+               CourseTeacher. Courses carry no prices
   question/    the question bank: sources, blocks, sets, questions, options
   exam/        exams assembled from the question bank, and students'
                attempts, auto-grading, results and ranking
   billing/     Product (a package of courses at a price) and Payment (one
                SSLCommerz checkout). All pricing lives here
-  content/     Notice, Page, Testimonial, Advertisement, EBook, the homepage
+  materials/   study material: categories, topics, items, and book orders
+               with their delivery rates
+  feedback/    student ratings of courses and the coaching, staff approval,
+               and the testimonials featured on the home page
+  website/     the student website's editable copy (a registry of fixed
+               sections), home-page banners and the `/home` payload
+  uploads/     image and PDF uploads, stored on the server's disk
   dashboard/   back-office summary and charts (no models)
   demo/        the `seed_demo` command; installed by the local settings only
 ```
@@ -114,8 +139,8 @@ Each app owns one domain and depends downward only:
 
 - `core` is infrastructure. The one domain module it imports is
   `apps.identity.roles` (plain role names), which its permission tiers use.
-- `notifications` sits just above `core`. Every SMS goes through
-  `apps.notifications.services.send_sms()`, which records it; OTP codes are
+- `communication` sits just above `core`. Every SMS goes through
+  `apps.communication.services.send_sms()`, which records it; OTP codes are
   never stored. Apps that own the data call it (identity for OTPs, courses for
   expiry reminders; later billing for purchase notices, profiles for guardians).
 - `academic` and `profiles` sit below `identity`: `profiles` reaches the user

@@ -147,7 +147,7 @@ class RoleGroupPermissionTests(TestCase):
         models = {
             (p.content_type.app_label, p.content_type.model) for p in self.group(User.Role.MODERATOR).permissions.all()
         }
-        self.assertEqual({label for label, _ in models}, {"content", "communication"})
+        self.assertEqual({label for label, _ in models}, {"website", "communication", "feedback"})
         self.assertNotIn(("communication", "smsmessage"), models)
 
     def test_a_moderator_can_actually_open_something_in_the_admin(self):

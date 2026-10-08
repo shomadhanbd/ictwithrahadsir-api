@@ -7,27 +7,17 @@ from apps.billing.models import Payment
 from apps.billing.selectors import CHECKOUT_OPENING_SECONDS, CHECKOUT_REUSE_MINUTES
 from apps.billing.services import MIN_AMOUNT, open_gateway_session, throttle_initiate
 from apps.billing.services.settlement import lock_buyer
+from apps.core.ordering import move, next_order
 from apps.materials.models import BookOrder, DeliveryRate, MaterialItem
 from apps.materials.selectors import book_for_sale, opens_for
 
 
-@transaction.atomic
 def move_item(item, *, direction) -> None:
-    """Swaps `item` with its neighbour and renumbers the topic's items 0..n."""
-    siblings = list(MaterialItem.objects.select_for_update().filter(topic_id=item.topic_id).order_by("order", "id"))
-    index = next(i for i, sibling in enumerate(siblings) if sibling.pk == item.pk)
-    target = index - 1 if direction == "up" else index + 1
-    if 0 <= target < len(siblings):
-        siblings[index], siblings[target] = siblings[target], siblings[index]
-    for order, sibling in enumerate(siblings):
-        if sibling.order != order:
-            sibling.order = order
-            sibling.save(update_fields=["order", "updated_at"])
+    move(item, MaterialItem.objects.filter(topic_id=item.topic_id), direction=direction)
 
 
 def next_item_order(topic) -> int:
-    last = topic.items.order_by("-order").values_list("order", flat=True).first()
-    return 0 if last is None else last + 1
+    return next_order(topic.items.all())
 
 
 def _open_order(user, item, amount, delivery):

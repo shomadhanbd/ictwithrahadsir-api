@@ -8,6 +8,7 @@ from apps.communication.gateways import SmsError
 from apps.communication.models import SmsMessage
 from apps.communication.services import send_sms
 from apps.core.exceptions import Conflict
+from apps.core.ordering import move
 from apps.courses.models import Content, ContentCompletion, Course, CourseTeacher, Enrollment, Section
 from apps.courses.notifications import access_ended, expiry_reminder
 from apps.courses.selectors import (
@@ -112,18 +113,9 @@ def revoke_course_access(*, user_id, course) -> bool:
     return deleted > 0
 
 
-@transaction.atomic
 def move_section(section, *, direction) -> None:
     """Swaps a section with its neighbour above or below, renumbering the siblings 0..n."""
-    siblings = list(section_siblings(section).select_for_update().order_by("order", "id"))
-    index = next(i for i, s in enumerate(siblings) if s.pk == section.pk)
-    target = index - 1 if direction == "up" else index + 1
-    if 0 <= target < len(siblings):
-        siblings[index], siblings[target] = siblings[target], siblings[index]
-    for order, sibling in enumerate(siblings):
-        if sibling.order != order:
-            sibling.order = order
-            sibling.save(update_fields=["order", "updated_at"])
+    move(section, section_siblings(section), direction=direction)
 
 
 def _claim(enrollment, field) -> bool:

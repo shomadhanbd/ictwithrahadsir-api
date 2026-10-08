@@ -182,16 +182,22 @@ class PublicTests(MaterialsTestCase):
 class EBookMigrationTests(TransactionTestCase):
     """E-books from before study material arrive as book items."""
 
-    before = [("materials", "0001_initial"), ("content", "0002_seed_home_pages")]
+    before = [("materials", "0001_initial")]
     after = [("materials", "0002_move_ebooks")]
 
     def test_each_ebook_becomes_a_book_item(self):
         executor = MigrationExecutor(connection)
         executor.migrate(self.before)
-        old = executor.loader.project_state(self.before).apps
-        old.get_model("content", "EBook").objects.create(
-            title="ICT Guide", booking_link="https://shop.example/ict", preview="https://example.com/ict.pdf"
-        )
+        # The retired `content` app's table, as an old database still has it.
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "CREATE TABLE content_ebook (id integer PRIMARY KEY, title varchar(255), description text, "
+                "booking_link varchar(200), preview varchar(200), image varchar(200))"
+            )
+            cursor.execute(
+                "INSERT INTO content_ebook VALUES (1, 'ICT Guide', '', 'https://shop.example/ict', "
+                "'https://example.com/ict.pdf', NULL)"
+            )
 
         executor = MigrationExecutor(connection)
         executor.loader.build_graph()

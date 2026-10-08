@@ -24,13 +24,9 @@ class ConsoleSmsBackend:
     def send(self, phone: str, message: str) -> None:
         logger.info("[SMS to %s] %s", phone, message)
 
-    def balance(self) -> dict:
-        return {"balance": None, "currency": "BDT"}
-
 
 class BulkSmsBdBackend:
     SEND_URL = "https://bulksmsbd.net/api/smsapi"
-    BALANCE_URL = "https://bulksmsbd.net/api/getBalanceApi"
     ACCEPTED = 202  # refusals also arrive as HTTP 200, so this code is what marks success
     TIMEOUT_SECONDS = 10
 
@@ -55,18 +51,6 @@ class BulkSmsBdBackend:
             logger.error("BulkSMSBD refused the message to %s (response_code=%s)", masked_phone(phone), code)
             raise SmsError(f"BulkSMSBD returned response_code {code}.")
         logger.info("BulkSMSBD accepted a message for %s", masked_phone(phone))
-
-    def balance(self) -> dict:
-        """Credit in whole taka; None if the lookup fails (not zero, which would read as "out of credit")."""
-        try:
-            response = requests.get(
-                self.BALANCE_URL, params={"api_key": settings.BULKSMSBD_API_KEY}, timeout=self.TIMEOUT_SECONDS
-            )
-            response.raise_for_status()
-            return {"balance": int(float(response.json()["balance"])), "currency": "BDT"}
-        except (requests.RequestException, ValueError, TypeError, KeyError) as exc:
-            logger.warning("BulkSMSBD balance lookup failed: %s", exc)
-            return {"balance": None, "currency": "BDT"}
 
 
 BACKENDS = {"console": ConsoleSmsBackend, "bulksmsbd": BulkSmsBdBackend}

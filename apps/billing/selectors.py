@@ -117,3 +117,25 @@ def course_packages(course_ids, user=None) -> dict[int, list[dict]]:
     for packages in by_course.values():
         packages.sort(key=lambda package: (package['price'], package['id']))
     return dict(by_course)
+
+
+def admin_products():
+    """Every package, newest first, with how many paid purchases it has (a paid one cannot be deleted)."""
+    paid = Count("payments", filter=Q(payments__status=Payment.Status.VALID), distinct=True)
+    return Product.objects.prefetch_related("courses").annotate(payment_count=paid).order_by("-id")
+
+
+def admin_payments(status=None):
+    """Every payment, newest first; `status` ("all" or empty for every one) narrows it."""
+    payments = (
+        Payment.objects.select_related("user", "product", "recorded_by", "book_order")
+        .prefetch_related("product__courses")
+        .order_by("-id")
+    )
+    return payments.filter(status=status) if status and status != "all" else payments
+
+
+def my_payments(user):
+    return (
+        Payment.objects.filter(user=user).select_related("product", "book_order").prefetch_related("product__courses")
+    )

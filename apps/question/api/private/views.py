@@ -16,7 +16,7 @@ from apps.question.api.private.serializers import (
     QuestionKindSerializer,
     QuestionSourceSerializer,
 )
-from apps.question.models import Question, QuestionBlock, QuestionSource
+from apps.question.models import QuestionBlock, QuestionSource
 
 
 class AdminQuestionBlockListCreateAPIView(ListCreateAPIView):
@@ -36,23 +36,6 @@ class AdminQuestionBlockDetailAPIView(RetrieveUpdateDestroyAPIView):
     permission_classes = [IsTeachingStaff]
     serializer_class = AdminQuestionBlockSerializer
     queryset = selectors.admin_blocks()
-
-
-class AdminQuestionListCreateAPIView(ListCreateAPIView):
-    permission_classes = [IsTeachingStaff]
-    serializer_class = AdminQuestionSerializer
-    queryset = Question.objects.prefetch_related("options")
-    search_fields = ["prompt_content", "explanation"]
-    filterset_fields = ["question_type", "block", "question_set"]
-
-
-class AdminQuestionDetailAPIView(RetrieveUpdateDestroyAPIView):
-    permission_classes = [IsTeachingStaff]
-    serializer_class = AdminQuestionSerializer
-    queryset = Question.objects.prefetch_related("options")
-
-    def perform_destroy(self, instance):
-        services.delete_question(instance)
 
 
 class AdminQuestionBlockSaveAPIView(APIView):

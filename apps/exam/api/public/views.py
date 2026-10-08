@@ -18,7 +18,6 @@ from apps.exam.api.public.serializers import (
     student_exams_payload,
     submitted_payload,
 )
-from apps.exam.models import ExamAttempt
 from apps.exam.services import attempts as attempt_service
 
 RANKING_SIZE = 50
@@ -31,7 +30,7 @@ class ExamDetailAPIView(APIView):
 
     def get(self, request, pk):
         exam = selectors.exam_for_student(pk, request.user)
-        attempts = attempt_service.settled(ExamAttempt.objects.filter(exam=exam, user=request.user))
+        attempts = attempt_service.settled(selectors.attempts_of(request.user, exam))
         summary = selectors.lesson_exam_summary(exam.lesson, request.user)
         return Response(exam_detail_payload(exam, summary, attempts.order_by("number")))
 
@@ -129,5 +128,5 @@ class MyExamListAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        attempt_service.settled(ExamAttempt.objects.filter(user=request.user))
+        attempt_service.settled(selectors.attempts_of(request.user))
         return Response(student_exams_payload(selectors.student_exams(request.user)))

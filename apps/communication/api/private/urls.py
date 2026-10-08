@@ -5,12 +5,10 @@ from apps.communication.api.private.views import (
     AdminNoticeCategoryListCreateAPIView,
     AdminNoticeDetailAPIView,
     AdminNoticeListCreateAPIView,
-    SmsBalanceAPIView,
     StudentSmsAPIView,
 )
 
 urlpatterns = [
-    path("sms-balance/", SmsBalanceAPIView.as_view(), name="sms_balance"),
     path("users/<int:pk>/sms/", StudentSmsAPIView.as_view(), name="student_sms"),
     path("notices/", AdminNoticeListCreateAPIView.as_view(), name="admin_notice_list"),
     path("notices/<slug:slug>/", AdminNoticeDetailAPIView.as_view(), name="admin_notice_detail"),

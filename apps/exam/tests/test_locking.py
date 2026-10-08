@@ -9,6 +9,7 @@ from apps.exam.models import Exam, ExamAnswer
 from apps.exam.services import attempts as attempt_service
 from apps.exam.tests.base import CourseExamTestCase, detail, section_questions
 from apps.identity.models import User
+from apps.question.tests.base import save_question
 
 
 class AttemptedExamLockTests(CourseExamTestCase):
@@ -38,16 +39,16 @@ class AttemptedExamLockTests(CourseExamTestCase):
         self.assertEqual(
             self.client.delete(detail("exam_section", self.section.pk), **self.admin_auth).status_code, 422
         )
-        pick = self.section.section_questions.first()
+        kept = list(self.section.section_questions.values_list("block_id", flat=True))
         self.assertEqual(
-            self.client.delete(
-                section_questions(self.section.pk), {"block_ids": [pick.block_id]}, format="json", **self.admin_auth
+            self.client.put(
+                section_questions(self.section.pk), {"block_ids": kept[1:]}, format="json", **self.admin_auth
             ).status_code,
             422,
         )
         extra, _ = self.mcq()
-        response = self.client.post(
-            section_questions(self.section.pk), {"block_ids": [extra.pk]}, format="json", **self.admin_auth
+        response = self.client.put(
+            section_questions(self.section.pk), {"block_ids": [*kept, extra.pk]}, format="json", **self.admin_auth
         )
         self.assertEqual(response.status_code, 422)
 
@@ -85,12 +86,7 @@ class AnswerKeyLockTests(CourseExamTestCase):
         self.attempt = attempt_service.submit(attempt)
 
     def put_options(self, options, auth=None):
-        return self.client.patch(
-            reverse("api:question:admin_question_detail", args=[self.question.pk]),
-            {"options": options},
-            format="json",
-            **(auth or self.admin_auth),
-        )
+        return save_question(self.client, auth or self.admin_auth, {"options": options}, question=self.question)
 
     def options_with_key(self, correct, *, with_ids=True):
         return [
@@ -152,10 +148,10 @@ class AnswerKeyLockTests(CourseExamTestCase):
         section = draft.sections.create(title="MCQ", question_type="mcq", subject=self.subject, marks=1)
         block, question = self.mcq()
         section.section_questions.create(block=block, marks=1)
-        response = self.client.patch(
-            reverse("api:question:admin_question_detail", args=[question.pk]),
+        response = save_question(
+            self.client,
+            bearer(make_user(role=User.Role.TEACHER)),
             {"options": [{"content": "a", "position": 0, "is_correct": True}, {"content": "b", "position": 1}]},
-            format="json",
-            **bearer(make_user(role=User.Role.TEACHER)),
+            question=question,
         )
         self.assertEqual(response.status_code, 200, response.content)

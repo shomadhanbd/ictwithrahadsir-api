@@ -10,7 +10,7 @@ from apps.core.testing import bearer, make_user, next_slug
 from apps.identity.models import User
 from apps.question import services
 from apps.question.models import Question, QuestionBlock, QuestionSet
-from apps.question.tests.base import QUESTIONS_URL, QuestionTestCase, detail
+from apps.question.tests.base import QuestionTestCase
 
 
 class QuestionCountTests(QuestionTestCase):
@@ -19,16 +19,7 @@ class QuestionCountTests(QuestionTestCase):
     def test_it_follows_a_standalone_question(self):
         block = self.block()
 
-        self.client.post(
-            QUESTIONS_URL,
-            {
-                "block_id": block.pk,
-                "question_type": "cq",
-                "prompt_content": "?",
-            },
-            content_type="application/json",
-            **self.auth,
-        )
+        self.save_question({"block_id": block.pk, "question_type": "cq", "prompt_content": "?"})
 
         block.refresh_from_db()
         self.assertEqual(block.question_count, 1)
@@ -37,16 +28,13 @@ class QuestionCountTests(QuestionTestCase):
         block = self.block(kind=QuestionBlock.Kind.GROUP)
         question_set = QuestionSet.objects.create(block=block, stimulus_content="…")
         for order in range(3):
-            self.client.post(
-                QUESTIONS_URL,
+            self.save_question(
                 {
                     "question_set_id": question_set.pk,
                     "question_type": "cq",
                     "order_in_set": order,
                     "prompt_content": f"part {order}",
-                },
-                content_type="application/json",
-                **self.auth,
+                }
             )
 
         block.refresh_from_db()
@@ -69,7 +57,7 @@ class QuestionCountTests(QuestionTestCase):
         block.refresh_from_db()
         self.assertEqual(block.question_count, 1)
 
-        self.client.delete(detail("question", question.pk), **self.auth)
+        self.save_question({"block_id": block.pk}, removed=[question.pk])
 
         block.refresh_from_db()
         self.assertEqual(block.question_count, 0)

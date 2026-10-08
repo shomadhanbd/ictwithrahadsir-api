@@ -239,15 +239,14 @@ class AdminExamDetailSerializer(AdminExamSerializer):
 
 
 class ExamSectionQuestionBulkSerializer(serializers.Serializer):
-    """`PUT`/`POST`/`DELETE` body for `exam-sections/<pk>/questions/`."""
+    """`PUT exam-sections/<pk>/questions/`: the section's questions, in order."""
 
     block_ids = serializers.PrimaryKeyRelatedField(queryset=QuestionBlock.objects.all(), many=True, allow_empty=True)
-    mode = serializers.ChoiceField(choices=["append", "replace"], default="append")
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
         section = self.context.get("section")
-        if section is not None and self.context.get("check_blocks", True):
+        if section is not None:
             validators.validate_section_blocks(section=section, blocks=attrs["block_ids"])
         return attrs
 

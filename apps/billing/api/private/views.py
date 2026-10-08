@@ -1,13 +1,11 @@
-from django.db.models import Count, Q
-
 from rest_framework import status
 from rest_framework.generics import ListAPIView, ListCreateAPIView, RetrieveUpdateDestroyAPIView
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.billing import selectors
 from apps.billing.api.filters import AdminProductFilter
 from apps.billing.api.serializers import AdminPaymentSerializer, AdminProductSerializer, CashSaleRequestSerializer
-from apps.billing.models import Payment, Product
 from apps.billing.services.offline import record_cash_sale
 from apps.core.api.auth.permissions import IsFullAdmin, IsTeachingStaff
 from apps.courses.api.permissions import assert_may_manage_course
@@ -18,11 +16,9 @@ class AdminProductView:
 
     permission_classes = [IsFullAdmin]
     serializer_class = AdminProductSerializer
-    queryset = (
-        Product.objects.prefetch_related('courses')
-        .annotate(payment_count=Count('payments', filter=Q(payments__status=Payment.Status.VALID), distinct=True))
-        .order_by('-id')
-    )
+
+    def get_queryset(self):
+        return selectors.admin_products()
 
 
 class AdminProductListCreateAPIView(AdminProductView, ListCreateAPIView):
@@ -40,13 +36,7 @@ class AdminPaymentListAPIView(ListAPIView):
     search_fields = ['transaction_id', 'user__name', 'user__phone']
 
     def get_queryset(self):
-        queryset = (
-            Payment.objects.select_related('user', 'product', 'recorded_by', 'book_order')
-            .prefetch_related('product__courses')
-            .order_by('-id')
-        )
-        value = self.request.query_params.get('status')
-        return queryset.filter(status=value) if value and value != 'all' else queryset
+        return selectors.admin_payments(self.request.query_params.get('status'))
 
 
 class AdminCashSaleAPIView(APIView):

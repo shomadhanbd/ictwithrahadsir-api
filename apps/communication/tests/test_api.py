@@ -6,8 +6,6 @@ from django.test import TestCase
 from django.urls import reverse
 
 from apps.communication.gateways import SmsError
-from apps.core.testing import bearer, make_user
-from apps.identity.models import User
 
 
 class SmsApiTests(TestCase):
@@ -18,10 +16,3 @@ class SmsApiTests(TestCase):
 
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.json(), {'message': "We couldn't send the SMS. Please try again shortly."})
-
-    def test_the_balance_endpoint_reports_an_unavailable_balance_as_null(self):
-        auth = bearer(make_user(role=User.Role.ADMIN))
-        response = self.client.get(reverse('api:communication:sms_balance'), **auth)
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {'balance': None, 'currency': 'BDT'})

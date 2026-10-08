@@ -98,6 +98,15 @@ class ExamOwnershipTests(ExamTestCase):
 
         self.assertEqual([row["id"] for row in body["data"]], [self.mine.pk])
 
+    def test_a_teacher_sees_only_their_own_exams_sections(self):
+        mine = self.section(exam=self.mine)
+        theirs = self.section(exam=self.theirs)
+
+        body = self.client.get(SECTIONS_URL, **self.teacher_auth).json()
+        self.assertEqual([row["id"] for row in body["data"]], [mine.pk])
+        response = self.client.get(detail("exam_section", theirs.pk), **self.teacher_auth)
+        self.assertIn(response.status_code, (403, 404))
+
     def test_an_admin_lists_every_exam(self):
         body = self.client.get(EXAMS_URL, **self.auth).json()
 

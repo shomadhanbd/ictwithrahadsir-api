@@ -30,7 +30,6 @@ FULL_ADMIN_ONLY = [
     f'{API}/private/materials/delivery-rates/',
     f'{API}/private/teachers/',
     f'{API}/private/course-teachers/',
-    f'{API}/private/sms-balance/',
     f'{API}/private/dashboard/sales-overview/',
     f'{API}/private/dashboard/payment-chart/',
 ]
@@ -58,12 +57,12 @@ USER_MANAGEMENT = [
 CONTENT_STAFF = [
     f'{API}/private/notices/',
     f'{API}/private/notice-categories/',
-    f'{API}/private/testimonials/',
-    f'{API}/private/advertisements/',
+    f'{API}/private/feedback/',
+    f'{API}/private/website/banners/',
     f'{API}/private/materials/topics/',
     f'{API}/private/materials/categories/',
     f'{API}/private/materials/items/',
-    f'{API}/private/pages/',
+    f'{API}/private/website/sections/',
 ]
 
 #: Admins and teachers: courses and everything taught inside them.
@@ -76,7 +75,6 @@ TEACHING_STAFF = [
     f'{API}/private/question-blocks/',
     f'{API}/private/question-blocks/save/',
     f'{API}/private/question-counts/refresh/',
-    f'{API}/private/questions/',
     f'{API}/private/question-sources/',
     f'{API}/private/question-types/',
     f'{API}/private/exams/',
@@ -190,7 +188,6 @@ class RoleMatrixTests(APITestCase):
                 'Only an admin may delete part of the curriculum.',
             ),
             (User.Role.STUDENT, 'get', f'{API}/private/groups/', staff_only),
-            (User.Role.TEACHER, 'patch', f'{API}/private/groups/{group.pk}/', 'Only an admin may change this.'),
         ]
         for role, method, path, message in cases:
             with self.subTest(role=role, method=method, path=path):

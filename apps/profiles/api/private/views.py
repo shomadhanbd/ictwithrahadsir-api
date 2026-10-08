@@ -4,14 +4,16 @@ from rest_framework.generics import ListAPIView, ListCreateAPIView, RetrieveUpda
 from apps.core.api.auth.permissions import IsFullAdmin
 from apps.core.api.views.generics import UnpaginatedDataListMixin
 from apps.identity.roles import SUPERUSER_ACCOUNT_MESSAGE, may_change_account
-from apps.profiles import services
+from apps.profiles import selectors, services
 from apps.profiles.api.private.serializers import AdminTeacherOptionSerializer, AdminTeacherSerializer
-from apps.profiles.models import TeacherProfile
 
 
 class AdminTeacherView:
     permission_classes = [IsFullAdmin]
-    queryset = TeacherProfile.objects.roster()
+
+    def get_queryset(self):
+        return selectors.admin_teachers()
+
     serializer_class = AdminTeacherSerializer
 
     def perform_destroy(self, instance):
@@ -33,4 +35,6 @@ class AdminTeacherLookupAPIView(UnpaginatedDataListMixin, ListAPIView):
 
     permission_classes = [IsFullAdmin]
     serializer_class = AdminTeacherOptionSerializer
-    queryset = TeacherProfile.objects.select_related("user")
+
+    def get_queryset(self):
+        return selectors.teacher_options()

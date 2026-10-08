@@ -40,7 +40,7 @@ class PublicCourseListAPIView(CourseCardsMixin, ListAPIView):
     ordering = ["-is_featured", "-published_at", "-id"]
 
     def get_queryset(self):
-        return Course.objects.published().visible_to(self.request.user).with_catalogue_prefetch()
+        return selectors.catalogue_courses(self.request.user)
 
 
 class PublicCourseDetailAPIView(APIView):

@@ -90,9 +90,11 @@ class BlockTypeRuleTests(ExamTestCase):
     """A block has no type of its own -- it lives on its questions."""
 
     def add(self, section, block, auth=None):
-        return self.client.post(
+        """Adds `block` after the section's current questions, as the picker saves the whole list."""
+        kept = list(section.section_questions.order_by("order", "id").values_list("block_id", flat=True))
+        return self.client.put(
             section_questions(section.pk),
-            {"block_ids": [block.pk]},
+            {"block_ids": [*kept, block.pk]},
             content_type="application/json",
             **(auth or self.auth),
         )
@@ -200,10 +202,10 @@ class BulkPickerTests(ExamTestCase):
         self.section_row = self.section(marks=5)
         self.blocks = [self.mcq_block() for _ in range(5)]
 
-    def put(self, block_ids, mode="append", auth=None):
+    def put(self, block_ids, auth=None):
         return self.client.put(
             section_questions(self.section_row.pk),
-            {"block_ids": block_ids, "mode": mode},
+            {"block_ids": block_ids},
             content_type="application/json",
             **(auth or self.auth),
         )
@@ -232,7 +234,7 @@ class BulkPickerTests(ExamTestCase):
         first, second, third = self.blocks[:3]
         self.put([first.pk, second.pk])
 
-        self.put([first.pk, third.pk, second.pk], mode="replace")
+        self.put([first.pk, third.pk, second.pk])
 
         picks = ExamSectionQuestion.objects.filter(section=self.section_row)
         orders = sorted(picks.values_list("order", flat=True))
@@ -245,7 +247,7 @@ class BulkPickerTests(ExamTestCase):
     def test_replace_drops_what_was_there(self):
         self.put([block.pk for block in self.blocks])
 
-        self.put([self.blocks[0].pk], mode="replace")
+        self.put([self.blocks[0].pk])
 
         self.section_row.refresh_from_db()
         self.assertEqual(self.section_row.question_count, 1)
@@ -266,14 +268,6 @@ class BulkPickerTests(ExamTestCase):
             (self.section_row.question_count, self.section_row.computed_marks),
             (5, Decimal("5.00")),
         )
-
-    def test_the_picker_reads_back_the_whole_block_tree(self):
-        self.put([self.blocks[0].pk])
-
-        body = self.client.get(section_questions(self.section_row.pk), **self.auth).json()
-
-        self.assertEqual(list(body), ["data"])
-        self.assertEqual(body["data"][0]["block"]["id"], self.blocks[0].pk)
 
     def test_re_saving_the_same_picks_keeps_their_prices(self):
         self.put([block.pk for block in self.blocks])
@@ -316,33 +310,6 @@ class BulkPickerTests(ExamTestCase):
         self.assertEqual(kept.marks, Decimal("3.00"))
         self.assertEqual(ExamSectionQuestion.objects.count(), 4)
 
-    def test_appending_a_block_already_on_the_section_is_a_no_op(self):
-        first = self.blocks[0].pk
-        self.put([first])
-
-        response = self.client.post(
-            section_questions(self.section_row.pk),
-            {"block_ids": [first, self.blocks[1].pk], "mode": "append"},
-            content_type="application/json",
-            **self.auth,
-        )
-
-        self.assertEqual(response.status_code, 200, response.content)
-        self.assertEqual(ExamSectionQuestion.objects.count(), 2)
-
-    def test_blocks_can_be_removed_by_id(self):
-        self.put([block.pk for block in self.blocks])
-
-        self.client.delete(
-            section_questions(self.section_row.pk),
-            {"block_ids": [self.blocks[0].pk, self.blocks[1].pk]},
-            content_type="application/json",
-            **self.auth,
-        )
-
-        self.section_row.refresh_from_db()
-        self.assertEqual(self.section_row.question_count, 3)
-
 
 class SectionTotalsTests(ExamTestCase):
     """Counters hold however a pick was written, not just through the API."""
@@ -368,16 +335,13 @@ class SectionTotalsTests(ExamTestCase):
         self.section_row.refresh_from_db()
         self.assertEqual(self.section_row.question_count, 0)
 
-    def test_they_drop_when_a_pick_is_deleted_through_the_api(self):
-        pick = self.pick()
+    def test_they_drop_when_the_picker_saves_an_empty_section(self):
+        self.pick()
         self.section_row.refresh_from_db()
         self.assertEqual(self.section_row.question_count, 1)
 
-        self.client.delete(
-            section_questions(self.section_row.pk),
-            {"block_ids": [pick.block_id]},
-            content_type="application/json",
-            **self.auth,
+        self.client.put(
+            section_questions(self.section_row.pk), {"block_ids": []}, content_type="application/json", **self.auth
         )
 
         self.section_row.refresh_from_db()
@@ -517,7 +481,7 @@ class PassageOnAPaperTests(ExamTestCase):
 
         response = self.client.put(
             section_questions(self.mcq_section.pk),
-            {"block_ids": [passage.pk], "mode": "replace"},
+            {"block_ids": [passage.pk]},
             content_type="application/json",
             **self.auth,
         )

@@ -1,13 +1,14 @@
 from collections import defaultdict
 
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db.models import Count, F, Max, Q
+from django.db.models import Count, F, Q
 from django.http import Http404
 from django.utils import timezone
 
 from apps.billing.selectors import renewal_window
 from apps.core import providers
-from apps.courses.models import Content, ContentCompletion, Course, Enrollment, Section
+from apps.core.ordering import next_order
+from apps.courses.models import Content, ContentCompletion, Course, CourseTeacher, Enrollment, Section
 from apps.identity.roles import is_full_admin, is_teaching_staff
 
 
@@ -256,8 +257,7 @@ def section_siblings(section):
 
 
 def next_section_order(*, course, parent=None) -> int:
-    last = Section.objects.filter(course=course, section=parent).aggregate(last=Max("order"))["last"]
-    return 0 if last is None else last + 1
+    return next_order(Section.objects.filter(course=course, section=parent))
 
 
 def enrollments_due_ended_notice(*, now=None, days):
@@ -303,3 +303,24 @@ def renewable(enrollment) -> bool:
     if not enrollment.is_current or enrollment.valid_till is None:
         return False
     return enrollment.valid_till - renewal_window() <= timezone.now()
+
+
+def catalogue_courses(user):
+    """Published courses `user` may see, with what their cards show."""
+    return Course.objects.published().visible_to(user).with_catalogue_prefetch()
+
+
+def admin_courses():
+    return Course.objects.select_related("class_level", "group", "batch").with_enrolled_count()
+
+
+def admin_contents():
+    return Content.objects.select_related("exam").prefetch_related("exam__sections")
+
+
+def admin_course_teachers():
+    return CourseTeacher.objects.select_related("user__teacher", "course")
+
+
+def enrollment_of(course, user_id):
+    return Enrollment.objects.filter(course=course, user_id=user_id).first()

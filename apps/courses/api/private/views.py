@@ -38,13 +38,15 @@ from apps.courses.api.private.serializers import (
 )
 from apps.courses.api.serializers import RoutineSerializer
 from apps.courses.exports import STUDENT_EXPORT_HEADER, student_export_rows
-from apps.courses.models import Content, Course, CourseTeacher, Enrollment, Routine, Section
+from apps.courses.models import Content, Course, Enrollment, Routine, Section
 
 
 class AdminCourseView(CourseScopedAdminMixin):
     permission_classes = [IsCourseTeacherAdminDeletes]
     course_field = "id"
-    queryset = Course.objects.select_related("class_level", "group", "batch").with_enrolled_count()
+    # A class attribute, not get_queryset(): CourseScopedAdminMixin narrows it to the teacher's own courses.
+    queryset = selectors.admin_courses()
+
     serializer_class = AdminCourseSerializer
 
     def perform_destroy(self, instance):
@@ -104,7 +106,8 @@ class AdminSectionMoveAPIView(AdminSectionView, GenericAPIView):
 
 class AdminContentView(CourseScopedAdminMixin):
     permission_classes = [IsCourseTeacherAdminDeletes]
-    queryset = Content.objects.select_related("exam").prefetch_related("exam__sections")
+    queryset = selectors.admin_contents()
+
     serializer_class = AdminContentSerializer
 
 
@@ -182,11 +185,7 @@ class AdminEnrollmentAPIView(APIView):
 
     def patch(self, request):
         data = self._body(request)
-        enrollment = (
-            Enrollment.objects.filter(course=data["course"], user_id=data.get("user_id")).first()
-            if data["course"]
-            else None
-        )
+        enrollment = selectors.enrollment_of(data["course"], data.get("user_id")) if data["course"] else None
         if not enrollment:
             raise NotFound("Enrollment not found.")
         services.update_enrollment(enrollment, data)
@@ -201,7 +200,10 @@ class AdminEnrollmentAPIView(APIView):
 
 class AdminCourseTeacherView:
     permission_classes = [IsFullAdmin]
-    queryset = CourseTeacher.objects.select_related("user__teacher", "course")
+
+    def get_queryset(self):
+        return selectors.admin_course_teachers()
+
     serializer_class = AdminCourseTeacherSerializer
 
 

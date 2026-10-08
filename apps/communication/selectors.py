@@ -1,4 +1,6 @@
+from django.contrib.auth import get_user_model
 from django.db.models import Count, Q
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
 from apps.communication.models import Notice, NoticeCategory, NoticeSeen, SmsMessage
@@ -50,3 +52,8 @@ def admin_notice_categories():
 def sms_to(user):
     """SMS sent to `user` or to their guardian about them."""
     return SmsMessage.objects.filter(recipient=user).select_related("sent_by")
+
+
+def sms_recipient(pk):
+    """The student to text, with the profile that holds their guardian's number; or 404."""
+    return get_object_or_404(get_user_model().objects.select_related("student"), pk=pk)

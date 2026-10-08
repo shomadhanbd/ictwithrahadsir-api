@@ -84,25 +84,6 @@ class BulkSmsBdSendTests(TestCase):
         self.send({'response_code': str(ACCEPTED)})
 
 
-@override_settings(BULKSMSBD_API_KEY='key-123')
-class BulkSmsBdBalanceTests(TestCase):
-    def test_it_reports_whole_taka(self):
-        with mock.patch('requests.get', return_value=fake_response({'balance': '1234.56'})):
-            self.assertEqual(BulkSmsBdBackend().balance(), {'balance': 1234, 'currency': 'BDT'})
-
-    def test_a_failed_lookup_is_unavailable_rather_than_zero(self):
-        """Zero would read as "out of credit"; None tells the panel the lookup failed."""
-        with mock.patch('requests.get', side_effect=requests.Timeout('slow')):
-            self.assertEqual(BulkSmsBdBackend().balance(), {'balance': None, 'currency': 'BDT'})
-
-    def test_a_junk_body_is_unavailable(self):
-        with mock.patch('requests.get', return_value=fake_response({'balance': 'not-a-number'})):
-            self.assertIsNone(BulkSmsBdBackend().balance()['balance'])
-
-    def test_the_console_backend_has_no_balance(self):
-        self.assertEqual(ConsoleSmsBackend().balance(), {'balance': None, 'currency': 'BDT'})
-
-
 class GatewayLogTests(TestCase):
     def test_the_sms_gateway_log_carries_no_full_number(self):
         reply = mock.Mock(status_code=200)

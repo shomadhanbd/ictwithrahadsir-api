@@ -1,9 +1,6 @@
-from django.shortcuts import get_object_or_404
-
 from rest_framework import status
 from rest_framework.generics import ListAPIView, ListCreateAPIView, RetrieveUpdateDestroyAPIView
 from rest_framework.response import Response
-from rest_framework.views import APIView
 
 from apps.communication.api.filters import AdminNoticeFilter
 from apps.communication.api.serializers import (
@@ -12,20 +9,9 @@ from apps.communication.api.serializers import (
     SmsMessageSerializer,
     StudentSmsRequestSerializer,
 )
-from apps.communication.gateways import get_gateway
-from apps.communication.selectors import admin_notice_categories, admin_notices, sms_to
+from apps.communication.selectors import admin_notice_categories, admin_notices, sms_recipient, sms_to
 from apps.communication.services import send_to_student
 from apps.core.api.auth.permissions import IsContentStaff, IsFullAdmin
-from apps.identity.models import User
-
-
-class SmsBalanceAPIView(APIView):
-    """`balance` is null when the gateway has none or the lookup failed."""
-
-    permission_classes = [IsFullAdmin]
-
-    def get(self, request):
-        return Response(get_gateway().balance())
 
 
 class StudentSmsAPIView(ListAPIView):
@@ -35,7 +21,7 @@ class StudentSmsAPIView(ListAPIView):
     serializer_class = SmsMessageSerializer
 
     def get_student(self):
-        return get_object_or_404(User.objects.select_related("student"), pk=self.kwargs["pk"])
+        return sms_recipient(self.kwargs["pk"])
 
     def get_queryset(self):
         return sms_to(self.get_student())

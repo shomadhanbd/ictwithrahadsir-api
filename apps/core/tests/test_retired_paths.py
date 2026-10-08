@@ -39,13 +39,29 @@ class RetiredPathTests(TestCase):
         ('/api/admin/payment', '/api/private/payments/'),
         ('/api/admin/notice', '/api/private/notices/'),
         ('/api/admin/notice-category', '/api/private/notice-categories/'),
-        ('/api/admin/testimonial', '/api/private/testimonials/'),
-        ('/api/admin/advertisement', '/api/private/advertisements/'),
+        ('/api/admin/testimonial', '/api/private/feedback/'),
+        ('/api/private/testimonials/', '/api/private/feedback/'),
+        ('/api/admin/advertisement', '/api/private/website/banners/'),
+        ('/api/private/advertisements/', '/api/private/website/banners/'),
         ('/api/admin/exclusive-ebook', '/api/private/materials/topics/'),
-        ('/api/admin/page', '/api/private/pages/'),
-        ('/api/admin/sms-balance', '/api/private/sms-balance/'),
+        ('/api/admin/page', '/api/private/website/sections/'),
+        ('/api/private/pages/', '/api/private/website/sections/'),
+        ('/api/public/pages/privacy-policy/', '/api/public/website/legal/privacy-policy/'),
         ('/api/admin/logout', '/api/public/auth/logout/'),
     ]
+
+    #: Endpoints removed with no replacement, because nothing called them.
+    REMOVED = [
+        '/api/private/sms-balance/',
+        '/api/private/questions/',
+        '/api/private/questions/1/',
+        '/api/private/groups/1/',
+    ]
+
+    def test_every_removed_path_is_gone(self):
+        for path in self.REMOVED:
+            with self.subTest(path=path), self.assertRaises(Resolver404, msg=f'{path} still routes'):
+                resolve(path)
 
     def test_every_retired_path_is_gone(self):
         for legacy, canonical in self.ALIASES:

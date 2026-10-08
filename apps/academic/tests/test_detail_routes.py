@@ -19,7 +19,6 @@ class DetailRouteTests(AcademicTestCase):
     def test_every_resource_is_retrievable(self):
         for resource, pk in [
             ("class_level", self.ssc.pk),
-            ("group", self.science.pk),
             ("subject", self.subject.pk),
             ("batch", self.batch.pk),
         ]:
@@ -30,7 +29,6 @@ class DetailRouteTests(AcademicTestCase):
     def test_every_resource_is_patchable(self):
         for resource, pk in [
             ("class_level", self.ssc.pk),
-            ("group", self.science.pk),
             ("subject", self.subject.pk),
             ("batch", self.batch.pk),
         ]:
@@ -57,7 +55,6 @@ class DetailRouteTests(AcademicTestCase):
         auth = bearer(make_user())
         for resource, pk in [
             ("class_level", self.ssc.pk),
-            ("group", self.science.pk),
             ("subject", self.subject.pk),
             ("batch", self.batch.pk),
         ]:
@@ -66,7 +63,6 @@ class DetailRouteTests(AcademicTestCase):
     def test_a_detail_route_is_closed_to_anonymous_callers(self):
         for resource, pk in [
             ("class_level", self.ssc.pk),
-            ("group", self.science.pk),
             ("subject", self.subject.pk),
             ("batch", self.batch.pk),
         ]:

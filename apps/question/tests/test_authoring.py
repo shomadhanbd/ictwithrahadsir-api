@@ -4,8 +4,9 @@ from django.core.exceptions import ValidationError
 
 from apps.academic.models import Chapter, Subject, Topic
 from apps.core.testing import next_slug
+from apps.question.api.private.serializers import AdminQuestionSerializer
 from apps.question.models import Question, QuestionBlock, QuestionOption, QuestionSet
-from apps.question.tests.base import BLOCKS_URL, QUESTIONS_URL, QuestionTestCase, detail
+from apps.question.tests.base import BLOCKS_URL, QuestionTestCase, detail, saved_question
 
 
 class AuthoringRuleTests(QuestionTestCase):
@@ -20,13 +21,13 @@ class AuthoringRuleTests(QuestionTestCase):
             ],
             **overrides,
         }
-        return self.client.post(QUESTIONS_URL, payload, content_type="application/json", **self.auth)
+        return self.save_question(payload)
 
     def test_a_valid_mcq_is_accepted(self):
         response = self._post_question()
 
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(len(response.json()["options"]), 2)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(saved_question(response)["options"]), 2)
 
     def test_an_mcq_needs_a_correct_option(self):
         """An empty answer would otherwise match an empty answer key."""
@@ -59,21 +60,17 @@ class AuthoringRuleTests(QuestionTestCase):
             ],
         )
 
-        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.status_code, 200)
 
     def test_a_cq_needs_no_options(self):
         response = self._post_question(question_type="cq", options=[])
-        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.status_code, 200)
 
     def test_a_question_needs_exactly_one_owner(self):
+        """The save endpoint always sets the owner from the block; the serializer still refuses none."""
         for payload in ({}, {"question_set_id": None}):
-            response = self.client.post(
-                QUESTIONS_URL,
-                {"question_type": "cq", "prompt_content": "?", **payload},
-                content_type="application/json",
-                **self.auth,
-            )
-            self.assertEqual(response.status_code, 422)
+            form = AdminQuestionSerializer(data={"question_type": "cq", "prompt_content": "?", **payload})
+            self.assertFalse(form.is_valid())
 
     def test_a_chapter_from_another_subject_is_refused(self):
         other = Subject.objects.create(name="Physics", class_level=self.hsc, group=self.science, slug="phy-hsc-science")
@@ -118,8 +115,8 @@ class AuthoringRuleTests(QuestionTestCase):
 
     def test_explanation_and_model_answer_are_saved(self):
         response = self._post_question(explanation="৪ = ১০০ (বাইনারি)", model_answer="")
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(response.json()["explanation"], "৪ = ১০০ (বাইনারি)")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(saved_question(response)["explanation"], "৪ = ১০০ (বাইনারি)")
 
     def test_question_text_is_plain_text_kept_verbatim(self):
         """Maths must survive: the frontends render this as text, so it is never HTML-escaped."""
@@ -131,8 +128,8 @@ class AuthoringRuleTests(QuestionTestCase):
             ],
         )
 
-        self.assertEqual(response.status_code, 201, response.content)
-        body = response.json()
+        self.assertEqual(response.status_code, 200, response.content)
+        body = saved_question(response)
         self.assertEqual(body["prompt_content"], "If x < 5 & y > 2, which holds?")
         self.assertEqual(body["options"][0]["content"], "x + y < 7")
 
@@ -147,9 +144,7 @@ class PartialUpdateTests(QuestionTestCase):
         QuestionOption.objects.create(question=self.question, content="5", is_correct=False, position=1)
 
     def patch(self, payload):
-        return self.client.patch(
-            detail("question", self.question.pk), payload, content_type="application/json", **self.auth
-        )
+        return self.save_question(payload, question=self.question)
 
     def test_editing_only_the_prompt_keeps_the_existing_answer_key(self):
         response = self.patch({"prompt_content": "2 + 2 = কত?"})
@@ -182,12 +177,7 @@ class OptionIdentityTests(QuestionTestCase):
         self.second = QuestionOption.objects.create(question=self.question, content="5", is_correct=False, position=1)
 
     def patch(self, options):
-        return self.client.patch(
-            detail("question", self.question.pk),
-            {"options": options},
-            content_type="application/json",
-            **self.auth,
-        )
+        return self.save_question({"options": options}, question=self.question)
 
     def test_an_edited_option_keeps_its_id(self):
         response = self.patch(
@@ -198,7 +188,8 @@ class OptionIdentityTests(QuestionTestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual([o["id"] for o in response.json()["options"]], [self.first.pk, self.second.pk])
+        options = saved_question(response, self.question.pk)["options"]
+        self.assertEqual([o["id"] for o in options], [self.first.pk, self.second.pk])
         self.first.refresh_from_db()
         self.assertEqual(self.first.content, "চার")
 
@@ -252,33 +243,22 @@ class BlockKindTests(QuestionTestCase):
         QuestionSet(block=self.block(kind=QuestionBlock.Kind.GROUP), stimulus_content="উদ্দীপক").clean()
 
     def test_a_question_cannot_hang_directly_off_a_group_block(self):
-        response = self.client.post(
-            QUESTIONS_URL,
-            {
-                "block_id": self.block(kind=QuestionBlock.Kind.GROUP).pk,
-                "question_type": "cq",
-                "prompt_content": "?",
-            },
-            content_type="application/json",
-            **self.auth,
-        )
+        group = self.block(kind=QuestionBlock.Kind.GROUP)
+        form = AdminQuestionSerializer(data={"block_id": group.pk, "question_type": "cq", "prompt_content": "?"})
 
-        self.assertEqual(response.status_code, 422)
-        self.assertIn("block_id", response.json()["errors"])
+        self.assertFalse(form.is_valid())
+        self.assertIn("block_id", form.errors)
 
     def test_a_question_cannot_join_a_set_hanging_off_a_standalone_block(self):
         # Only the ORM can build this contradiction.
         question_set = QuestionSet.objects.create(block=self.block(), stimulus_content="উদ্দীপক")
 
-        response = self.client.post(
-            QUESTIONS_URL,
-            {"question_set_id": question_set.pk, "question_type": "cq", "prompt_content": "?"},
-            content_type="application/json",
-            **self.auth,
+        form = AdminQuestionSerializer(
+            data={"question_set_id": question_set.pk, "question_type": "cq", "prompt_content": "?"}
         )
 
-        self.assertEqual(response.status_code, 422)
-        self.assertIn("question_set_id", response.json()["errors"])
+        self.assertFalse(form.is_valid())
+        self.assertIn("question_set_id", form.errors)
 
     def test_the_admin_form_path_refuses_it_too(self):
         with self.assertRaises(ValidationError):
@@ -301,19 +281,17 @@ class StimulusAuthoringTests(QuestionTestCase):
     def test_its_parts_can_then_be_attached(self):
         block = self.create(question_set={"stimulus_content": "উদ্দীপক"}).json()
 
-        part = self.client.post(
-            QUESTIONS_URL,
+        part = self.save_question(
             {
                 "question_set_id": block["question_set"]["id"],
                 "question_type": "cq",
                 "label": "ক",
                 "prompt_content": "part ক",
-            },
-            content_type="application/json",
-            **self.auth,
+            }
         )
 
-        self.assertEqual(part.status_code, 201)
+        self.assertEqual(part.status_code, 200)
+        self.assertEqual(saved_question(part)["label"], "ক")
 
     def test_editing_the_stimulus_keeps_its_parts(self):
         """The stimulus is edited in place, so its parts survive."""
@@ -395,11 +373,11 @@ class QuestionTypeRegistryTests(QuestionTestCase):
             ],
             **overrides,
         }
-        return self.client.post(QUESTIONS_URL, payload, content_type="application/json", **self.auth)
+        return self.save_question(payload)
 
     def test_a_types_settings_are_stored_normalised(self):
         """An omitted setting gets its declared default."""
-        body = self.post().json()
+        body = saved_question(self.post())
 
         self.assertEqual(body["metadata"], {"select_mode": "single"})
 
@@ -424,8 +402,8 @@ class QuestionTypeRegistryTests(QuestionTestCase):
     def test_a_creative_question_carries_no_settings(self):
         response = self.post(question_type="cq", options=[])
 
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(response.json()["metadata"], {})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(saved_question(response)["metadata"], {})
 
     def test_the_model_and_the_registry_cannot_drift(self):
         from apps.question import kinds
