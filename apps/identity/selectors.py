@@ -55,6 +55,15 @@ def _visible_to(viewer, users):
     return users.filter(pk__in=own_students)
 
 
+# Sign in
+
+
+def account_state(phone) -> dict:
+    """Whether `phone` has an account, and whether it signs in with a password."""
+    user = User.objects.filter(phone=phone).only("password").first()
+    return {"user_exist": bool(user), "password_exist": bool(user and user.has_usable_password())}
+
+
 # One-time codes
 
 

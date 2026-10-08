@@ -6,6 +6,7 @@ from rest_framework.test import APITestCase
 
 from apps.identity.models import OTP
 
+ACCOUNT_LOOKUP_URL = reverse('api:identity:account_lookup')
 GET_OTP_URL = reverse('api:identity:otp_request')
 VERIFY_OTP_URL = reverse('api:identity:otp_verify')
 REGISTER_URL = reverse('api:identity:user_register')

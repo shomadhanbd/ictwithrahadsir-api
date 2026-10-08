@@ -57,9 +57,12 @@ class AuthTokenResponseSerializer(serializers.Serializer):
 # Sign up and sign in with OTP
 
 
-class OtpRequestResponseSerializer(serializers.Serializer):
+class AccountStateResponseSerializer(serializers.Serializer):
     user_exist = serializers.BooleanField()
     password_exist = serializers.BooleanField()
+
+
+class OtpRequestResponseSerializer(AccountStateResponseSerializer):
     message = serializers.CharField()
     resend_in = serializers.IntegerField()
 

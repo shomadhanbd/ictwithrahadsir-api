@@ -8,6 +8,7 @@ from rest_framework.views import APIView
 
 from apps.core.api.views.generics import SerializerAPIView
 from apps.identity.api.public.serializers import (
+    AccountStateResponseSerializer,
     AuthTokenResponseSerializer,
     OtpRequestResponseSerializer,
     OtpVerifyRequestSerializer,
@@ -19,6 +20,7 @@ from apps.identity.api.public.serializers import (
     UserRegisterRequestSerializer,
     UserSerializer,
 )
+from apps.identity.selectors import account_state
 from apps.identity.services import (
     authenticate_user,
     issue_token,
@@ -35,6 +37,16 @@ CLIENT_HINT_HEADERS = {"platform": "X-Platform", "app_version": "X-App-Version"}
 
 class PublicAuthAPIView(SerializerAPIView):
     permission_classes = [AllowAny]
+
+
+class AccountLookupAPIView(PublicAuthAPIView):
+    """Which sign-in step a phone needs, without sending a code: a password, or an OTP."""
+
+    serializer_class = PhoneRequestSerializer
+
+    def get(self, request):
+        phone = self.validated_data(request, from_query=True)["phone"]
+        return Response(AccountStateResponseSerializer(account_state(phone)).data)
 
 
 # Sign up and sign in with OTP: request a code, verify it, then register if the account is new

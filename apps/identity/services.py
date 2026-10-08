@@ -12,7 +12,7 @@ from apps.communication.models import SmsMessage
 from apps.communication.services import send_sms
 from apps.core.api.auth.authentication import token_expired
 from apps.identity.models import OTP, User
-from apps.identity.selectors import seconds_until_resend
+from apps.identity.selectors import account_state, seconds_until_resend
 from apps.profiles.services import ensure_student_profile, save_student_profile
 
 BAD_CODE = {"otp": ["Invalid or expired OTP."]}
@@ -109,15 +109,10 @@ def _is_demo_code(phone: str, code: str, purpose: str) -> bool:
 
 
 def request_login_otp(phone: str, meta: dict | None = None) -> dict:
-    user = User.objects.filter(phone=phone).first()
     wait = seconds_until_resend(phone)
     if not wait:
         _send_otp(phone, OTP.Purpose.VERIFY, meta=meta)
-    return {
-        "user_exist": bool(user),
-        "password_exist": bool(user and user.has_usable_password()),
-        "resend_in": wait,
-    }
+    return {**account_state(phone), "resend_in": wait}
 
 
 def verify_phone(phone: str, code: str) -> tuple[User, bool]:

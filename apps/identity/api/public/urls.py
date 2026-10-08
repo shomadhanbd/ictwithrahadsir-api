@@ -1,6 +1,7 @@
 from django.urls import include, path
 
 from apps.identity.api.public.views import (
+    AccountLookupAPIView,
     CurrentUserAPIView,
     OtpRequestAPIView,
     OtpVerifyAPIView,
@@ -13,6 +14,7 @@ from apps.identity.api.public.views import (
 
 # Both frontends sign in here; the back office has no login of its own.
 auth_patterns = [
+    path('account/', AccountLookupAPIView.as_view(), name='account_lookup'),
     path('otp/', OtpRequestAPIView.as_view(), name='otp_request'),
     path('otp/verify/', OtpVerifyAPIView.as_view(), name='otp_verify'),
     path('register/', UserRegisterAPIView.as_view(), name='user_register'),
