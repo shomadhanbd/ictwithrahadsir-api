@@ -143,6 +143,30 @@ class BlockTypeRuleTests(ExamTestCase):
 
         self.assertEqual(self.add(self.section(), block).status_code, 422)
 
+    def test_a_question_retired_after_joining_the_paper_does_not_lock_the_section(self):
+        section, kept = self.section(), self.mcq_block()
+        self.assertEqual(self.add(section, kept).status_code, 200)
+        QuestionBlock.objects.filter(pk=kept.pk).update(is_active=False)
+
+        added = self.mcq_block()
+        self.assertEqual(self.add(section, added).status_code, 200)
+
+        order = list(section.section_questions.order_by("order", "id").values_list("block_id", flat=True))
+        self.assertEqual(order, [kept.pk, added.pk])
+
+    def test_a_retired_question_can_be_taken_off_the_paper(self):
+        section, retired, other = self.section(), self.mcq_block(), self.mcq_block()
+        self.add(section, retired)
+        self.add(section, other)
+        QuestionBlock.objects.filter(pk=retired.pk).update(is_active=False)
+
+        response = self.client.put(
+            section_questions(section.pk), {"block_ids": [other.pk]}, content_type="application/json", **self.auth
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(list(section.section_questions.values_list("block_id", flat=True)), [other.pk])
+
     def test_a_block_from_another_subject_is_refused(self):
         self.assertEqual(self.add(self.section(), self.mcq_block(self.physics)).status_code, 422)
 

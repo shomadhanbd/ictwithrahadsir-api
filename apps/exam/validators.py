@@ -199,9 +199,11 @@ def validate_section_blocks(*, section, blocks):
 
     types = block_question_types(ids)
     wanted = section.question_type
+    # Retiring a question stops it joining papers; one already on this paper stays, or the section could not be saved.
+    on_paper = set(section.blocks.values_list("pk", flat=True)) if section.pk else set()
 
     for block in blocks:
-        if not block.is_active:
+        if not block.is_active and block.pk not in on_paper:
             raise ValidationError({"block_ids": f"Block #{block.pk} is retired and cannot be put on an exam."})
         if block.subject_id != section.subject_id:
             raise ValidationError({"block_ids": f"Block #{block.pk} is not from this section's subject."})
