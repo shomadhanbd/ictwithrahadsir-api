@@ -87,20 +87,25 @@ DJANGO_SETTINGS_MODULE=config.settings.production venv/bin/python manage.py migr
 ```
 
 **Proxy**: production assumes one TLS-terminating proxy that sets
-`X-Forwarded-Proto`. `deploy/nginx.conf` is that proxy: nginx terminates TLS,
-passes the API to gunicorn on `127.0.0.1:8000`, and serves uploaded files.
+`X-Forwarded-Proto`: on the Droplet, the web server in front of gunicorn.
 
 ### Uploaded files
 
-Django serves `/media/` only under `DEBUG`; in production nginx serves it from
-disk. Uploads are linked as `API_BASE_URL/media/...`, so:
+Django serves `/media/` only under `DEBUG`; in production the Droplet's web
+server serves it from disk. Uploads are linked as `API_BASE_URL/media/...`, so:
 
 1. Pick a folder outside the code checkout, so a redeploy never deletes
    uploads, e.g. `/srv/shomadhan/media`, owned by the user gunicorn runs as.
-2. Set `MEDIA_ROOT` to it in `.env`, and the `alias` of `location /media/` in
-   `deploy/nginx.conf` to the same path (with a trailing slash).
-3. Install the config (`/etc/nginx/sites-available/`, then `nginx -t` and a
-   reload). Its `client_max_body_size` is above the 20 MB PDF limit.
+2. Set `MEDIA_ROOT` to it in `.env`.
+3. Serve it at `/media/`, and allow uploads above the 20 MB PDF limit. With nginx:
+
+   ```nginx
+   client_max_body_size 25m;
+   location /media/ {
+       alias /srv/shomadhan/media/;
+   }
+   ```
+
 4. Back this folder up together with the database.
 
 ### Scheduled jobs

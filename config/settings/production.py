@@ -52,11 +52,11 @@ SSLCOMMERZ_SUCCESS_REDIRECT = _required_https("SSLCOMMERZ_SUCCESS_REDIRECT")
 SSLCOMMERZ_FAIL_REDIRECT = _required_https("SSLCOMMERZ_FAIL_REDIRECT")
 SSLCOMMERZ_CANCEL_REDIRECT = _required_https("SSLCOMMERZ_CANCEL_REDIRECT")
 
-# Uploads: nginx serves this folder at /media/ (deploy/nginx.conf), so it is the same path as the `alias` there.
+# Uploads: the folder the web server serves at /media/ (README, "Uploaded files").
 MEDIA_ROOT = _required("MEDIA_ROOT")
 if not MEDIA_ROOT.startswith("/"):
-    raise ImproperlyConfigured(f"MEDIA_ROOT must be an absolute path, the nginx /media/ alias, not {MEDIA_ROOT!r}.")
-# Readable by nginx's user, whichever user gunicorn writes them as.
+    raise ImproperlyConfigured(f"MEDIA_ROOT must be the absolute path served at /media/, not {MEDIA_ROOT!r}.")
+# Readable by the web server's user, whichever user gunicorn writes them as.
 FILE_UPLOAD_PERMISSIONS = 0o644
 FILE_UPLOAD_DIRECTORY_PERMISSIONS = 0o755
 

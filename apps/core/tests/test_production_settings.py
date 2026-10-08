@@ -44,7 +44,7 @@ class ProductionSettingsTests(SimpleTestCase):
         settings = load_production()
         self.assertFalse(settings.DEBUG)
 
-    def test_uploads_go_to_the_folder_nginx_serves_readable_by_it(self):
+    def test_uploads_go_to_one_folder_the_web_server_can_read(self):
         settings = load_production()
         self.assertEqual(settings.MEDIA_ROOT, "/srv/shomadhan/media")
         self.assertEqual((settings.FILE_UPLOAD_PERMISSIONS, settings.FILE_UPLOAD_DIRECTORY_PERMISSIONS), (0o644, 0o755))

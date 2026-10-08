@@ -100,7 +100,7 @@ DATABASES = {
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
-# Uploaded files; Django serves them only under DEBUG, and in production nginx does (deploy/nginx.conf).
+# Uploaded files; Django serves them only under DEBUG, and in production the server's web server does (README).
 MEDIA_URL = "/media/"
 MEDIA_ROOT = env("MEDIA_ROOT", default=str(BASE_DIR / "media"))
 
