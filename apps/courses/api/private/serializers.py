@@ -17,6 +17,14 @@ from apps.courses.validators import (
 )
 
 
+class CourseOptionSerializer(serializers.ModelSerializer):
+    """One choice in a course picker."""
+
+    class Meta:
+        model = Course
+        fields = ["id", "title"]
+
+
 class AdminCourseTeacherSerializer(serializers.ModelSerializer):
     """A teacher on a course; only `commission` and `order` are editable here."""
 

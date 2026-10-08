@@ -10,7 +10,11 @@ from apps.academic.api.private.serializers import (
     SubjectSerializer,
     TopicSerializer,
 )
-from apps.core.api.auth.permissions import IsFullAdminOrTeacherReadOnly, IsTeachingStaffAdminDeletes
+from apps.core.api.auth.permissions import (
+    IsFullAdminOrTeacherReadOnly,
+    IsTeachingStaffAdminDeletes,
+    StaffMayReadMixin,
+)
 from apps.identity.roles import is_full_admin
 
 
@@ -34,7 +38,7 @@ class AdminOnlyFieldsMixin:
 # Names are Bangla, so every list also searches the slug ("hsc", "ict").
 
 
-class AdminClassLevelView:
+class AdminClassLevelView(StaffMayReadMixin):
     permission_classes = [IsTeachingStaffAdminDeletes]
     serializer_class = ClassLevelSerializer
 
@@ -53,7 +57,7 @@ class AdminClassLevelDetailAPIView(AdminClassLevelView, RetrieveUpdateDestroyAPI
     permission_classes = [IsFullAdminOrTeacherReadOnly]
 
 
-class AdminGroupListAPIView(ListAPIView):
+class AdminGroupListAPIView(StaffMayReadMixin, ListAPIView):
     """The fixed curriculum groups, for the admin's dropdowns; they are seeded, not edited here."""
 
     permission_classes = [IsFullAdminOrTeacherReadOnly]
@@ -120,7 +124,7 @@ class AdminTopicDetailAPIView(AdminOnlyFieldsMixin, AdminTopicView, RetrieveUpda
     admin_only_message = "Only an admin may move a topic to another chapter."
 
 
-class AdminBatchView:
+class AdminBatchView(StaffMayReadMixin):
     permission_classes = [IsFullAdminOrTeacherReadOnly]
     serializer_class = BatchSerializer
 

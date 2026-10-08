@@ -7,6 +7,7 @@ from apps.courses.api.private.views import (
     AdminCourseDetailAPIView,
     AdminCourseEnrolledUserListAPIView,
     AdminCourseListCreateAPIView,
+    AdminCourseLookupAPIView,
     AdminCourseStudentsExportAPIView,
     AdminCourseTeacherDetailAPIView,
     AdminCourseTeacherListCreateAPIView,
@@ -20,6 +21,7 @@ from apps.courses.api.private.views import (
 
 urlpatterns = [
     path('courses/', AdminCourseListCreateAPIView.as_view(), name='admin_course_list'),
+    path('courses/lookup/', AdminCourseLookupAPIView.as_view(), name='admin_course_lookup'),
     path('courses/<int:pk>/', AdminCourseDetailAPIView.as_view(), name='admin_course_detail'),
     path('courses/<int:pk>/enrollments/', AdminCourseEnrolledUserListAPIView.as_view(), name='admin_course_users'),
     path(

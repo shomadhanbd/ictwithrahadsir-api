@@ -48,6 +48,14 @@ ADMIN_WRITE_TEACHER_READ = [
     f'{API}/private/batches/',
 ]
 
+#: Every staff member reads these, for the choices in their forms; writes keep the tiers above.
+STAFF_READ = [
+    f'{API}/private/class-levels/',
+    f'{API}/private/groups/',
+    f'{API}/private/batches/',
+    f'{API}/private/courses/lookup/',
+]
+
 #: Admins and teachers; whom a teacher may act on is checked per object (`CanManageUsers`).
 USER_MANAGEMENT = [
     f'{API}/private/users/',
@@ -187,7 +195,7 @@ class RoleMatrixTests(APITestCase):
                 f'{API}/private/subjects/{subject.pk}/',
                 'Only an admin may delete part of the curriculum.',
             ),
-            (User.Role.STUDENT, 'get', f'{API}/private/groups/', staff_only),
+            (User.Role.STUDENT, 'get', f'{API}/private/groups/', 'Only back-office staff may do this.'),
         ]
         for role, method, path, message in cases:
             with self.subTest(role=role, method=method, path=path):
@@ -206,8 +214,20 @@ class RoleMatrixTests(APITestCase):
                 )
                 self.assertEqual(response.status_code, 403, path)
 
-    def test_moderator_is_kept_out_of_the_academic_taxonomy(self):
-        self.assert_reachable(CURRICULUM + ADMIN_WRITE_TEACHER_READ, User.Role.MODERATOR, allowed=False)
+    def test_every_staff_member_reads_the_choices_their_forms_offer(self):
+        for role in (User.Role.ADMIN, User.Role.TEACHER, User.Role.MODERATOR):
+            self.assert_reachable(STAFF_READ, role, allowed=True)
+        self.assert_reachable(STAFF_READ, User.Role.STUDENT, allowed=False)
+
+    def test_moderator_reads_but_cannot_change_levels_groups_or_batches(self):
+        for path in STAFF_READ[:3]:
+            with self.subTest(path=path):
+                response = self.client.post(path, {'name': 'Nope'}, format='json', **self.tokens[User.Role.MODERATOR])
+                self.assertEqual(response.status_code, 403, path)
+
+    def test_moderator_is_kept_out_of_the_rest_of_the_curriculum(self):
+        rest = [path for path in CURRICULUM if path not in STAFF_READ]
+        self.assert_reachable(rest, User.Role.MODERATOR, allowed=False)
 
     def test_students_and_moderators_cannot_build_the_curriculum(self):
         for role in (User.Role.STUDENT, User.Role.MODERATOR):
@@ -255,6 +275,7 @@ class EveryAdminPathHasADecidedTierTests(APITestCase):
             + USER_MANAGEMENT
             + CURRICULUM
             + ADMIN_WRITE_TEACHER_READ
+            + STAFF_READ
         }
 
         contract = list(served_paths())

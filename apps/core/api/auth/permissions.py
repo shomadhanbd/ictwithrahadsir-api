@@ -53,3 +53,12 @@ class IsFullAdminOrTeacherReadOnly(BasePermission):
             return is_teaching_staff(request.user)
         self.message = "Only an admin may change this."
         return is_full_admin(request.user)
+
+
+class StaffMayReadMixin:
+    """Every staff member reads, so moderators' forms can offer these as choices; writes keep the view's rules."""
+
+    def get_permissions(self):
+        if self.request.method in SAFE_METHODS:
+            return [IsStaffMember()]
+        return super().get_permissions()

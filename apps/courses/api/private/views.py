@@ -10,8 +10,9 @@ from rest_framework.generics import (
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.core.api.auth.permissions import IsFullAdmin, IsTeachingStaff
+from apps.core.api.auth.permissions import IsFullAdmin, IsStaffMember, IsTeachingStaff
 from apps.core.api.views.exports import csv_response
+from apps.core.api.views.generics import UnpaginatedDataListMixin
 from apps.courses import selectors, services
 from apps.courses.api.permissions import (
     CourseScopedAdminMixin,
@@ -33,6 +34,7 @@ from apps.courses.api.private.serializers import (
     AdminEnrollmentRequestSerializer,
     AdminSectionSerializer,
     ContentToggleSerializer,
+    CourseOptionSerializer,
     EnrollmentSerializer,
     SectionMoveSerializer,
 )
@@ -214,3 +216,14 @@ class AdminCourseTeacherListCreateAPIView(AdminCourseTeacherView, ListCreateAPIV
 
 class AdminCourseTeacherDetailAPIView(AdminCourseTeacherView, RetrieveUpdateDestroyAPIView):
     pass
+
+
+class AdminCourseLookupAPIView(UnpaginatedDataListMixin, ListAPIView):
+    """`?search=`: courses for the pickers in every staff member's forms (feedback, study material)."""
+
+    permission_classes = [IsStaffMember]
+    serializer_class = CourseOptionSerializer
+    filter_backends = []
+
+    def get_queryset(self):
+        return selectors.course_options(self.request.query_params.get("search", "").strip())

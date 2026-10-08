@@ -310,6 +310,14 @@ def catalogue_courses(user):
     return Course.objects.published().visible_to(user).with_catalogue_prefetch()
 
 
+def course_options(search="", *, limit=20):
+    """Courses for a staff picker, by title."""
+    courses = Course.objects.only("id", "title").order_by("title")
+    if search:
+        courses = courses.filter(title__icontains=search)
+    return courses[:limit]
+
+
 def admin_courses():
     return Course.objects.select_related("class_level", "group", "batch").with_enrolled_count()
 
