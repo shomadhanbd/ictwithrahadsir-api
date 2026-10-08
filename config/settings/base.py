@@ -154,6 +154,10 @@ OTP_MAX_ATTEMPTS = 5
 OTP_RESEND_COOLDOWN_SECONDS = 60
 OTP_RATE_LIMIT_PER_PHONE_PER_HOUR = 5
 
+# Wrong passwords: this many for one phone within the window lock its password sign-in until the oldest ages out.
+LOGIN_MAX_FAILURES = 5
+LOGIN_LOCKOUT_SECONDS = 15 * 60
+
 # Store-review account: DEMO_PHONE skips the SMS and accepts DEMO_OTP_CODE. Empty disables it.
 DEMO_PHONE = env("DEMO_PHONE", default="")
 DEMO_OTP_CODE = env("DEMO_OTP_CODE", default="000000")

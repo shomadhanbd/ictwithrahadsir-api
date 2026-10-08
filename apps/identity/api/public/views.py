@@ -1,3 +1,5 @@
+import math
+
 from django.db import transaction
 
 from rest_framework import status
@@ -20,7 +22,7 @@ from apps.identity.api.public.serializers import (
     UserRegisterRequestSerializer,
     UserSerializer,
 )
-from apps.identity.selectors import account_state
+from apps.identity.selectors import account_state, seconds_until_login
 from apps.identity.services import (
     authenticate_user,
     issue_token,
@@ -109,6 +111,11 @@ class UserLoginAPIView(PublicAuthAPIView):
 
     def post(self, request):
         data = self.validated_data(request)
+        wait = seconds_until_login(data["phone"])
+        if wait:
+            locked = Throttled(detail=f"Too many wrong passwords. Try again in {math.ceil(wait / 60)} minutes.")
+            locked.wait = wait  # sent as Retry-After
+            raise locked
         user = authenticate_user(phone=data["phone"], password=data["password"])
 
         body = {"token": issue_token(user), "user": user}

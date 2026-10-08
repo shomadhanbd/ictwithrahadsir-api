@@ -2,7 +2,7 @@ from django.conf import settings
 from django.utils import timezone
 
 from apps.core.text.phones import normalize_phone
-from apps.identity.models import OTP, User
+from apps.identity.models import OTP, LoginFailure, User
 from apps.identity.roles import is_full_admin
 
 ALL = "all"
@@ -85,3 +85,17 @@ def seconds_until_resend(phone) -> int:
         wait = max(wait, int((oldest_drops_out - now).total_seconds()))
 
     return wait
+
+
+def seconds_until_login(phone) -> int:
+    """0 if `phone` may try its password now, otherwise how many seconds its lockout has left."""
+    window_start = timezone.now() - timezone.timedelta(seconds=settings.LOGIN_LOCKOUT_SECONDS)
+    recent = list(
+        LoginFailure.objects.filter(phone=phone, created_at__gte=window_start)
+        .order_by("-created_at")
+        .values_list("created_at", flat=True)[: settings.LOGIN_MAX_FAILURES]
+    )
+    if len(recent) < settings.LOGIN_MAX_FAILURES:
+        return 0
+    unlocks = recent[-1] + timezone.timedelta(seconds=settings.LOGIN_LOCKOUT_SECONDS)
+    return max(int((unlocks - timezone.now()).total_seconds()), 1)

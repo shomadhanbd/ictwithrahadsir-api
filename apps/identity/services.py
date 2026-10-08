@@ -11,7 +11,7 @@ from rest_framework.authtoken.models import Token
 from apps.communication.models import SmsMessage
 from apps.communication.services import send_sms
 from apps.core.api.auth.authentication import token_expired
-from apps.identity.models import OTP, User
+from apps.identity.models import OTP, LoginFailure, User
 from apps.identity.selectors import account_state, seconds_until_resend
 from apps.profiles.services import ensure_student_profile, save_student_profile
 
@@ -170,10 +170,19 @@ def register_user(
 def authenticate_user(*, phone: str, password: str) -> User:
     user = User.objects.filter(phone=phone).first()
     if user is None or not user.check_password(password):
+        record_login_failure(phone)
         raise ValidationError({"password": ["Invalid credentials."]})
+    LoginFailure.objects.filter(phone=phone).delete()
     if not user.is_active:
         raise ValidationError({"password": ["This account has been deactivated."]})
     return user
+
+
+def record_login_failure(phone: str) -> None:
+    """Counts a wrong password, an unknown phone's too, so a lockout never tells whether an account exists."""
+    window_start = timezone.now() - timezone.timedelta(seconds=settings.LOGIN_LOCKOUT_SECONDS)
+    LoginFailure.objects.filter(phone=phone, created_at__lt=window_start).delete()
+    LoginFailure.objects.create(phone=phone)
 
 
 # Password reset

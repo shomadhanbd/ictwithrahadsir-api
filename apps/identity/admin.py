@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 
 from apps.core.admin import ReadOnlyAdmin
-from apps.identity.models import OTP, User
+from apps.identity.models import OTP, LoginFailure, User
 from apps.identity.roles import may_change_account
 from apps.profiles.models import StudentProfile, TeacherProfile
 
@@ -75,6 +75,13 @@ class UserAdmin(DjangoUserAdmin):
     @admin.display(description='Role')
     def role(self, user):
         return user.role or '--'
+
+
+@admin.register(LoginFailure)
+class LoginFailureAdmin(ReadOnlyAdmin):
+    list_display = ('id', 'phone', 'created_at')
+    search_fields = ('phone',)
+    ordering = ('-created_at',)
 
 
 @admin.register(OTP)

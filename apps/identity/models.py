@@ -110,3 +110,19 @@ class OTP(models.Model):
             return False
         age = timezone.now() - self.created_at
         return age.total_seconds() <= settings.OTP_TTL_SECONDS
+
+
+class LoginFailure(models.Model):
+    """A wrong password for a phone; enough of them in a row locks password sign-in for a while."""
+
+    phone = models.CharField("Phone Number", max_length=20)
+    created_at = models.DateTimeField("At", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Failed Sign-in"
+        verbose_name_plural = "Failed Sign-ins"
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["phone", "-created_at"])]
+
+    def __str__(self):
+        return f"Failed sign-in for {self.phone}"

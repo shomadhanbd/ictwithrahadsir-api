@@ -1,12 +1,13 @@
 """Signing in with a password, and how long the token lasts."""
 
+from django.conf import settings
 from django.test import override_settings
 from django.utils import timezone
 
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APITestCase
 
-from apps.identity.models import User
+from apps.identity.models import LoginFailure, User
 from apps.identity.tests.base import (
     LOGIN_URL,
     ME_URL,
@@ -89,3 +90,50 @@ class TokenLifetimeTests(APITestCase):
         self.assertAlmostEqual(
             Token.objects.get(pk=self.token.pk).created, timezone.now(), delta=timezone.timedelta(minutes=1)
         )
+
+
+class LoginLockoutTests(APITestCase):
+    PASSWORD = "Str0ngPass!23"
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user(phone="01810003333", name="Student", password=self.PASSWORD)
+
+    def login(self, password, phone="01810003333"):
+        return self.client.post(LOGIN_URL, {"phone": phone, "password": password})
+
+    def fail(self, times, phone="01810003333"):
+        for _ in range(times):
+            self.assertEqual(self.login("wrong-password", phone).status_code, 422)
+
+    def test_too_many_wrong_passwords_lock_the_phone_even_for_the_right_one(self):
+        self.fail(settings.LOGIN_MAX_FAILURES)
+
+        response = self.login(self.PASSWORD)
+
+        self.assertEqual(response.status_code, 429)
+        self.assertIn("Try again in 15 minutes", response.json()["message"])
+        self.assertTrue(response.has_header("Retry-After"))
+
+    def test_the_lock_lifts_once_the_window_has_passed(self):
+        self.fail(settings.LOGIN_MAX_FAILURES)
+        aged = timezone.now() - timezone.timedelta(seconds=settings.LOGIN_LOCKOUT_SECONDS + 1)
+        LoginFailure.objects.update(created_at=aged)
+
+        self.assertEqual(self.login(self.PASSWORD).status_code, 200)
+        self.assertFalse(LoginFailure.objects.exists())
+
+    def test_the_right_password_resets_the_count(self):
+        self.fail(settings.LOGIN_MAX_FAILURES - 1)
+        self.assertEqual(self.login(self.PASSWORD).status_code, 200)
+
+        self.fail(settings.LOGIN_MAX_FAILURES - 1)
+        self.assertEqual(self.login(self.PASSWORD).status_code, 200)
+
+    def test_an_unknown_phone_is_locked_the_same_way(self):
+        self.fail(settings.LOGIN_MAX_FAILURES, phone="01810009999")
+        self.assertEqual(self.login("anything", phone="01810009999").status_code, 429)
+
+    def test_one_phone_locked_leaves_others_alone(self):
+        self.fail(settings.LOGIN_MAX_FAILURES, phone="01810009999")
+        self.assertEqual(self.login(self.PASSWORD).status_code, 200)
