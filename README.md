@@ -72,6 +72,7 @@ Production refuses to start if any of these is missing or unsafe:
 - `SSLCOMMERZ_STORE_ID`, `SSLCOMMERZ_STORE_PASSWORD`
 - `API_BASE_URL`, `FRONTEND_URL` and the three `SSLCOMMERZ_*_REDIRECT` URLs,
   all `https://`
+- `MEDIA_ROOT`, an absolute path (see "Uploaded files" below)
 
 These are read at import, so build steps such as `collectstatic` need them too
 (placeholders will do).
@@ -86,7 +87,21 @@ DJANGO_SETTINGS_MODULE=config.settings.production venv/bin/python manage.py migr
 ```
 
 **Proxy**: production assumes one TLS-terminating proxy that sets
-`X-Forwarded-Proto`.
+`X-Forwarded-Proto`. `deploy/nginx.conf` is that proxy: nginx terminates TLS,
+passes the API to gunicorn on `127.0.0.1:8000`, and serves uploaded files.
+
+### Uploaded files
+
+Django serves `/media/` only under `DEBUG`; in production nginx serves it from
+disk. Uploads are linked as `API_BASE_URL/media/...`, so:
+
+1. Pick a folder outside the code checkout, so a redeploy never deletes
+   uploads, e.g. `/srv/shomadhan/media`, owned by the user gunicorn runs as.
+2. Set `MEDIA_ROOT` to it in `.env`, and the `alias` of `location /media/` in
+   `deploy/nginx.conf` to the same path (with a trailing slash).
+3. Install the config (`/etc/nginx/sites-available/`, then `nginx -t` and a
+   reload). Its `client_max_body_size` is above the 20 MB PDF limit.
+4. Back this folder up together with the database.
 
 ### Scheduled jobs
 
