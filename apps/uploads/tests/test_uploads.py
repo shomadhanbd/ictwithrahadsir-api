@@ -65,6 +65,10 @@ class UploadTests(APITestCase):
         self.assertEqual(self.upload(b"not really an image", "fake.png").status_code, 422)
         self.assertEqual(self.upload(image_bytes(), "fake.pdf", kind="pdf").status_code, 422)
 
+    def test_the_back_office_reads_upload_errors_in_english(self):
+        response = self.upload(b"not really an image", "fake.png")
+        self.assertEqual(response.json()["errors"]["file"], ["That file is not an image we can read."])
+
     def test_svg_is_refused(self):
         svg = b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'
         self.assertEqual(self.upload(svg, "logo.svg").status_code, 422)

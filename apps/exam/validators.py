@@ -5,6 +5,7 @@ from django.db.models import Q, Sum
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
+from apps.core.text.bangla import bn_digits
 from apps.exam.models import Exam, ExamSection, ExamSectionQuestion
 from apps.exam.utils import ZERO
 from apps.question import kinds
@@ -418,16 +419,18 @@ def validate_sheet_target(placement):
     if placement is None:
         raise ValidationError({"section_question_id": "That question is not on this paper."})
     if kinds.kind(placement.section.question_type).auto_graded:
-        raise ValidationError({"section_question_id": "This question is answered by choosing an option."})
+        raise ValidationError({"section_question_id": "এই প্রশ্নের উত্তর অপশন বেছে দিতে হয়।"})
 
 
 def validate_sheet_room(sheet, *, answered_in_section):
     """At most `MAX_SHEET_FILES` per question, and an "answer any N" section takes N uploaded answers."""
     if len(sheet.files) >= MAX_SHEET_FILES:
-        raise ValidationError({"file": f"A question takes at most {MAX_SHEET_FILES} files."})
+        raise ValidationError({"file": f"একটি প্রশ্নে সর্বোচ্চ {bn_digits(MAX_SHEET_FILES)}টি ফাইল দেওয়া যাবে।"})
     limit = sheet.section_question.section.required_question_count
     if limit and not sheet.files and answered_in_section >= limit:
-        raise ValidationError({"file": f"This section takes {limit} answers. Remove one before answering another."})
+        raise ValidationError(
+            {"file": f"এই অংশে {bn_digits(limit)}টি প্রশ্নের উত্তর দিতে হবে। নতুনটির উত্তর দিতে আগে একটি সরান।"}
+        )
 
 
 def validate_written_marks(attempt, marks, *, paper):

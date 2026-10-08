@@ -98,7 +98,7 @@ class AttemptSheetFilesAPIView(APIView):
         attempt_service.end_if_access_lost(attempt, request.user)
         upload = request.FILES.get("file")
         if upload is None:
-            raise ValidationError({"file": "Choose a photo or PDF to upload."})
+            raise ValidationError({"file": "আপলোড করার জন্য একটি ছবি বা PDF বেছে নিন।"})
         sheet = attempt_service.add_sheet_file(attempt, section_question_id, upload)
         return Response({"section_question_id": sheet.section_question_id, "files": sheet.files}, status=201)
 

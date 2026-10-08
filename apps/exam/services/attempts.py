@@ -8,6 +8,7 @@ from django.db import transaction
 from django.db.models import Max
 from django.utils import timezone
 
+from apps.core.text.bangla import bn_digits
 from apps.courses.services import complete_lesson
 from apps.exam.models import Exam, ExamAnswer, ExamAnswerSheet, ExamAttempt, ExamSectionQuestion
 from apps.exam.selectors import assert_may_sit, is_open, lesson_exam_summary, paper_questions, valid_option_ids
@@ -26,8 +27,15 @@ from apps.uploads.validators import image_extension, pdf_extension
 logger = logging.getLogger(__name__)
 
 # Reported under `attempt`, so a client tells "this paper is closed" apart from a refused answer (`answers`).
-ATTEMPT_OVER = "This attempt is over; answers can no longer change."
-ACCESS_ENDED = "Your access to this exam has ended; the answers you saved were submitted."
+ATTEMPT_OVER = "এই পরীক্ষা শেষ হয়ে গেছে; উত্তর আর পরিবর্তন করা যাবে না।"
+ACCESS_ENDED = "এই পরীক্ষায় আপনার অ্যাক্সেস শেষ হয়েছে; সংরক্ষিত উত্তরগুলো জমা দেওয়া হয়েছে।"
+# The upload checks' codes, in the students' words.
+SHEET_FILE_ERRORS = {
+    "too_large": "ফাইলটি সর্বোচ্চ {mb} MB হতে পারে।",
+    "unreadable": "ফাইলটি পড়া যাচ্ছে না। উত্তরপত্রের একটি ছবি (JPG বা PNG) অথবা PDF দিন।",
+    "wrong_type": "শুধু JPG, PNG, WebP বা GIF ছবি দেওয়া যাবে।",
+    "not_pdf": "ফাইলটি PDF নয়।",
+}
 
 
 def _deadline(exam, started_at):
@@ -176,9 +184,14 @@ def _sheet_for(attempt, section_question_id):
 
 def _sheet_file_kind(upload):
     """("pdf" | "image", extension), from the file's own content rather than the name it came with."""
-    if upload.name.lower().endswith(".pdf") or getattr(upload, "content_type", "") == "application/pdf":
-        return "pdf", pdf_extension(upload)
-    return "image", image_extension(upload)
+    try:
+        if upload.name.lower().endswith(".pdf") or getattr(upload, "content_type", "") == "application/pdf":
+            return "pdf", pdf_extension(upload)
+        return "image", image_extension(upload)
+    except ValidationError as refused:
+        problem = refused.error_dict["file"][0]
+        message = SHEET_FILE_ERRORS.get(problem.code, SHEET_FILE_ERRORS["unreadable"])
+        raise ValidationError({"file": message.format(mb=bn_digits((problem.params or {}).get("mb", "")))}) from None
 
 
 @transaction.atomic
@@ -207,7 +220,7 @@ def remove_sheet_file(attempt, section_question_id, link):
     sheet = _sheet_for(attempt, section_question_id)
     kept = [item for item in sheet.files if item["link"] != link]
     if len(kept) == len(sheet.files):
-        raise ValidationError({"link": "That file is not on this answer."})
+        raise ValidationError({"link": "ফাইলটি এই উত্তরে নেই।"})
     sheet.files = kept
     sheet.save(update_fields=["files", "updated_at"])
     stored = link.split(default_storage.base_url, 1)[-1] if default_storage.base_url in link else None

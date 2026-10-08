@@ -11,7 +11,10 @@ IMAGE_FORMATS = {"JPEG": "jpg", "PNG": "png", "WEBP": "webp", "GIF": "gif"}
 
 def _check_size(file, limit, what):
     if file.size > limit:
-        raise ValidationError({"file": f"{what} can be at most {limit // (1024 * 1024)} MB."})
+        mb = limit // (1024 * 1024)
+        raise ValidationError(
+            {"file": ValidationError(f"{what} can be at most {mb} MB.", code="too_large", params={"mb": mb})}
+        )
 
 
 def image_extension(file) -> str:
@@ -22,11 +25,13 @@ def image_extension(file) -> str:
             found = image.format
             image.verify()
     except Exception as exc:
-        raise ValidationError({"file": "That file is not an image we can read."}) from exc
+        raise ValidationError(
+            {"file": ValidationError("That file is not an image we can read.", code="unreadable")}
+        ) from exc
     finally:
         file.seek(0)
     if found not in IMAGE_FORMATS:
-        raise ValidationError({"file": "Upload a JPG, PNG, WebP or GIF image."})
+        raise ValidationError({"file": ValidationError("Upload a JPG, PNG, WebP or GIF image.", code="wrong_type")})
     return IMAGE_FORMATS[found]
 
 
@@ -35,7 +40,7 @@ def pdf_extension(file) -> str:
     header = file.read(5)
     file.seek(0)
     if header != b"%PDF-":
-        raise ValidationError({"file": "That file is not a PDF."})
+        raise ValidationError({"file": ValidationError("That file is not a PDF.", code="not_pdf")})
     return "pdf"
 
 

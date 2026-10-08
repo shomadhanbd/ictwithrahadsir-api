@@ -4,6 +4,7 @@ import shutil
 import tempfile
 from decimal import Decimal
 from io import BytesIO
+from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
@@ -165,6 +166,15 @@ class WrittenAnswerTests(CourseExamTestCase):
         response = self.upload(attempt_id)
         self.assertEqual(response.status_code, 422)
         self.assertIn("attempt", response.json()["errors"])
+
+    def test_a_refused_photo_is_explained_in_bangla(self):
+        attempt_id = self.start(self.mixed_exam())
+        fake = SimpleUploadedFile("answer.jpg", b"not a picture", content_type="image/jpeg")
+        unreadable = self.upload(attempt_id, file=fake).json()["errors"]["file"][0]
+        self.assertIn("ফাইলটি পড়া যাচ্ছে না", unreadable)
+        with patch("apps.uploads.validators.MAX_IMAGE_BYTES", 10):
+            too_large = self.upload(attempt_id).json()["errors"]["file"][0]
+        self.assertEqual(too_large, "ফাইলটি সর্বোচ্চ ০ MB হতে পারে।")
 
     def test_an_uploaded_answer_waits_for_marking(self):
         exam = self.mixed_exam(pass_marks=5)
