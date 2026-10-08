@@ -15,8 +15,17 @@ SECTIONS = (
             image("logo", "Logo", "https://www.ictwithrahadsir.com/logo/rahat-logo.png", required=True),
             text("phone", "Phone", "+8801711778602", required=True),
             text("whatsapp", "WhatsApp number", "8801711778602", required=True, help="With 880, digits only."),
-            email("email", "Email", "info@ictwithrahadsir.com", required=True),
+            email("email", "Email", "ictwithrahadsir@gmail.com", required=True),
             text("address", "Address", "চৌহাট্টা, সিলেট।", required=True),
+            # SSLCommerz asks merchants to show these in the footer and on About Us.
+            text("trade_license", "Trade license number", "1230050944", help="Shown in the footer and on About Us."),
+            text("tin", "TIN number", help="Shown in the footer and on About Us once filled in."),
+            text(
+                "registered_address",
+                "Registered address (trade license)",
+                "চৌহাট্টা, সিলেট।",
+                help="The address on the trade license.",
+            ),
             text("support_hours", "Support hours", "সকাল ৯টা – রাত ৯টা"),
             text(
                 "map_query",
@@ -37,9 +46,16 @@ SECTIONS = (
             text("facebook_group_name", "Facebook group name", "ICT with Rahad Sir"),
             link("youtube", "YouTube", "https://www.youtube.com/@ictwithrahadsir"),
             link("instagram", "Instagram", "https://www.instagram.com/ict_with_rahad_sir/"),
-            link("play_store", "Google Play app", "https://play.google.com/store/apps/details?id=com.ictwithrahadsir"),
+            link(
+                "play_store", "Google Play app", "https://play.google.com/store/apps/details?id=com.nextive.rahat_ict"
+            ),
             text("payment_methods", "Payment methods", "বিকাশ, নগদ, রকেট ও কার্ডে পেমেন্ট"),
-            image("payment_badge", "Payment logos", "https://www.ictwithrahadsir.com/images/sslPay.jpg"),
+            image(
+                "payment_badge",
+                "Payment logos",
+                "/images/sslcommerz-banner.png",
+                help="SSLCommerz's current 'Pay with' banner, shown across the footer.",
+            ),
             textarea(
                 "seo_description",
                 "Search description",

@@ -215,6 +215,22 @@ SECTIONS = (
         ),
     ),
     SectionSpec(
+        "about.management",
+        "about",
+        "Management",
+        description="Who runs the business, shown on About Us with the trade license details, as SSLCommerz requires.",
+        fields=(
+            heading("পরিচালনায়"),
+            items(
+                "people",
+                "Person",
+                [text("name", "Name", required=True), text("role", "Role"), image("photo", "Photo")],
+                [],
+                max_items=6,
+            ),
+        ),
+    ),
+    SectionSpec(
         "contact",
         "about",
         "Contact",

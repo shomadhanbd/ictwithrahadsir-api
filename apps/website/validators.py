@@ -15,6 +15,12 @@ def validate_link(value: str) -> None:
         _url(value)
 
 
+def validate_image_link(value: str) -> None:
+    """An uploaded image's full link, or a file the website itself serves (`/images/...`)."""
+    if not value.startswith("/") or value.startswith("//"):
+        _url(value)
+
+
 def validate_banner_dates(*, starts_at, ends_at) -> None:
     if starts_at and ends_at and ends_at <= starts_at:
         raise ValidationError({"ends_at": "The end must be after the start."})
@@ -25,7 +31,7 @@ def _clean_text(field, value: str) -> str:
     if field.type in MAX_LENGTH and len(value) > MAX_LENGTH[field.type]:
         raise ValidationError("This text is too long.")
     if field.type == "image":
-        _url(value)
+        validate_image_link(value)
     elif field.type == "link":
         validate_link(value)
     elif field.type == "email":
