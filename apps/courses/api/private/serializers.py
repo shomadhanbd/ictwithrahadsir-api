@@ -12,6 +12,7 @@ from apps.courses.models import Content, Course, CourseTeacher, Enrollment, Sect
 from apps.courses.validators import (
     validate_content_type_change,
     validate_course,
+    validate_not_enrolled,
     validate_section_stays_in_course,
     validate_valid_till_in_future,
 )
@@ -269,4 +270,5 @@ class AdminEnrollmentCreateSerializer(AdminEnrollmentRequestSerializer):
         if attrs["user"] is None:
             raise serializers.ValidationError({"user_id": ["No such user."]})
         validate_valid_till_in_future(attrs.get("valid_till"), timezone.now())
+        validate_not_enrolled(selectors.enrollment_of(attrs["course"], attrs["user"].pk))
         return attrs

@@ -31,6 +31,44 @@ class AdminEnrolmentTests(APITestCase):
         self.assertEqual(response.status_code, 201)
         self.assertTrue(Enrollment.objects.filter(course=self.course, user=self.student).exists())
 
+    def enrol_free(self, **body):
+        payload = {'slugOrId': str(self.course.pk), 'user_id': self.student.pk, **body}
+        return self.client.post(ENROLLMENT_URL, payload, format='json', **self.auth)
+
+    def test_running_paid_access_is_not_overwritten_by_free_access(self):
+        until = timezone.now() + timezone.timedelta(days=200)
+        Enrollment.objects.create(
+            course=self.course, user=self.student, payment_type=Enrollment.PaymentType.PAID, valid_till=until
+        )
+
+        response = self.enrol_free(valid_till=(timezone.now() + timezone.timedelta(days=20)).isoformat())
+
+        self.assertEqual(response.status_code, 422, response.content)
+        self.assertIn('Edit enrolment', response.json()['errors']['user_id'][0])
+        enrollment = Enrollment.objects.get(course=self.course, user=self.student)
+        self.assertEqual((enrollment.payment_type, enrollment.valid_till), (Enrollment.PaymentType.PAID, until))
+
+    def test_lifetime_access_is_not_overwritten(self):
+        Enrollment.objects.create(course=self.course, user=self.student, valid_till=None)
+        response = self.enrol_free()
+        self.assertEqual(response.status_code, 422)
+        self.assertIn('for life', response.json()['errors']['user_id'][0])
+
+    def test_access_that_has_ended_is_granted_again_as_free(self):
+        Enrollment.objects.create(
+            course=self.course,
+            user=self.student,
+            payment_type=Enrollment.PaymentType.PAID,
+            valid_till=timezone.now() - timezone.timedelta(days=1),
+        )
+        until = timezone.now() + timezone.timedelta(days=30)
+
+        self.assertEqual(self.enrol_free(valid_till=until.isoformat()).status_code, 201)
+
+        enrollment = Enrollment.objects.get(course=self.course, user=self.student)
+        self.assertEqual(enrollment.payment_type, Enrollment.PaymentType.FREE)
+        self.assertAlmostEqual(enrollment.valid_till, until, delta=timezone.timedelta(seconds=1))
+
     def test_attach_by_numeric_id(self):
         response = self.client.post(
             ENROLLMENT_URL,

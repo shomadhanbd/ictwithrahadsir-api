@@ -1,6 +1,7 @@
 import re
 
 from django.core.exceptions import ValidationError
+from django.utils import timezone
 from django.utils.deconstruct import deconstructible
 from django.utils.translation import gettext_lazy as _
 
@@ -101,3 +102,15 @@ def validate_content_type_change(content, new_type):
 def validate_valid_till_in_future(valid_till, now):
     if valid_till is not None and valid_till <= now:
         raise ValidationError({"valid_till": ["Must be in the future."]})
+
+
+def validate_not_enrolled(enrollment):
+    """Free access is for a student without running access; changing that is Edit enrolment's job."""
+    if enrollment is None or not enrollment.is_current:
+        return
+    if enrollment.valid_till is None:
+        until = "for life"
+    else:
+        ends = timezone.localtime(enrollment.valid_till)
+        until = f"until {ends.day} {ends:%b %Y}"
+    raise ValidationError({"user_id": [f"Already enrolled {until}. Change it with Edit enrolment."]})
