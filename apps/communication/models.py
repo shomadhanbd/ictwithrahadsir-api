@@ -2,6 +2,7 @@ from django.conf import settings
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
+from apps.core.fields import HtmlTextField
 from apps.core.models import OrderedModel, TimestampModel
 
 
@@ -58,7 +59,7 @@ class Notice(TimestampModel):
     """With no class levels or batches it is for everyone, visitors too."""
 
     title = models.CharField(max_length=255)
-    body = models.TextField(blank=True)
+    body = HtmlTextField(blank=True)
     image = models.URLField(null=True, blank=True)
     categories = models.ManyToManyField(NoticeCategory, related_name="notices", blank=True)
     class_levels = models.ManyToManyField("academic.ClassLevel", related_name="notices", blank=True)

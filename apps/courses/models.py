@@ -5,6 +5,7 @@ from django.db import models
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
+from apps.core.fields import HtmlTextField
 from apps.core.models import OrderedModel, TimestampModel
 from apps.courses.managers import ActiveQuerySet, CourseQuerySet, EnrollmentQuerySet
 from apps.courses.validators import (
@@ -41,7 +42,7 @@ class Course(TimestampModel):
     subtitle = models.CharField(max_length=255, blank=True)
     slug = models.SlugField(max_length=280, unique=True, verbose_name=_("slug"))
     summary = models.CharField(max_length=300, blank=True)
-    description = models.TextField(blank=True)
+    description = HtmlTextField(blank=True)
 
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT)
     published_at = models.DateTimeField(null=True, blank=True, editable=False)
@@ -170,11 +171,11 @@ class Content(TimestampModel, OrderedModel):
 
     video_source = models.CharField(max_length=20, default="youtube", blank=True)
     video_link = models.URLField(null=True, blank=True)
-    video_description = models.TextField(blank=True)
+    video_description = HtmlTextField(blank=True)
     video_embedded = models.BooleanField(default=True)
     video_cipher = models.BooleanField(default=False)
 
-    note_body = models.TextField(blank=True)
+    note_body = HtmlTextField(blank=True)
 
     pdf_file = models.URLField(null=True, blank=True)
 
