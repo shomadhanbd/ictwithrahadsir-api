@@ -23,9 +23,9 @@ def titles(response):
 class NoticeBoardTests(APITestCase):
     def setUp(self):
         self.category = NoticeCategory.objects.create(title="Exam", slug="exam")
-        self.notice = Notice.objects.create(title="Exam schedule", slug="exam-schedule")
+        self.notice = Notice.objects.create(title="Exam schedule")
         self.notice.categories.add(self.category)
-        Notice.objects.create(title="Holiday", slug="holiday")
+        Notice.objects.create(title="Holiday")
 
     def test_notices_are_paginated(self):
         self.assertEqual(self.client.get(NOTICES_URL).json()["meta"]["total"], 2)
@@ -51,10 +51,22 @@ class NoticeBoardTests(APITestCase):
 
     def test_a_notice_body_is_stripped_of_script(self):
         admin = bearer(make_user(role=User.Role.ADMIN))
-        body = {"title": "Notice", "slug": "notice", "body": '<p>খবর</p><a href="javascript:steal()">x</a>'}
+        body = {"title": "Notice", "body": '<p>খবর</p><a href="javascript:steal()">x</a>'}
         response = self.client.post(reverse("api:communication:admin_notice_list"), body, format="json", **admin)
         self.assertEqual(response.status_code, 201, response.content)
-        self.assertNotIn("javascript", Notice.objects.get(slug="notice").body)
+        self.assertNotIn("javascript", Notice.objects.get(title="Notice").body)
+
+    def test_admins_edit_and_delete_a_notice_by_its_id(self):
+        admin = bearer(make_user(role=User.Role.ADMIN))
+        url = reverse("api:communication:admin_notice_detail", args=[self.notice.pk])
+
+        response = self.client.patch(url, {"title": "Exam schedule (updated)"}, format="json", **admin)
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertNotIn("slug", response.json())
+        self.assertEqual(Notice.objects.get(pk=self.notice.pk).title, "Exam schedule (updated)")
+
+        self.assertEqual(self.client.delete(url, **admin).status_code, 204)
+        self.assertFalse(Notice.objects.filter(pk=self.notice.pk).exists())
 
 
 class AudienceTests(APITestCase):
@@ -66,9 +78,9 @@ class AudienceTests(APITestCase):
             title="ICT Live", slug="ict-live-notices", status="published", batch=self.batch
         )
 
-        Notice.objects.create(title="For everyone", slug="everyone")
-        Notice.objects.create(title="For HSC", slug="hsc").class_levels.add(self.hsc)
-        Notice.objects.create(title="For the batch", slug="batch").batches.add(self.batch)
+        Notice.objects.create(title="For everyone")
+        Notice.objects.create(title="For HSC").class_levels.add(self.hsc)
+        Notice.objects.create(title="For the batch").batches.add(self.batch)
 
     def student(self, level=None):
         user = make_user()
@@ -104,7 +116,7 @@ class AudienceTests(APITestCase):
 
     def test_admins_aim_a_notice_at_class_levels_and_batches(self):
         admin = bearer(make_user(role=User.Role.ADMIN))
-        body = {"title": "Mock test", "slug": "mock", "class_level_ids": [self.ssc.pk], "batch_ids": [self.batch.pk]}
+        body = {"title": "Mock test", "class_level_ids": [self.ssc.pk], "batch_ids": [self.batch.pk]}
         response = self.client.post(reverse("api:communication:admin_notice_list"), body, format="json", **admin)
         self.assertEqual(response.status_code, 201, response.content)
         self.assertEqual(response.json()["audience"], ["SSC", "HSC-2027"])
@@ -114,25 +126,25 @@ class UnreadTests(APITestCase):
     def setUp(self):
         self.user = make_user()
         self.auth = bearer(self.user)
-        Notice.objects.create(title="One", slug="one")
-        Notice.objects.create(title="Two", slug="two")
+        Notice.objects.create(title="One")
+        Notice.objects.create(title="Two")
 
     def test_new_notices_count_as_unread_until_the_board_is_opened(self):
         self.assertEqual(self.client.get(UNREAD_URL, **self.auth).json(), {"count": 2})
         self.assertEqual(self.client.post(SEEN_URL, **self.auth).status_code, 200)
         self.assertEqual(self.client.get(UNREAD_URL, **self.auth).json(), {"count": 0})
 
-        Notice.objects.create(title="Three", slug="three")
+        Notice.objects.create(title="Three")
         self.assertEqual(self.client.get(UNREAD_URL, **self.auth).json(), {"count": 1})
 
     def test_a_first_visit_counts_only_the_last_month(self):
-        Notice.objects.filter(slug="one").update(created_at=timezone.now() - timezone.timedelta(days=60))
+        Notice.objects.filter(title="One").update(created_at=timezone.now() - timezone.timedelta(days=60))
         self.assertEqual(self.client.get(UNREAD_URL, **self.auth).json(), {"count": 1})
         self.assertFalse(NoticeSeen.objects.exists())
 
     def test_a_notice_for_another_class_is_never_unread(self):
         level, _ = ClassLevel.objects.get_or_create(slug="ssc", defaults={"name": "SSC"})
-        Notice.objects.create(title="SSC only", slug="ssc-only").class_levels.add(level)
+        Notice.objects.create(title="SSC only").class_levels.add(level)
         self.assertEqual(self.client.get(UNREAD_URL, **self.auth).json(), {"count": 2})
 
     def test_a_visitor_has_no_unread_count(self):

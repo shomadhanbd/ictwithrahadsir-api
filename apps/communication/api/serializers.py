@@ -41,7 +41,6 @@ class NoticeSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "title",
-            "slug",
             "body",
             "image",
             "categories",

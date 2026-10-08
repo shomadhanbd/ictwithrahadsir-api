@@ -36,7 +36,6 @@ class StudentSmsAPIView(ListAPIView):
 class AdminNoticeMixin:
     permission_classes = [IsContentStaff]
     serializer_class = NoticeSerializer
-    lookup_field = "slug"
 
     def get_queryset(self):
         return admin_notices()

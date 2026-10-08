@@ -22,10 +22,9 @@ class SmsMessageAdmin(ReadOnlyAdmin):
 class NoticeAdmin(TimestampedAdmin):
     list_display = ("id", "title", "created_at")
     list_filter = ("created_at", "categories", "class_levels", "batches")
-    search_fields = ("title", "slug", "body")
+    search_fields = ("title", "body")
     ordering = ("-created_at",)
     date_hierarchy = "created_at"
-    prepopulated_fields = {"slug": ("title",)}
     filter_horizontal = ("categories", "class_levels", "batches")
 
 

@@ -17,10 +17,9 @@ CATEGORIES = [
     ("ফলাফল", "result"),
 ]
 
-#: (slug, category slug, days ago, class level slugs, for the demo batch, title, body)
+#: (category slug, days ago, class level slugs, for the demo batch, title, body)
 NOTICES = [
     (
-        "eid-holiday",
         "holiday",
         0,
         [],
@@ -30,7 +29,6 @@ NOTICES = [
         "১৯ অক্টোবর থেকে আগের রুটিন অনুযায়ী ক্লাস চলবে।</p><p>সবাইকে ঈদের শুভেচ্ছা।</p>",
     ),
     (
-        "hsc-model-test",
         "exam",
         0,
         ["hsc"],
@@ -41,7 +39,6 @@ NOTICES = [
         "<li>সিলেবাস: অধ্যায় ১–৬</li></ul><p>পরীক্ষা ওয়েবসাইটের ‘আমার কোর্স’ থেকে দেওয়া যাবে।</p>",
     ),
     (
-        "batch-extra-class",
         "routine",
         1,
         [],
@@ -50,7 +47,6 @@ NOTICES = [
         "<p>প্রোগ্রামিং অধ্যায়ের বাকি অংশ শেষ করতে শনিবার সন্ধ্যা ৭টায় একটি এক্সট্রা লাইভ ক্লাস হবে। লিংক ক্লাসের আগে দেওয়া হবে।</p>",
     ),
     (
-        "ssc-routine",
         "routine",
         2,
         ["ssc"],
@@ -60,7 +56,6 @@ NOTICES = [
         "বিকেল ৪টা থেকে ৫:৩০।</p>",
     ),
     (
-        "admission-2027",
         "admission",
         3,
         [],
@@ -70,7 +65,6 @@ NOTICES = [
         "<p>বিস্তারিত জানতে ‘সকল কোর্স’ পাতায় দেখুন বা আমাদের হোয়াটসঅ্যাপে যোগাযোগ করুন।</p>",
     ),
     (
-        "monthly-result",
         "result",
         6,
         ["hsc", "ssc"],
@@ -79,7 +73,6 @@ NOTICES = [
         "<p>সেপ্টেম্বর মাসিক পরীক্ষার ফলাফল প্রকাশিত হয়েছে। নিজের ফলাফল ‘আমার কোর্স’ → পরীক্ষা অংশে দেখা যাবে।</p>",
     ),
     (
-        "ssc-suggestion",
         "exam",
         12,
         ["ssc"],
@@ -88,7 +81,6 @@ NOTICES = [
         "<p>এসএসসি পরীক্ষার্থীদের জন্য শর্ট সাজেশন স্টাডি ম্যাটেরিয়াল পাতায় দেওয়া হয়েছে।</p>",
     ),
     (
-        "website-launch",
         "admission",
         20,
         [],
@@ -97,7 +89,6 @@ NOTICES = [
         "<p>এখন থেকে কোর্স কেনা, ক্লাস দেখা, পরীক্ষা দেওয়া আর নোটিশ — সব এক জায়গায়। কোনো সমস্যা হলে আমাদের জানাও।</p>",
     ),
     (
-        "independence-day",
         "holiday",
         45,
         [],
@@ -115,7 +106,7 @@ class Command(BaseCommand):
         parser.add_argument("--clear", action="store_true", help="Only remove the example notices and demo batch.")
 
     def handle(self, *args, clear=False, **options):
-        Notice.objects.filter(slug__startswith=PREFIX).delete()
+        Notice.objects.filter(title__in=[notice[4] for notice in NOTICES]).delete()
         NoticeCategory.objects.filter(slug__startswith=PREFIX).delete()
         Course.objects.filter(batch__slug=BATCH_SLUG).update(batch=None)
         Batch.objects.filter(slug=BATCH_SLUG).delete()
@@ -132,8 +123,8 @@ class Command(BaseCommand):
         }
 
         now = timezone.now()
-        for slug, category, days_ago, level_slugs, for_batch, title, body in NOTICES:
-            notice = Notice.objects.create(title=title, slug=f"{PREFIX}{slug}", body=body)
+        for category, days_ago, level_slugs, for_batch, title, body in NOTICES:
+            notice = Notice.objects.create(title=title, body=body)
             notice.categories.add(categories[category])
             notice.class_levels.set([levels[s] for s in level_slugs])
             if for_batch:

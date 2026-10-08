@@ -58,7 +58,6 @@ class Notice(TimestampModel):
     """With no class levels or batches it is for everyone, visitors too."""
 
     title = models.CharField(max_length=255)
-    slug = models.SlugField(max_length=280, unique=True, verbose_name=_("slug"))
     body = models.TextField(blank=True)
     image = models.URLField(null=True, blank=True)
     categories = models.ManyToManyField(NoticeCategory, related_name="notices", blank=True)
