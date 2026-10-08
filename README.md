@@ -108,6 +108,9 @@ server serves it from disk. Uploads are linked as `API_BASE_URL/media/...`, so:
 
 4. Back this folder up together with the database.
 
+The website's `MEDIA_ORIGIN` must equal `API_BASE_URL`: it only shows images from
+that origin's `/media/`.
+
 ### Scheduled jobs
 
 ```
