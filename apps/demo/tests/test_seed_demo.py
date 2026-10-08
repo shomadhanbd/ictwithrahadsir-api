@@ -9,6 +9,7 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import connection
 from django.test import TestCase, override_settings
+from django.urls import reverse
 
 from apps.core.testing import make_user
 from apps.courses.models import Course
@@ -53,6 +54,15 @@ class SeedDemoTests(TestCase):
         self.seed("--fresh")
         self.assertTrue(User.objects.filter(pk__in=[real_student.pk, real_teacher.pk]).count() == 2)
         self.assertTrue(User.objects.filter(phone="01810000001").exists())
+
+    @override_settings(DEBUG=True)
+    @mock.patch.object(connection, "vendor", "sqlite")
+    def test_the_student_login_in_the_readme_signs_in(self):
+        self.seed()
+        response = self.client.post(
+            reverse("api:identity:user_login"), {"phone": "01810000001", "password": "student1234"}
+        )
+        self.assertEqual(response.status_code, 200, response.content)
 
 
 class SeedDemoInstallTests(TestCase):

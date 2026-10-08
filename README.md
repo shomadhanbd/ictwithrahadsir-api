@@ -45,9 +45,14 @@ throwaway Postgres). `seed_curriculum` belongs to `apps/academic` and is safe on
 | `seed_test_courses` | Five test courses covering every delivery, lesson type and package kind, enrolling the local student whose name starts with "Sayed" |
 | `seed_study_material` | Example study material: categories, topics, items and books |
 | `seed_notices` | Example notices for everyone, by class, and for a demo batch |
-| `seed_feedback` | Example course and general feedback from demo students, in every status |
+| `seed_feedback` | Example course and general feedback from demo students (`0189990…`, no password: they cannot sign in), in every status |
 
 Every command except `seed_demo` replaces only its own example rows; most take `--clear` to remove them.
+
+**Signing in locally.** Only `seed_demo` creates accounts that can sign in: students `01810000001` …
+`01810000025`, password `student1234`. Its teachers have no password until an admin sets one. The admin
+account is the one `createsuperuser` made. A phone without a password (such as `seed_feedback`'s) verifies
+by OTP on the website and then sets one; locally the code is printed in the console log.
 
 - API: `http://localhost:8000/api/` — `public/` for the client app,
   `private/` for the back office
