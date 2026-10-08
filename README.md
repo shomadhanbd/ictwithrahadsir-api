@@ -73,7 +73,8 @@ Production refuses to start if any of these is missing or unsafe:
 
 - `SECRET_KEY` (not a placeholder), `ALLOWED_HOSTS`
 - `DATABASE_URL` (Postgres, not SQLite)
-- `SMS_BACKEND=bulksmsbd`
+- `SMS_BACKEND=bulksmsbd`, with `BULKSMSBD_API_KEY` and `BULKSMSBD_SENDER_ID`
+- `CORS_ALLOWED_ORIGINS`, the admin panel's `https://` origin (it calls the API from the browser)
 - `SSLCOMMERZ_STORE_ID`, `SSLCOMMERZ_STORE_PASSWORD`
 - `API_BASE_URL`, `FRONTEND_URL` and the three `SSLCOMMERZ_*_REDIRECT` URLs,
   all `https://`

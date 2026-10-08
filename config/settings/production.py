@@ -42,6 +42,16 @@ if "sqlite" in DATABASES["default"]["ENGINE"]:
 SMS_BACKEND = _required("SMS_BACKEND")
 if SMS_BACKEND != "bulksmsbd":
     raise ImproperlyConfigured("SMS_BACKEND must be bulksmsbd in production.")
+# Without them every OTP fails: nobody could sign up, sign in by code or reset a password.
+BULKSMSBD_API_KEY = _required("BULKSMSBD_API_KEY")
+BULKSMSBD_SENDER_ID = _required("BULKSMSBD_SENDER_ID")
+
+# The admin panel calls the API from the browser, so its origin must be listed; the website goes through its server.
+CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=[])
+if not CORS_ALLOWED_ORIGINS:
+    raise ImproperlyConfigured("Set CORS_ALLOWED_ORIGINS to the admin panel's https:// origin.")
+if any(not origin.startswith("https://") for origin in CORS_ALLOWED_ORIGINS):
+    raise ImproperlyConfigured(f"CORS_ALLOWED_ORIGINS must all be https://, not {CORS_ALLOWED_ORIGINS!r}.")
 
 API_BASE_URL = _required_https("API_BASE_URL")
 FRONTEND_URL = _required_https("FRONTEND_URL")
